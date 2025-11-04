@@ -4,11 +4,13 @@ import 'package:flutter/services.dart';
 import 'package:oro_site_high_school/screens/student/dashboard/student_dashboard_screen.dart';
 import 'package:oro_site_high_school/services/classroom_service.dart';
 import 'package:oro_site_high_school/services/teacher_course_service.dart';
+import 'package:oro_site_high_school/services/assignment_service.dart';
 import 'package:oro_site_high_school/models/classroom.dart';
 import 'package:oro_site_high_school/models/course.dart';
 import 'package:oro_site_high_school/models/course_file.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:oro_site_high_school/widgets/announcement_tab.dart';
+import 'package:oro_site_high_school/screens/student/assignments/student_assignment_read_screen.dart';
 
 /// Student Classroom Screen (Unified Layout)
 /// Mirrors the teacher's 3-panel layout but with student permissions (read-only)
@@ -23,6 +25,7 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
     with TickerProviderStateMixin {
   final ClassroomService _classroomService = ClassroomService();
   final TeacherCourseService _teacherCourseService = TeacherCourseService();
+  final AssignmentService _assignmentService = AssignmentService();
   final TextEditingController _accessCodeController = TextEditingController();
 
   String? _studentId;
@@ -45,19 +48,15 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
 
   // Assignments (published only for students)
   List<Map<String, dynamic>> _assignments = [];
-
-  // Announcements
-  List<Map<String, dynamic>> _announcements = [];
-  String? _selectedAnnouncementId;
-  final TextEditingController _replyCtrl = TextEditingController();
-  final FocusNode _replyFocus = FocusNode();
+  // Quarter sub-tabs for assignments
+  int _selectedQuarter = 1; // 1..4
+  late TabController _quarterTabController;
 
   // Loading flags
   bool _isLoading = true;
   bool _isLoadingCourses = false;
   bool _isLoadingModules = false;
   bool _isLoadingAssignments = false;
-  bool _isLoadingAnnouncements = false;
   bool _isJoining = false;
 
   @override
@@ -73,13 +72,17 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
           classroomId: _selectedClassroom!.id,
           courseId: _selectedCourse!.id,
         );
-      } else if (_tabController.index == 2) {
-        _loadAnnouncements(
-          classroomId: _selectedClassroom!.id,
-          courseId: _selectedCourse!.id,
-        );
       } else {
         // projects tab – placeholder
+      }
+    });
+    _quarterTabController = TabController(length: 4, vsync: this);
+    _quarterTabController.addListener(() {
+      final q = _quarterTabController.index + 1;
+      if (q != _selectedQuarter) {
+        setState(() {
+          _selectedQuarter = q;
+        });
       }
     });
     _initializeStudent();
@@ -88,9 +91,8 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
   @override
   void dispose() {
     _accessCodeController.dispose();
+    _quarterTabController.dispose();
     _tabController.dispose();
-    _replyCtrl.dispose();
-    _replyFocus.dispose();
     super.dispose();
   }
 
@@ -155,7 +157,6 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
           _selectedCourse = null;
           _moduleFiles = [];
           _assignments = [];
-          _announcements = [];
         });
       }
     } catch (e) {
@@ -165,7 +166,6 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
         _selectedCourse = null;
         _moduleFiles = [];
         _assignments = [];
-        _announcements = [];
       });
     } finally {
       if (mounted) setState(() => _isLoadingCourses = false);
@@ -208,54 +208,16 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
   }) async {
     setState(() => _isLoadingAssignments = true);
     try {
-      final rows = await Supabase.instance.client
-          .from('assignments')
-          .select()
-          .eq('classroom_id', classroomId)
-          .eq('course_id', courseId)
-          .eq('is_published', true)
-          .order('created_at', ascending: false);
-      setState(
-        () => _assignments = List<Map<String, dynamic>>.from(rows as List),
+      final rows = await _assignmentService.getAssignmentsByClassroomAndCourse(
+        classroomId: classroomId,
+        courseId: courseId,
       );
+      setState(() => _assignments = rows);
     } catch (e) {
       debugPrint('❌ Error loading assignments: $e');
       setState(() => _assignments = []);
     } finally {
       if (mounted) setState(() => _isLoadingAssignments = false);
-    }
-  }
-
-  Future<void> _loadAnnouncements({
-    required String classroomId,
-    required String courseId,
-  }) async {
-    setState(() => _isLoadingAnnouncements = true);
-    try {
-      final rows = await Supabase.instance.client
-          .from('announcements')
-          .select()
-          .eq('classroom_id', classroomId)
-          .eq('course_id', courseId)
-          .order('created_at', ascending: false);
-      setState(() {
-        _announcements = List<Map<String, dynamic>>.from(rows as List);
-        if (_announcements.isNotEmpty && _selectedAnnouncementId == null) {
-          _selectedAnnouncementId = _announcements.first['id']?.toString();
-        } else if (_announcements.indexWhere(
-              (a) => a['id']?.toString() == _selectedAnnouncementId,
-            ) ==
-            -1) {
-          _selectedAnnouncementId = _announcements.isNotEmpty
-              ? _announcements.first['id']?.toString()
-              : null;
-        }
-      });
-    } catch (e) {
-      debugPrint('❌ Error loading announcements: $e');
-      setState(() => _announcements = []);
-    } finally {
-      if (mounted) setState(() => _isLoadingAnnouncements = false);
     }
   }
 
@@ -266,7 +228,6 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
       _classroomCourses = [];
       _moduleFiles = [];
       _assignments = [];
-      _announcements = [];
     });
     _loadClassroomCourses(c.id);
   }
@@ -276,7 +237,6 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
       _selectedCourse = c;
       _moduleFiles = [];
       _assignments = [];
-      _announcements = [];
     });
     // Trigger load for the active tab
     if (_tabController.index == 0) {
@@ -286,8 +246,6 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
         classroomId: _selectedClassroom!.id,
         courseId: c.id,
       );
-    } else if (_tabController.index == 2) {
-      _loadAnnouncements(classroomId: _selectedClassroom!.id, courseId: c.id);
     }
   }
 
@@ -787,10 +745,63 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
   }
 
   Widget _buildAssignmentsTab() {
-    if (_isLoadingAssignments)
+    if (_isLoadingAssignments) {
       return const Center(child: CircularProgressIndicator());
+    }
 
-    if (_assignments.isEmpty) {
+    // Quarter header tabs
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border(
+              bottom: BorderSide(color: Colors.grey.shade300, width: 1),
+            ),
+          ),
+          child: TabBar(
+            controller: _quarterTabController,
+            labelColor: Colors.black,
+            unselectedLabelColor: Colors.grey,
+            indicatorColor: Colors.blue,
+            tabs: const [
+              Tab(text: 'Q1'),
+              Tab(text: 'Q2'),
+              Tab(text: 'Q3'),
+              Tab(text: 'Q4'),
+            ],
+          ),
+        ),
+        Expanded(child: _buildAssignmentsQuarterList()),
+      ],
+    );
+  }
+
+  Widget _buildAssignmentsQuarterList() {
+    final filtered = _assignments.where((a) {
+      int? qInt;
+      // Primary: use quarter_no column when present
+      final q = a['quarter_no'];
+      if (q != null) {
+        qInt = int.tryParse(q.toString());
+      }
+      // Fallback: derive from content.meta.quarter_no to support older rows
+      if (qInt == null) {
+        try {
+          final content = a['content'];
+          if (content is Map) {
+            final meta = content['meta'];
+            if (meta is Map && meta['quarter_no'] != null) {
+              qInt = int.tryParse(meta['quarter_no'].toString());
+            }
+          }
+        } catch (_) {}
+      }
+      return qInt != null && qInt == _selectedQuarter;
+    }).toList();
+
+    if (filtered.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
@@ -804,7 +815,7 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
               ),
               const SizedBox(height: 12),
               Text(
-                'No published assignments',
+                'No published assignments for Q$_selectedQuarter',
                 style: TextStyle(color: Colors.grey.shade600),
               ),
             ],
@@ -815,9 +826,9 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
 
     return ListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      itemCount: _assignments.length,
+      itemCount: filtered.length,
       itemBuilder: (context, index) {
-        final a = _assignments[index];
+        final a = filtered[index];
         final String courseName = (_selectedCourse?.title ?? '');
         final String type = (a['assignment_type'] ?? a['type'] ?? 'Task')
             .toString();
@@ -839,179 +850,100 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
             borderRadius: BorderRadius.circular(12),
           ),
           color: Colors.grey.shade100,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.assignment_outlined,
-                            size: 16,
-                            color: Colors.blue.shade600,
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              (a['title'] ?? 'Untitled Assignment').toString(),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.black87,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (ctx) => StudentAssignmentReadScreen(
+                    assignmentId: a['id'].toString(),
+                  ),
+                ),
+              );
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.assignment_outlined,
+                              size: 16,
+                              color: Colors.blue.shade600,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                (a['title'] ?? 'Untitled Assignment')
+                                    .toString(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.black87,
+                                ),
                               ),
                             ),
+                          ],
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          '$courseName • $type',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade700,
                           ),
-                        ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        child: Text(
+                          'Published',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green.shade800,
+                          ),
+                        ),
                       ),
-                      const SizedBox(height: 3),
+                      const SizedBox(height: 6),
                       Text(
-                        '$courseName • $type',
+                        '$points pts • $dueStr',
                         style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade700,
+                          fontSize: 11,
+                          color: Colors.grey.shade600,
                         ),
                       ),
                     ],
                   ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.green.shade100,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
-                      child: Text(
-                        'Published',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.green.shade800,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '$points pts • $dueStr',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );
       },
     );
-  }
-
-  Future<List<Map<String, dynamic>>> _fetchRepliesForSelected() async {
-    try {
-      final idStr = _selectedAnnouncementId;
-      if (idStr == null) return const [];
-      final annId =
-          int.tryParse(idStr) ??
-          int.tryParse(idStr.replaceAll(RegExp(r'[^0-9]'), ''));
-      if (annId == null) return const [];
-
-      final rows = await Supabase.instance.client.rpc(
-        'get_replies_with_author',
-        params: {'p_announcement_id': annId},
-      );
-
-      final list = <Map<String, dynamic>>[];
-      for (final row in (rows as List)) {
-        DateTime created = DateTime.now();
-        final s = row['created_at']?.toString();
-        if (s != null && s.isNotEmpty) {
-          try {
-            created = DateTime.parse(s).toLocal();
-          } catch (_) {}
-        }
-        final bool deleted = row['is_deleted'] == true;
-        final authorIdStr = row['author_id']?.toString();
-        final authorName = (row['author_name'] ?? '').toString();
-        list.add({
-          'id': row['id'],
-          'authorId': authorIdStr,
-          'authorName': authorName.isEmpty ? 'User' : authorName,
-          'content': deleted ? '' : (row['content'] ?? '').toString(),
-          'isDeleted': deleted,
-          'createdAt': created,
-        });
-      }
-      return list;
-    } catch (_) {
-      return const [];
-    }
-  }
-
-  Future<void> _sendReply() async {
-    try {
-      final text = _replyCtrl.text.trim();
-      if (text.isEmpty) return;
-      final me = Supabase.instance.client.auth.currentUser?.id;
-      final annIdStr = _selectedAnnouncementId;
-      if (me == null || annIdStr == null) return;
-      final annId =
-          int.tryParse(annIdStr) ??
-          int.tryParse(annIdStr.replaceAll(RegExp(r'[^0-9]'), ''));
-      if (annId == null) return;
-
-      // Try simple insert
-      await Supabase.instance.client.from('announcement_replies').insert({
-        'announcement_id': annId,
-        'author_id': me,
-        'content': text,
-      });
-
-      _replyCtrl.clear();
-      _replyFocus.requestFocus();
-      if (mounted) setState(() {}); // Refresh FutureBuilder
-    } catch (e) {
-      // Fallback to alternate column name if needed
-      try {
-        final me = Supabase.instance.client.auth.currentUser?.id;
-        final annIdStr = _selectedAnnouncementId;
-        if (me == null || annIdStr == null) return;
-        final annId =
-            int.tryParse(annIdStr) ??
-            int.tryParse(annIdStr.replaceAll(RegExp(r'[^0-9]'), ''));
-        if (annId == null) return;
-        await Supabase.instance.client.from('announcement_replies').insert({
-          'announcement_id': annId,
-          'author_id_uuid': me,
-          'content': _replyCtrl.text.trim(),
-        });
-        _replyCtrl.clear();
-        _replyFocus.requestFocus();
-        if (mounted) setState(() {});
-      } catch (_) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Unable to send reply. Please try again.'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
   }
 
   Widget _buildProjectsTab() {

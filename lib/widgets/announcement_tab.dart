@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:async';
 
 class AnnouncementTab extends StatefulWidget {
   final String classroomId;
@@ -19,11 +20,12 @@ class _AnnouncementTabState extends State<AnnouncementTab> {
   final SupabaseClient supabase = Supabase.instance.client;
 
   List<Map<String, dynamic>> _announcements = [];
-  Map<String, List<Map<String, dynamic>>> _announcementReplies = {};
+  final Map<String, List<Map<String, dynamic>>> _announcementReplies = {};
   String? _selectedAnnouncementId;
   final TextEditingController _replyCtrl = TextEditingController();
   final FocusNode _replyFocus = FocusNode();
   bool _isLoadingAnnouncements = true;
+  StreamSubscription<dynamic>? _repliesStream;
 
   @override
   void initState() {
@@ -66,13 +68,68 @@ class _AnnouncementTabState extends State<AnnouncementTab> {
         params: {'p_announcement_id': int.parse(announcementId)},
       );
 
-      final replies = List<Map<String, dynamic>>.from(rows as List);
+      if (rows == null || rows is! List) return;
+
+      final list = List<Map<String, dynamic>>.from(rows);
+
+      // Normalize keys from RPC (camelCase → snake_case)
+      final normalized = list.map((r) {
+        return {
+          'id': r['id'],
+          'announcement_id': r['announcement_id'],
+          'author_id': r['author_id'],
+          'author_name': r['author_name'] ?? r['authorName'] ?? 'Unknown',
+          'content': r['content'],
+          'is_deleted': r['is_deleted'] ?? r['isDeleted'] ?? false,
+          'created_at': r['created_at'] ?? r['createdAt'],
+        };
+      }).toList();
+
+      // Filter out deleted
+      final filtered = normalized
+          .where((r) => r['is_deleted'] != true)
+          .toList();
+
+      // Sort chronologically
+      filtered.sort(
+        (a, b) => DateTime.parse(
+          a['created_at'],
+        ).compareTo(DateTime.parse(b['created_at'])),
+      );
+
       setState(() {
-        _announcementReplies[announcementId] = replies;
+        _announcementReplies[announcementId] = filtered;
+        debugPrint(_announcementReplies[_selectedAnnouncementId!].toString());
       });
+
+      debugPrint('✅ Replies loaded: ${filtered.length}');
     } catch (e) {
       debugPrint('❌ Error loading replies: $e');
     }
+  }
+
+  void _subscribeToReplies(String announcementId) {
+    _repliesStream?.cancel();
+
+    _loadReplies(
+      announcementId,
+    ); // 🧠 Make sure to load existing messages first
+
+    _repliesStream = supabase
+        .from('announcement_replies')
+        .stream(primaryKey: ['id'])
+        .eq('announcement_id', int.parse(announcementId))
+        .listen((data) async {
+          await _loadReplies(announcementId);
+        });
+  }
+
+  @override
+  void dispose() {
+    _repliesStream?.cancel();
+    _replyCtrl.dispose();
+    _replyFocus.dispose();
+    super.dispose();
   }
 
   Future<void> _sendReply() async {
@@ -83,6 +140,7 @@ class _AnnouncementTabState extends State<AnnouncementTab> {
     if (user == null) return;
 
     try {
+      // 1️⃣ Insert student's reply
       await supabase.from('announcement_replies').insert({
         'announcement_id': int.parse(_selectedAnnouncementId!),
         'author_id': user.id,
@@ -90,23 +148,59 @@ class _AnnouncementTabState extends State<AnnouncementTab> {
         'is_deleted': false,
       });
 
-      // Optimistic UI update
-      setState(() {
-        final currentReplies =
-            _announcementReplies[_selectedAnnouncementId!] ?? [];
-        currentReplies.add({
-          'author_id': user.id,
-          'author_name': 'You',
-          'content': text,
-          'created_at': DateTime.now().toIso8601String(),
+      // 2️⃣ Fetch all replies (teacher + student)
+      final rows = await supabase.rpc(
+        'get_replies_with_author',
+        params: {'p_announcement_id': int.parse(_selectedAnnouncementId!)},
+      );
+
+      // 3️⃣ Convert to teacher-compatible format
+      final list = <Map<String, dynamic>>[];
+      for (final row in (rows as List)) {
+        DateTime created = DateTime.now();
+        final s = row['created_at']?.toString();
+        if (s != null && s.isNotEmpty) {
+          try {
+            created = DateTime.parse(s).toLocal();
+          } catch (_) {}
+        }
+        final bool deleted = row['is_deleted'] == true;
+        final authorIdStr = row['author_id']?.toString();
+        final authorName = (row['author_name'] ?? 'User').toString();
+
+        list.add({
+          'id': row['id'],
+          'authorId': authorIdStr,
+          'authorName': authorName,
+          'content': deleted ? '' : row['content'],
+          'isDeleted': deleted,
+          'createdAt': created,
         });
-        _announcementReplies[_selectedAnnouncementId!] = currentReplies;
+      }
+
+      // 4️⃣ Sort replies chronologically
+      list.sort((a, b) {
+        final aTime = a['createdAt'] as DateTime;
+        final bTime = b['createdAt'] as DateTime;
+        return aTime.compareTo(bTime);
       });
 
-      _replyCtrl.clear();
-      _replyFocus.requestFocus();
+      // 5️⃣ Update UI
+      setState(() {
+        _announcementReplies[_selectedAnnouncementId!] = list;
+        _replyCtrl.clear();
+        _replyFocus.requestFocus();
+      });
     } catch (e) {
       debugPrint('❌ Error sending reply: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error sending reply: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -195,6 +289,7 @@ class _AnnouncementTabState extends State<AnnouncementTab> {
                           final DateTime createdAt =
                               DateTime.tryParse(a['created_at'] ?? '') ??
                               DateTime.now();
+
                           return Card(
                             elevation: isSelected ? 2 : 0,
                             shape: RoundedRectangleBorder(
@@ -240,7 +335,9 @@ class _AnnouncementTabState extends State<AnnouncementTab> {
                                           _selectedAnnouncementId = a['id']
                                               .toString();
                                         });
-                                        _loadReplies(_selectedAnnouncementId!);
+                                        _subscribeToReplies(
+                                          _selectedAnnouncementId!,
+                                        );
                                         Future.microtask(
                                           () => _replyFocus.requestFocus(),
                                         );
@@ -392,7 +489,22 @@ class _AnnouncementTabState extends State<AnnouncementTab> {
                           final r = list[i - 1];
                           final String? me = supabase.auth.currentUser?.id;
                           final bool isMine =
-                              (me != null && r['author_id']?.toString() == me);
+                              (me != null &&
+                              (r['authorId']?.toString() == me ||
+                                  r['author_id']?.toString() == me));
+
+                          // Handle both key formats (camelCase & snake_case)
+                          final authorName =
+                              r['authorName'] ?? r['author_name'] ?? 'Unknown';
+                          final createdAtValue =
+                              r['createdAt'] ?? r['created_at'];
+                          DateTime? createdAt;
+
+                          if (createdAtValue is String) {
+                            createdAt = DateTime.tryParse(createdAtValue);
+                          } else if (createdAtValue is DateTime) {
+                            createdAt = createdAtValue;
+                          }
 
                           return Container(
                             margin: const EdgeInsets.symmetric(vertical: 4),
@@ -416,7 +528,7 @@ class _AnnouncementTabState extends State<AnnouncementTab> {
                                         : CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        r['author_name'] ?? 'Unknown Author',
+                                        authorName,
                                         style: const TextStyle(
                                           fontSize: 12,
                                           fontWeight: FontWeight.bold,
@@ -454,10 +566,8 @@ class _AnnouncementTabState extends State<AnnouncementTab> {
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
-                                        r['created_at'] != null
-                                            ? _formatLongDate(
-                                                DateTime.parse(r['created_at']),
-                                              )
+                                        createdAt != null
+                                            ? _formatLongDate(createdAt)
                                             : '',
                                         style: TextStyle(
                                           fontSize: 10,
