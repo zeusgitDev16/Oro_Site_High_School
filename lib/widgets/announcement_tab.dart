@@ -5,11 +5,21 @@ import 'dart:async';
 class AnnouncementTab extends StatefulWidget {
   final String classroomId;
   final String courseId;
+  // Teacher-specific capabilities (default to student behavior)
+  final bool isTeacher;
+  final bool canManageAnnouncements; // create/edit/delete announcements
+  final bool canSoftDeleteReply; // long-press own reply to soft-delete
+  final bool
+  showDeletedPlaceholders; // show "deleted message" bubbles instead of filtering out
 
   const AnnouncementTab({
     super.key,
     required this.classroomId,
     required this.courseId,
+    this.isTeacher = false,
+    this.canManageAnnouncements = false,
+    this.canSoftDeleteReply = false,
+    this.showDeletedPlaceholders = false,
   });
 
   @override
@@ -33,6 +43,19 @@ class _AnnouncementTabState extends State<AnnouncementTab> {
     _loadAnnouncements();
   }
 
+  @override
+  void didUpdateWidget(covariant AnnouncementTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.classroomId != widget.classroomId ||
+        oldWidget.courseId != widget.courseId) {
+      _repliesStream?.cancel();
+      _selectedAnnouncementId = null;
+      _announcements = [];
+      _announcementReplies.clear();
+      _loadAnnouncements();
+    }
+  }
+
   Future<void> _loadAnnouncements() async {
     setState(() => _isLoadingAnnouncements = true);
     try {
@@ -40,12 +63,26 @@ class _AnnouncementTabState extends State<AnnouncementTab> {
           .from('announcements')
           .select()
           .eq('classroom_id', widget.classroomId)
-          .eq('course_id', widget.courseId)
+          // Keep student default behavior; for teacher, try int when possible
+          .eq('course_id', int.tryParse(widget.courseId) ?? widget.courseId)
           .order('created_at', ascending: false);
 
-      final List<Map<String, dynamic>> list = List<Map<String, dynamic>>.from(
-        rows,
-      );
+      List<Map<String, dynamic>> list = List<Map<String, dynamic>>.from(rows)
+          .map((row) {
+            DateTime? created;
+            final s = row['created_at']?.toString();
+            if (s != null && s.isNotEmpty) {
+              try {
+                created = DateTime.parse(s).toLocal();
+              } catch (_) {}
+            }
+            return {
+              ...row,
+              'body': row['content'] ?? row['body'],
+              'createdAt': created,
+            };
+          })
+          .toList();
 
       setState(() {
         _announcements = list;
@@ -85,16 +122,17 @@ class _AnnouncementTabState extends State<AnnouncementTab> {
         };
       }).toList();
 
-      // Filter out deleted
-      final filtered = normalized
-          .where((r) => r['is_deleted'] != true)
-          .toList();
+      // Optionally include deleted placeholders (teacher view)
+      final filtered = widget.showDeletedPlaceholders
+          ? List<Map<String, dynamic>>.from(normalized)
+          : normalized.where((r) => r['is_deleted'] != true).toList();
 
       // Sort chronologically
       filtered.sort(
-        (a, b) => DateTime.parse(
-          a['created_at'],
-        ).compareTo(DateTime.parse(b['created_at'])),
+        (a, b) => DateTime.parse((a['created_at'] ?? a['createdAt']).toString())
+            .compareTo(
+              DateTime.parse((b['created_at'] ?? b['createdAt']).toString()),
+            ),
       );
 
       setState(() {
@@ -226,6 +264,244 @@ class _AnnouncementTabState extends State<AnnouncementTab> {
     return '$month ${dt.day}, ${dt.year}, $hour:$minute $ampm';
   }
 
+  // Teacher-only: new announcement dialog
+  void _showCreateAnnouncementDialog() {
+    if (!(widget.isTeacher && widget.canManageAnnouncements)) return;
+    final titleCtrl = TextEditingController();
+    final bodyCtrl = TextEditingController();
+    bool isPosting = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          title: const Text('New announcement'),
+          content: SizedBox(
+            width: 640,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: titleCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Title',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: bodyCtrl,
+                  minLines: 8,
+                  maxLines: 12,
+                  decoration: const InputDecoration(
+                    hintText: 'Write your announcement here...',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isPosting ? null : () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: isPosting
+                  ? null
+                  : () async {
+                      final title = titleCtrl.text.trim();
+                      final body = bodyCtrl.text.trim();
+                      if (title.isEmpty || body.isEmpty) return;
+                      setDlg(() => isPosting = true);
+                      try {
+                        final courseIdValue =
+                            int.tryParse(widget.courseId) ?? widget.courseId;
+                        final row = await supabase
+                            .from('announcements')
+                            .insert({
+                              'course_id': courseIdValue,
+                              'classroom_id': widget.classroomId,
+                              'title': title,
+                              'content': body,
+                            })
+                            .select()
+                            .single();
+                        setState(() {
+                          _selectedAnnouncementId = row['id'].toString();
+                        });
+                        await _loadAnnouncements();
+                        if (!ctx.mounted) return;
+                        Navigator.pop(ctx);
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Announcement posted'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      } catch (e) {
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Error: $e'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      } finally {
+                        setDlg(() => isPosting = false);
+                      }
+                    },
+              child: const Text('Post'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Teacher-only: edit announcement dialog
+  void _showEditAnnouncementDialog(Map<String, dynamic> a) {
+    if (!(widget.isTeacher && widget.canManageAnnouncements)) return;
+    final titleCtrl = TextEditingController(
+      text: (a['title'] ?? '').toString(),
+    );
+    final bodyCtrl = TextEditingController(
+      text: (a['body'] ?? a['content'] ?? '').toString(),
+    );
+    bool isSaving = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          title: const Text('Edit announcement'),
+          content: SizedBox(
+            width: 640,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: titleCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Title',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: bodyCtrl,
+                  minLines: 8,
+                  maxLines: 12,
+                  decoration: const InputDecoration(
+                    hintText: 'Write your announcement here...',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSaving ? null : () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: isSaving
+                  ? null
+                  : () async {
+                      final title = titleCtrl.text.trim();
+                      final body = bodyCtrl.text.trim();
+                      if (title.isEmpty || body.isEmpty) return;
+                      setDlg(() => isSaving = true);
+                      try {
+                        final id = int.parse(a['id'].toString());
+                        await supabase
+                            .from('announcements')
+                            .update({'title': title, 'content': body})
+                            .eq('id', id);
+                        await _loadAnnouncements();
+                        if (!ctx.mounted) return;
+                        Navigator.pop(ctx);
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Announcement updated'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      } catch (e) {
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Error: $e'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      } finally {
+                        setDlg(() => isSaving = false);
+                      }
+                    },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // View full announcement
+  void _showAnnouncementFullDialog(Map<String, dynamic> a) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text((a['title'] ?? 'Announcement').toString()),
+        content: SingleChildScrollView(
+          child: Text((a['body'] ?? a['content'] ?? '').toString()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Teacher-only: soft delete a reply (preserve bubble placeholder)
+  Future<void> _softDeleteReply(int replyId) async {
+    if (!widget.canSoftDeleteReply || _selectedAnnouncementId == null) return;
+    try {
+      final List fetched = await supabase
+          .from('announcement_replies')
+          .select('id, author_id, created_at, announcement_id')
+          .eq('id', replyId)
+          .limit(1);
+      if (fetched.isEmpty) return;
+      final old = fetched.first;
+      final annId = old['announcement_id'];
+
+      await supabase.from('announcement_replies').delete().eq('id', replyId);
+      await supabase.from('announcement_replies').insert({
+        'announcement_id': annId,
+        'author_id': old['author_id'],
+        'content': '',
+        'is_deleted': true,
+        'created_at': old['created_at'],
+      });
+      await _loadReplies(_selectedAnnouncementId!);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error deleting reply: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Row(
@@ -265,6 +541,43 @@ class _AnnouncementTabState extends State<AnnouncementTab> {
                         style: TextStyle(fontSize: 12, color: Colors.black87),
                       ),
                     ),
+                    if (widget.isTeacher && widget.canManageAnnouncements) ...[
+                      const Spacer(),
+                      Tooltip(
+                        message: 'New announcement',
+                        child: InkWell(
+                          onTap: _showCreateAnnouncementDialog,
+                          borderRadius: BorderRadius.circular(16),
+                          child: Container(
+                            height: 32,
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            decoration: BoxDecoration(
+                              color: Colors.green.shade50,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: Colors.green.shade200),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.add,
+                                  size: 16,
+                                  color: Colors.green.shade700,
+                                ),
+                                const SizedBox(width: 6),
+                                const Text(
+                                  'add',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -286,9 +599,15 @@ class _AnnouncementTabState extends State<AnnouncementTab> {
                           final a = _announcements[i];
                           final isSelected =
                               _selectedAnnouncementId == a['id'].toString();
-                          final DateTime createdAt =
-                              DateTime.tryParse(a['created_at'] ?? '') ??
-                              DateTime.now();
+                          DateTime createdAt;
+                          final ca = a['created_at']?.toString();
+                          if (ca != null && ca.isNotEmpty) {
+                            createdAt = DateTime.tryParse(ca) ?? DateTime.now();
+                          } else if (a['createdAt'] is DateTime) {
+                            createdAt = a['createdAt'] as DateTime;
+                          } else {
+                            createdAt = DateTime.now();
+                          }
 
                           return Card(
                             elevation: isSelected ? 2 : 0,
@@ -310,7 +629,8 @@ class _AnnouncementTabState extends State<AnnouncementTab> {
                                 children: [
                                   const SizedBox(height: 4),
                                   Text(
-                                    a['body'] ?? '',
+                                    (a['body'] ?? a['content'] ?? '')
+                                        .toString(),
                                     style: TextStyle(
                                       fontSize: 12,
                                       color: Colors.grey.shade700,
@@ -357,6 +677,113 @@ class _AnnouncementTabState extends State<AnnouncementTab> {
                                   ),
                                 ],
                               ),
+                              trailing:
+                                  (widget.isTeacher &&
+                                      widget.canManageAnnouncements)
+                                  ? PopupMenuButton<String>(
+                                      onSelected: (val) async {
+                                        if (val == 'edit') {
+                                          _showEditAnnouncementDialog(a);
+                                        } else if (val == 'delete') {
+                                          final confirm = await showDialog<bool>(
+                                            context: context,
+                                            builder: (ctx) => AlertDialog(
+                                              title: const Text(
+                                                'Delete announcement',
+                                              ),
+                                              content: const Text(
+                                                'Are you sure you want to delete this announcement?',
+                                              ),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () =>
+                                                      Navigator.pop(ctx, false),
+                                                  child: const Text('Cancel'),
+                                                ),
+                                                ElevatedButton(
+                                                  onPressed: () =>
+                                                      Navigator.pop(ctx, true),
+                                                  style:
+                                                      ElevatedButton.styleFrom(
+                                                        backgroundColor:
+                                                            Colors.red,
+                                                        foregroundColor:
+                                                            Colors.white,
+                                                      ),
+                                                  child: const Text('Delete'),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                          if (confirm == true) {
+                                            try {
+                                              final id = int.parse(
+                                                a['id'].toString(),
+                                              );
+                                              await supabase
+                                                  .from('announcements')
+                                                  .delete()
+                                                  .eq('id', id);
+                                              await _loadAnnouncements();
+                                              if (!context.mounted) return;
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                const SnackBar(
+                                                  content: Text(
+                                                    'Announcement deleted',
+                                                  ),
+                                                  backgroundColor: Colors.green,
+                                                ),
+                                              );
+                                            } catch (e) {
+                                              if (!context.mounted) return;
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                SnackBar(
+                                                  content: Text(
+                                                    'Error deleting: $e',
+                                                  ),
+                                                  backgroundColor: Colors.red,
+                                                ),
+                                              );
+                                            }
+                                          }
+                                        }
+                                      },
+                                      itemBuilder: (ctx) => const [
+                                        PopupMenuItem(
+                                          value: 'edit',
+                                          child: Text('Edit'),
+                                        ),
+                                        PopupMenuItem(
+                                          value: 'delete',
+                                          child: Text('Delete'),
+                                        ),
+                                      ],
+                                    )
+                                  : null,
+                              onTap: widget.isTeacher
+                                  ? () {
+                                      setState(() {
+                                        _selectedAnnouncementId = a['id']
+                                            .toString();
+                                      });
+                                      _subscribeToReplies(
+                                        _selectedAnnouncementId!,
+                                      );
+                                      _showAnnouncementFullDialog({
+                                        'id': a['id'],
+                                        'title': a['title'],
+                                        'body': a['body'] ?? a['content'] ?? '',
+                                        'createdAt':
+                                            (a['createdAt'] is DateTime)
+                                            ? a['createdAt']
+                                            : createdAt,
+                                      });
+                                    }
+                                  : null,
                             ),
                           );
                         },
@@ -506,84 +933,147 @@ class _AnnouncementTabState extends State<AnnouncementTab> {
                             createdAt = createdAtValue;
                           }
 
-                          return Container(
-                            margin: const EdgeInsets.symmetric(vertical: 4),
-                            child: Row(
-                              mainAxisAlignment: isMine
-                                  ? MainAxisAlignment.end
-                                  : MainAxisAlignment.start,
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                if (!isMine)
-                                  const CircleAvatar(
-                                    radius: 12,
-                                    child: Icon(Icons.person, size: 14),
-                                  ),
-                                if (!isMine) const SizedBox(width: 8),
+                          final bool isDeleted =
+                              (r['isDeleted'] == true) ||
+                              (r['is_deleted'] == true);
 
-                                Flexible(
-                                  child: Column(
-                                    crossAxisAlignment: isMine
-                                        ? CrossAxisAlignment.end
-                                        : CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        authorName,
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.black87,
+                          return GestureDetector(
+                            onLongPress:
+                                (widget.isTeacher &&
+                                    widget.canSoftDeleteReply &&
+                                    isMine &&
+                                    !isDeleted)
+                                ? () async {
+                                    final confirm = await showDialog<bool>(
+                                      context: context,
+                                      builder: (ctx) => AlertDialog(
+                                        title: const Text('Delete reply'),
+                                        content: const Text(
+                                          'Do you want to delete this reply? This will show as a deleted message.',
                                         ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 12,
-                                          vertical: 8,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: isMine
-                                              ? Colors.blue.shade100
-                                              : Colors.grey.shade200,
-                                          borderRadius: BorderRadius.only(
-                                            topLeft: const Radius.circular(12),
-                                            topRight: const Radius.circular(12),
-                                            bottomLeft: isMine
-                                                ? const Radius.circular(12)
-                                                : const Radius.circular(4),
-                                            bottomRight: isMine
-                                                ? const Radius.circular(4)
-                                                : const Radius.circular(12),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () =>
+                                                Navigator.pop(ctx, false),
+                                            child: const Text('Cancel'),
                                           ),
-                                        ),
-                                        child: Text(
-                                          (r['content'] ?? '').toString(),
+                                          ElevatedButton(
+                                            onPressed: () =>
+                                                Navigator.pop(ctx, true),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: Colors.red,
+                                              foregroundColor: Colors.white,
+                                            ),
+                                            child: const Text('Delete'),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                    if (confirm == true) {
+                                      final rid = int.tryParse(
+                                        r['id'].toString(),
+                                      );
+                                      if (rid != null) {
+                                        await _softDeleteReply(rid);
+                                      }
+                                    }
+                                  }
+                                : null,
+                            child: Container(
+                              margin: const EdgeInsets.symmetric(vertical: 4),
+                              child: Row(
+                                mainAxisAlignment: isMine
+                                    ? MainAxisAlignment.end
+                                    : MainAxisAlignment.start,
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  if (!isMine)
+                                    const CircleAvatar(
+                                      radius: 12,
+                                      child: Icon(Icons.person, size: 14),
+                                    ),
+                                  if (!isMine) const SizedBox(width: 8),
+
+                                  Flexible(
+                                    child: Column(
+                                      crossAxisAlignment: isMine
+                                          ? CrossAxisAlignment.end
+                                          : CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          authorName,
                                           style: const TextStyle(
-                                            fontSize: 13,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
                                             color: Colors.black87,
                                           ),
                                         ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        createdAt != null
-                                            ? _formatLongDate(createdAt)
-                                            : '',
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          color: Colors.grey.shade600,
+                                        const SizedBox(height: 2),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 8,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: isMine
+                                                ? Colors.blue.shade100
+                                                : Colors.grey.shade200,
+                                            borderRadius: BorderRadius.only(
+                                              topLeft: const Radius.circular(
+                                                12,
+                                              ),
+                                              topRight: const Radius.circular(
+                                                12,
+                                              ),
+                                              bottomLeft: isMine
+                                                  ? const Radius.circular(12)
+                                                  : const Radius.circular(4),
+                                              bottomRight: isMine
+                                                  ? const Radius.circular(4)
+                                                  : const Radius.circular(12),
+                                            ),
+                                          ),
+                                          child: Text(
+                                            (widget.showDeletedPlaceholders &&
+                                                    isDeleted)
+                                                ? 'deleted message'
+                                                : (r['content'] ?? '')
+                                                      .toString(),
+                                            style:
+                                                (widget.showDeletedPlaceholders &&
+                                                    isDeleted)
+                                                ? TextStyle(
+                                                    fontSize: 13,
+                                                    color: Colors.grey.shade600,
+                                                    fontStyle: FontStyle.italic,
+                                                  )
+                                                : const TextStyle(
+                                                    fontSize: 13,
+                                                    color: Colors.black87,
+                                                  ),
+                                          ),
                                         ),
-                                      ),
-                                    ],
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          createdAt != null
+                                              ? _formatLongDate(createdAt)
+                                              : '',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                ),
-                                if (isMine) const SizedBox(width: 8),
-                                if (isMine)
-                                  const CircleAvatar(
-                                    radius: 12,
-                                    child: Icon(Icons.person, size: 14),
-                                  ),
-                              ],
+                                  if (isMine) const SizedBox(width: 8),
+                                  if (isMine)
+                                    const CircleAvatar(
+                                      radius: 12,
+                                      child: Icon(Icons.person, size: 14),
+                                    ),
+                                ],
+                              ),
                             ),
                           );
                         },
