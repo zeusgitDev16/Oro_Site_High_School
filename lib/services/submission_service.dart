@@ -105,11 +105,31 @@ class SubmissionService {
         .eq('student_id', studentId);
   }
 
+  /// Update/override the score for a student's submission (manual grading)
+  Future<void> updateSubmissionGrade({
+    required String assignmentId,
+    required String studentId,
+    required int score,
+    int? maxScore,
+  }) async {
+    final update = <String, dynamic>{'score': score};
+    if (maxScore != null) update['max_score'] = maxScore;
+    await _supabase
+        .from('assignment_submissions')
+        .update(update)
+        .eq('assignment_id', assignmentId)
+        .eq('student_id', studentId);
+  }
+
   /// Get all submissions for a given assignment (teacher view)
-  Future<List<Map<String, dynamic>>> getSubmissionsForAssignment(String assignmentId) async {
+  Future<List<Map<String, dynamic>>> getSubmissionsForAssignment(
+    String assignmentId,
+  ) async {
     final rows = await _supabase
         .from('assignment_submissions')
-        .select('id, student_id, status, submitted_at, score, max_score, is_late')
+        .select(
+          'id, student_id, status, submitted_at, score, max_score, is_late',
+        )
         .eq('assignment_id', assignmentId)
         .order('submitted_at', ascending: false);
     return List<Map<String, dynamic>>.from(rows as List);

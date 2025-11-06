@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:oro_site_high_school/services/assignment_service.dart';
 import 'package:oro_site_high_school/services/submission_service.dart';
 
@@ -25,6 +26,9 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
   final SubmissionService _submissionService = SubmissionService();
 
   bool _isLoading = true;
+  bool _saving = false;
+  final TextEditingController _scoreCtrl = TextEditingController();
+  RealtimeChannel? _channel;
   Map<String, dynamic>? _assignment;
   Map<String, dynamic>? _submission;
 
@@ -32,6 +36,40 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
   void initState() {
     super.initState();
     _loadData();
+    _setupRealtime();
+  }
+
+  void _setupRealtime() {
+    final supa = Supabase.instance.client;
+    _channel = supa
+        .channel('sub-detail:${widget.assignmentId}:${widget.studentId}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'assignment_submissions',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'assignment_id',
+            value: widget.assignmentId,
+          ),
+          callback: (payload) {
+            final map = payload.newRecord.isNotEmpty
+                ? payload.newRecord
+                : payload.oldRecord;
+            final row = Map<String, dynamic>.from(map);
+            if ((row['student_id'] ?? '').toString() == widget.studentId) {
+              if (mounted) _loadData();
+            }
+          },
+        )
+        .subscribe();
+  }
+
+  @override
+  void dispose() {
+    _channel?.unsubscribe();
+    _scoreCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -42,6 +80,8 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
         assignmentId: widget.assignmentId,
         studentId: widget.studentId,
       );
+      final scoreNum = (s?['score'] as num?);
+      _scoreCtrl.text = scoreNum == null ? '' : scoreNum.toInt().toString();
       setState(() {
         _assignment = a;
         _submission = s;
@@ -51,7 +91,10 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
       setState(() => _isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading submission: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Error loading submission: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -72,17 +115,24 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : (_assignment == null || _submission == null)
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.warning_amber, size: 48, color: Colors.orange),
-                      const SizedBox(height: 12),
-                      Text('Assignment or submission not found', style: TextStyle(color: Colors.grey.shade700)),
-                    ],
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.warning_amber,
+                    size: 48,
+                    color: Colors.orange,
                   ),
-                )
-              : _buildContent(),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Assignment or submission not found',
+                    style: TextStyle(color: Colors.grey.shade700),
+                  ),
+                ],
+              ),
+            )
+          : _buildContent(),
     );
   }
 
@@ -118,9 +168,21 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(widget.studentName ?? widget.studentId, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                    Text(
+                      widget.studentName ?? widget.studentId,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     if ((widget.studentEmail ?? '').isNotEmpty)
-                      Text(widget.studentEmail!, style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                      Text(
+                        widget.studentEmail!,
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 12,
+                        ),
+                      ),
                     const SizedBox(height: 8),
                     Row(
                       children: [
@@ -129,19 +191,47 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
                         _chip('$totalPts pts', color: Colors.amber),
                         const SizedBox(width: 8),
                         if (submittedAt != null) ...[
-                          Icon(Icons.schedule, size: 14, color: Colors.grey.shade600),
+                          Icon(
+                            Icons.schedule,
+                            size: 14,
+                            color: Colors.grey.shade600,
+                          ),
                           const SizedBox(width: 4),
-                          Text(submittedAt.replaceFirst('T', ' ').split('.') [0], style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                          Text(
+                            submittedAt.replaceFirst('T', ' ').split('.')[0],
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
                         ],
                         const Spacer(),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
-                            color: isLate ? Colors.red.shade50 : Colors.green.shade50,
-                            border: Border.all(color: isLate ? Colors.red.shade200 : Colors.green.shade200),
+                            color: isLate
+                                ? Colors.red.shade50
+                                : Colors.green.shade50,
+                            border: Border.all(
+                              color: isLate
+                                  ? Colors.red.shade200
+                                  : Colors.green.shade200,
+                            ),
                             borderRadius: BorderRadius.circular(12),
                           ),
-                          child: Text(isLate ? 'late' : 'on time', style: TextStyle(fontSize: 11, color: isLate ? Colors.red.shade700 : Colors.green.shade700, fontWeight: FontWeight.w600)),
+                          child: Text(
+                            isLate ? 'late' : 'on time',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: isLate
+                                  ? Colors.red.shade700
+                                  : Colors.green.shade700,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -157,11 +247,20 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
           if (evaluation != null) const SizedBox(height: 16),
 
           // Title
-          Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+          Text(
+            title,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
           const SizedBox(height: 8),
 
           // Answers overview
           _buildAnswersView(a, answers, evaluation),
+
+          // Manual grading UI for non-objective types
+          if (evaluation == null) ...[
+            const SizedBox(height: 16),
+            _buildManualGrading(totalPts, _submission?['score'] as num?),
+          ],
         ],
       ),
     );
@@ -183,7 +282,14 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
         border: Border.all(color: base.withOpacity(0.3)),
         borderRadius: BorderRadius.circular(6),
       ),
-      child: Text(text, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: (base is MaterialColor) ? base.shade700 : base)),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          color: (base is MaterialColor) ? base.shade700 : base,
+        ),
+      ),
     );
   }
 
@@ -196,10 +302,11 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
         if (raw is List) return List<dynamic>.from(raw);
         if (raw is Map) {
           final m = Map<String, dynamic>.from(raw);
-          final entries = m.entries
-              .map((e) => MapEntry(int.tryParse(e.key) ?? 0, e.value))
-              .toList()
-            ..sort((a, b) => a.key.compareTo(b.key));
+          final entries =
+              m.entries
+                  .map((e) => MapEntry(int.tryParse(e.key) ?? 0, e.value))
+                  .toList()
+                ..sort((a, b) => a.key.compareTo(b.key));
           return entries.map((e) => e.value).toList();
         }
       } else if (submissionContent is List) {
@@ -211,11 +318,17 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
     }
   }
 
-  ({int score, int max, List<Map<String, dynamic>> items})? _evaluate(Map<String, dynamic> a, List? answers) {
+  ({int score, int max, List<Map<String, dynamic>> items})? _evaluate(
+    Map<String, dynamic> a,
+    List? answers,
+  ) {
     final type = (a['assignment_type'] ?? '').toString();
     final content = (a['content'] as Map<String, dynamic>?) ?? {};
 
-    if (!(type == 'quiz' || type == 'multiple_choice' || type == 'identification' || type == 'matching_type')) {
+    if (!(type == 'quiz' ||
+        type == 'multiple_choice' ||
+        type == 'identification' ||
+        type == 'matching_type')) {
       return null; // manual grading types
     }
 
@@ -223,8 +336,12 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
     int max = 0;
     final items = <Map<String, dynamic>>[];
 
-    if (type == 'multiple_choice' || type == 'quiz' || type == 'identification') {
-      final qs = List<Map<String, dynamic>>.from((content['questions'] as List?) ?? const []);
+    if (type == 'multiple_choice' ||
+        type == 'quiz' ||
+        type == 'identification') {
+      final qs = List<Map<String, dynamic>>.from(
+        (content['questions'] as List?) ?? const [],
+      );
       for (var i = 0; i < qs.length; i++) {
         final q = qs[i];
         final pts = (q['points'] as num?)?.toInt() ?? 0;
@@ -235,7 +352,9 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
         String studentText = '';
         String correctText = '';
         if (type == 'multiple_choice') {
-          final choices = List<String>.from(((q['choices'] as List?) ?? const []).map((e) => e.toString()));
+          final choices = List<String>.from(
+            ((q['choices'] as List?) ?? const []).map((e) => e.toString()),
+          );
           final correctIndex = q['correctIndex'];
 
           int? ansIndex;
@@ -246,14 +365,20 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
             if (parsed != null) {
               ansIndex = parsed;
             } else {
-              final idx = choices.indexWhere((c) => c.trim().toLowerCase() == ans.trim().toLowerCase());
+              final idx = choices.indexWhere(
+                (c) => c.trim().toLowerCase() == ans.trim().toLowerCase(),
+              );
               if (idx != -1) ansIndex = idx;
             }
           }
 
-          if (correctIndex is int && ansIndex != null && ansIndex == correctIndex) {
+          if (correctIndex is int &&
+              ansIndex != null &&
+              ansIndex == correctIndex) {
             ok = true;
-          } else if (ans != null && (ans.toString().trim().toLowerCase() == (correct ?? '').toString().trim().toLowerCase())) {
+          } else if (ans != null &&
+              (ans.toString().trim().toLowerCase() ==
+                  (correct ?? '').toString().trim().toLowerCase())) {
             ok = true;
           }
 
@@ -263,7 +388,9 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
             studentText = (ans ?? '').toString();
           }
 
-          if (correctIndex is int && correctIndex >= 0 && correctIndex < choices.length) {
+          if (correctIndex is int &&
+              correctIndex >= 0 &&
+              correctIndex < choices.length) {
             correctText = choices[correctIndex];
           } else {
             correctText = (correct ?? '').toString();
@@ -286,14 +413,20 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
         });
       }
     } else if (type == 'matching_type') {
-      final pairs = List<Map<String, dynamic>>.from((content['pairs'] as List?) ?? const []);
+      final pairs = List<Map<String, dynamic>>.from(
+        (content['pairs'] as List?) ?? const [],
+      );
       for (var i = 0; i < pairs.length; i++) {
         final p = pairs[i];
         final pts = (p['points'] as num?)?.toInt() ?? 0;
         max += pts;
         final correctB = (p['columnB'] ?? '').toString();
-        final selB = (answers != null && i < answers.length) ? (answers[i] ?? '').toString() : '';
-        final ok = correctB.trim().toLowerCase() == selB.trim().toLowerCase() && selB.isNotEmpty;
+        final selB = (answers != null && i < answers.length)
+            ? (answers[i] ?? '').toString()
+            : '';
+        final ok =
+            correctB.trim().toLowerCase() == selB.trim().toLowerCase() &&
+            selB.isNotEmpty;
         if (ok) score += pts;
         items.add({
           'index': i,
@@ -309,7 +442,9 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
     return (score: score, max: max, items: items);
   }
 
-  Widget _buildScoreSummary(({int score, int max, List<Map<String, dynamic>> items}) eval) {
+  Widget _buildScoreSummary(
+    ({int score, int max, List<Map<String, dynamic>> items}) eval,
+  ) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
@@ -323,19 +458,31 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
           Icon(Icons.grade, color: Colors.blue.shade700),
           const SizedBox(width: 8),
           Expanded(
-            child: Text('Auto score: ${eval.score}/${eval.max}', style: TextStyle(color: Colors.blue.shade900, fontWeight: FontWeight.w700)),
+            child: Text(
+              'Auto score: ${eval.score}/${eval.max}',
+              style: TextStyle(
+                color: Colors.blue.shade900,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildAnswersView(Map<String, dynamic> assignment, List? answers, ({int score, int max, List<Map<String, dynamic>> items})? eval) {
+  Widget _buildAnswersView(
+    Map<String, dynamic> assignment,
+    List? answers,
+    ({int score, int max, List<Map<String, dynamic>> items})? eval,
+  ) {
     final type = (assignment['assignment_type'] ?? '').toString();
     final content = (assignment['content'] as Map<String, dynamic>?) ?? {};
 
     if (type == 'essay') {
-      final qs = List<Map<String, dynamic>>.from((content['questions'] as List?) ?? const []);
+      final qs = List<Map<String, dynamic>>.from(
+        (content['questions'] as List?) ?? const [],
+      );
       final ans = List.from(answers ?? const []);
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -343,13 +490,21 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
           _manualNote('Essay answers require manual grading.'),
           const SizedBox(height: 12),
           ...qs.asMap().entries.map((e) {
-            final i = e.key; final q = e.value;
+            final i = e.key;
+            final q = e.value;
             return _qCard([
-              Text(q['question']?.toString() ?? 'Essay ${i + 1}', style: const TextStyle(fontWeight: FontWeight.w600)),
+              Text(
+                q['question']?.toString() ?? 'Essay ${i + 1}',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
               const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(color: Colors.grey.shade50, border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(8)),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  border: Border.all(color: Colors.grey.shade300),
+                  borderRadius: BorderRadius.circular(8),
+                ),
                 child: Text((i < ans.length ? ans[i]?.toString() : '') ?? ''),
               ),
             ]);
@@ -359,7 +514,9 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
     }
 
     if (type == 'file_upload') {
-      return _manualNote('Uploaded files and feedback will appear here once implemented. Manual grading required.');
+      return _manualNote(
+        'Uploaded files and feedback will appear here once implemented. Manual grading required.',
+      );
     }
 
     // Objective types rendering using evaluation
@@ -371,7 +528,8 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         ...eval.items.asMap().entries.map((e) {
-          final i = e.key; final item = e.value;
+          final i = e.key;
+          final item = e.value;
           final ok = (item['ok'] == true);
           return _qCard([
             Row(
@@ -382,14 +540,34 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
               ],
             ),
             const SizedBox(height: 8),
-            if (item['question'] != null) Text(item['question'].toString(), style: const TextStyle(fontWeight: FontWeight.w600)),
-            if (item['left'] != null) Text(item['left'].toString(), style: const TextStyle(fontWeight: FontWeight.w600)),
+            if (item['question'] != null)
+              Text(
+                item['question'].toString(),
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            if (item['left'] != null)
+              Text(
+                item['left'].toString(),
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
             const SizedBox(height: 6),
-            Row(children: [
-              Icon(ok ? Icons.check_circle : Icons.cancel, size: 18, color: ok ? Colors.green : Colors.red),
-              const SizedBox(width: 6),
-              Text(ok ? 'Correct' : 'Incorrect', style: TextStyle(color: ok ? Colors.green.shade700 : Colors.red.shade700, fontWeight: FontWeight.w600)),
-            ]),
+            Row(
+              children: [
+                Icon(
+                  ok ? Icons.check_circle : Icons.cancel,
+                  size: 18,
+                  color: ok ? Colors.green : Colors.red,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  ok ? 'Correct' : 'Incorrect',
+                  style: TextStyle(
+                    color: ok ? Colors.green.shade700 : Colors.red.shade700,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 6),
             _kv('Student answer', (item['student'] ?? '').toString()),
             _kv('Correct answer', (item['correct'] ?? '').toString()),
@@ -399,11 +577,116 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
     );
   }
 
+  Widget _buildManualGrading(int totalPts, num? currentScore) {
+    final cap = totalPts;
+    return _qCard([
+      const Text('Manual grade', style: TextStyle(fontWeight: FontWeight.w600)),
+      const SizedBox(height: 8),
+      Row(
+        children: [
+          const SizedBox(width: 140, child: Text('Score')),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 120,
+            child: TextField(
+              controller: _scoreCtrl,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                hintText: '0-$cap',
+                isDense: true,
+                border: const OutlineInputBorder(),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          ElevatedButton.icon(
+            onPressed: _saving ? null : _saveGrade,
+            icon: _saving
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.save),
+            label: const Text('Save'),
+          ),
+        ],
+      ),
+      const SizedBox(height: 6),
+      Text(
+        'Enter a score between 0 and $cap',
+        style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+      ),
+      if (currentScore != null) ...[
+        const SizedBox(height: 8),
+        Text(
+          'Current saved: ${currentScore.toInt()}/$cap',
+          style: TextStyle(color: Colors.grey.shade700),
+        ),
+      ],
+    ]);
+  }
+
+  Future<void> _saveGrade() async {
+    final a = _assignment;
+    final s = _submission;
+    if (a == null || s == null) return;
+
+    final totalPts = (a['total_points'] as num?)?.toInt() ?? 0;
+    final txt = _scoreCtrl.text.trim();
+    final parsed = int.tryParse(txt);
+    if (parsed == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Enter a valid integer score')),
+        );
+      }
+      return;
+    }
+    final val = parsed.clamp(0, totalPts);
+
+    setState(() => _saving = true);
+    try {
+      await _submissionService.updateSubmissionGrade(
+        assignmentId: widget.assignmentId,
+        studentId: widget.studentId,
+        score: val,
+        maxScore: totalPts,
+      );
+      await _loadData();
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Grade saved')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save grade: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   Widget _kv(String k, String v) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(width: 140, child: Text(k, style: TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.w600))),
+        SizedBox(
+          width: 140,
+          child: Text(
+            k,
+            style: TextStyle(
+              color: Colors.grey.shade700,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
         Expanded(child: Text(v.isEmpty ? '-' : v)),
       ],
     );
@@ -418,7 +701,10 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.grey.shade300),
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: children,
+      ),
     );
   }
 
@@ -434,7 +720,15 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
         children: [
           Icon(Icons.info_outline, color: Colors.amber.shade700),
           const SizedBox(width: 8),
-          Expanded(child: Text(text, style: TextStyle(color: Colors.amber.shade900, fontWeight: FontWeight.w600))),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                color: Colors.amber.shade900,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
         ],
       ),
     );

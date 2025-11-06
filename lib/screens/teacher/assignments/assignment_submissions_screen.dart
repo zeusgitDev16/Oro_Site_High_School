@@ -18,10 +18,12 @@ class AssignmentSubmissionsScreen extends StatefulWidget {
   });
 
   @override
-  State<AssignmentSubmissionsScreen> createState() => _AssignmentSubmissionsScreenState();
+  State<AssignmentSubmissionsScreen> createState() =>
+      _AssignmentSubmissionsScreenState();
 }
 
-class _AssignmentSubmissionsScreenState extends State<AssignmentSubmissionsScreen>
+class _AssignmentSubmissionsScreenState
+    extends State<AssignmentSubmissionsScreen>
     with SingleTickerProviderStateMixin {
   final SubmissionService _submissionService = SubmissionService();
   final ClassroomService _classroomService = ClassroomService();
@@ -32,31 +34,43 @@ class _AssignmentSubmissionsScreenState extends State<AssignmentSubmissionsScree
   List<Map<String, dynamic>> _students = [];
   List<Map<String, dynamic>> _submissions = [];
   late TabController _tabController;
+  RealtimeChannel? _channel;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _loadData();
+    _setupRealtime();
   }
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
-      final students = await _classroomService.getClassroomStudents(widget.classroomId);
-      final submissions = await _submissionService.getSubmissionsForAssignment(widget.assignmentId);
-      final assignment = await _assignmentService.getAssignmentById(widget.assignmentId);
+      final students = await _classroomService.getClassroomStudents(
+        widget.classroomId,
+      );
+      final submissions = await _submissionService.getSubmissionsForAssignment(
+        widget.assignmentId,
+      );
+      final assignment = await _assignmentService.getAssignmentById(
+        widget.assignmentId,
+      );
       setState(() {
         _students = students;
         _submissions = submissions;
         _assignment = assignment;
+
         _isLoading = false;
       });
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading submissions: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Error loading submissions: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -64,26 +78,64 @@ class _AssignmentSubmissionsScreenState extends State<AssignmentSubmissionsScree
 
   Map<String, dynamic>? _findStudent(String studentId) {
     try {
-      return _students.firstWhere((s) => (s['student_id'] ?? s['id']).toString() == studentId);
+      return _students.firstWhere(
+        (s) => (s['student_id'] ?? s['id']).toString() == studentId,
+      );
     } catch (_) {
       return null;
     }
   }
 
   List<Map<String, dynamic>> get _submitted {
-    return _submissions.where((s) => (s['status'] ?? '') == 'submitted').toList();
+    return _submissions
+        .where((s) => (s['status'] ?? '') == 'submitted')
+        .toList();
   }
 
   List<Map<String, dynamic>> get _notSubmitted {
-    final submittedIds = _submitted.map((s) => s['student_id'].toString()).toSet();
+    final submittedIds = _submitted
+        .map((s) => s['student_id'].toString())
+        .toSet();
     return _students
-        .where((st) => !submittedIds.contains((st['student_id'] ?? st['id']).toString()))
-        .map((st) => {
-              'student_id': (st['student_id'] ?? st['id']).toString(),
-              'full_name': st['full_name'] ?? 'Unknown Student',
-              'email': st['email'] ?? '',
-            })
+        .where(
+          (st) =>
+              !submittedIds.contains((st['student_id'] ?? st['id']).toString()),
+        )
+        .map(
+          (st) => {
+            'student_id': (st['student_id'] ?? st['id']).toString(),
+            'full_name': st['full_name'] ?? 'Unknown Student',
+            'email': st['email'] ?? '',
+          },
+        )
         .toList();
+  }
+
+  void _setupRealtime() {
+    final supa = Supabase.instance.client;
+    _channel = supa
+        .channel('asubs:${widget.assignmentId}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'assignment_submissions',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'assignment_id',
+            value: widget.assignmentId,
+          ),
+          callback: (payload) {
+            if (mounted) _loadData();
+          },
+        )
+        .subscribe();
+  }
+
+  @override
+  void dispose() {
+    _channel?.unsubscribe();
+    _tabController.dispose();
+    super.dispose();
   }
 
   @override
@@ -119,10 +171,7 @@ class _AssignmentSubmissionsScreenState extends State<AssignmentSubmissionsScree
                 Expanded(
                   child: TabBarView(
                     controller: _tabController,
-                    children: [
-                      _buildSubmittedList(),
-                      _buildNotSubmittedList(),
-                    ],
+                    children: [_buildSubmittedList(), _buildNotSubmittedList()],
                   ),
                 ),
               ],
@@ -132,16 +181,18 @@ class _AssignmentSubmissionsScreenState extends State<AssignmentSubmissionsScree
 
   Widget _buildAssignmentHeader() {
     final a = _assignment;
-    final title = (a != null ? (a['title']?.toString() ?? 'Assignment') : 'Assignment');
-    final allowLate = (a != null ? ((a['allow_late_submissions'] ?? true) == true) : true);
+    final title = (a != null
+        ? (a['title']?.toString() ?? 'Assignment')
+        : 'Assignment');
+    final allowLate = (a != null
+        ? ((a['allow_late_submissions'] ?? true) == true)
+        : true);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.grey.shade50,
-        border: Border(
-          bottom: BorderSide(color: Colors.grey.shade300),
-        ),
+        border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
       ),
       child: Row(
         children: [
@@ -151,7 +202,10 @@ class _AssignmentSubmissionsScreenState extends State<AssignmentSubmissionsScree
               children: [
                 Text(
                   title,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -166,18 +220,26 @@ class _AssignmentSubmissionsScreenState extends State<AssignmentSubmissionsScree
             decoration: BoxDecoration(
               color: allowLate ? Colors.green.shade50 : Colors.red.shade50,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: allowLate ? Colors.green.shade200 : Colors.red.shade200),
+              border: Border.all(
+                color: allowLate ? Colors.green.shade200 : Colors.red.shade200,
+              ),
             ),
             child: Row(
               children: [
-                Icon(allowLate ? Icons.check_circle : Icons.block, size: 16, color: allowLate ? Colors.green : Colors.red),
+                Icon(
+                  allowLate ? Icons.check_circle : Icons.block,
+                  size: 16,
+                  color: allowLate ? Colors.green : Colors.red,
+                ),
                 const SizedBox(width: 6),
                 Text(
                   allowLate ? 'late allowed' : 'late not allowed',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color: allowLate ? Colors.green.shade800 : Colors.red.shade800,
+                    color: allowLate
+                        ? Colors.green.shade800
+                        : Colors.red.shade800,
                   ),
                 ),
               ],
@@ -209,26 +271,41 @@ class _AssignmentSubmissionsScreenState extends State<AssignmentSubmissionsScree
           child: ListTile(
             leading: CircleAvatar(
               backgroundColor: Colors.green.shade50,
-              child: const Icon(Icons.assignment_turned_in, color: Colors.green),
+              child: const Icon(
+                Icons.assignment_turned_in,
+                color: Colors.green,
+              ),
             ),
             title: Row(
               children: [
                 Expanded(
-                  child: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  child: Text(
+                    name,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: isLate ? Colors.red.shade50 : Colors.green.shade50,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: isLate ? Colors.red.shade200 : Colors.green.shade200),
+                    border: Border.all(
+                      color: isLate
+                          ? Colors.red.shade200
+                          : Colors.green.shade200,
+                    ),
                   ),
                   child: Text(
                     isLate ? 'late' : 'on time',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
-                      color: isLate ? Colors.red.shade700 : Colors.green.shade700,
+                      color: isLate
+                          ? Colors.red.shade700
+                          : Colors.green.shade700,
                     ),
                   ),
                 ),
@@ -241,9 +318,19 @@ class _AssignmentSubmissionsScreenState extends State<AssignmentSubmissionsScree
                 if (submittedAt != null)
                   Row(
                     children: [
-                      Icon(Icons.schedule, size: 14, color: Colors.grey.shade600),
+                      Icon(
+                        Icons.schedule,
+                        size: 14,
+                        color: Colors.grey.shade600,
+                      ),
                       const SizedBox(width: 4),
-                      Text(submittedAt.replaceFirst('T', ' ').split('.') [0], style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                      Text(
+                        submittedAt.replaceFirst('T', ' ').split('.')[0],
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
                     ],
                   ),
                 if (score != null && maxScore != null) ...[
@@ -252,13 +339,22 @@ class _AssignmentSubmissionsScreenState extends State<AssignmentSubmissionsScree
                     children: [
                       Icon(Icons.grade, size: 14, color: Colors.grey.shade600),
                       const SizedBox(width: 4),
-                      Text('Score: $score/$maxScore', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                      Text(
+                        'Score: $score/$maxScore',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
                     ],
                   ),
                 ],
                 if (email.toString().isNotEmpty) ...[
                   const SizedBox(height: 2),
-                  Text(email, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                  Text(
+                    email,
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
                 ],
               ],
             ),
@@ -300,9 +396,15 @@ class _AssignmentSubmissionsScreenState extends State<AssignmentSubmissionsScree
               backgroundColor: Colors.orange.shade50,
               child: const Icon(Icons.hourglass_bottom, color: Colors.orange),
             ),
-            title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+            title: Text(
+              name,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
             subtitle: email.toString().isNotEmpty
-                ? Text(email, style: TextStyle(fontSize: 12, color: Colors.grey.shade600))
+                ? Text(
+                    email,
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  )
                 : null,
           ),
         );
@@ -311,9 +413,9 @@ class _AssignmentSubmissionsScreenState extends State<AssignmentSubmissionsScree
   }
 
   Widget _empty(String msg) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(msg, style: TextStyle(color: Colors.grey.shade600)),
-        ),
-      );
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Text(msg, style: TextStyle(color: Colors.grey.shade600)),
+    ),
+  );
 }

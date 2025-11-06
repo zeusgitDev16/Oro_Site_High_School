@@ -29,6 +29,7 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
   final TextEditingController _accessCodeController = TextEditingController();
 
   String? _studentId;
+  RealtimeChannel? _assignmentsChannel;
 
   // Left panel
   List<Classroom> _classrooms = [];
@@ -85,15 +86,49 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
         });
       }
     });
+    _subscribeAssignmentsRealtime();
     _initializeStudent();
   }
 
   @override
   void dispose() {
+    _assignmentsChannel?.unsubscribe();
     _accessCodeController.dispose();
     _quarterTabController.dispose();
     _tabController.dispose();
     super.dispose();
+  }
+
+  void _subscribeAssignmentsRealtime() {
+    _assignmentsChannel?.unsubscribe();
+    final supa = Supabase.instance.client;
+    _assignmentsChannel = supa
+        .channel('student-assignments')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'assignments',
+          callback: (payload) {
+            final map = payload.newRecord.isNotEmpty
+                ? payload.newRecord
+                : payload.oldRecord;
+            final row = Map<String, dynamic>.from(map);
+            final clsId = (row['classroom_id'] ?? '').toString();
+            final courseId = (row['course_id'] ?? '').toString();
+            if (_selectedClassroom != null &&
+                _selectedCourse != null &&
+                clsId == _selectedClassroom!.id &&
+                courseId == _selectedCourse!.id) {
+              if (mounted && _tabController.index == 1) {
+                _loadAssignmentsPublished(
+                  classroomId: _selectedClassroom!.id,
+                  courseId: _selectedCourse!.id,
+                );
+              }
+            }
+          },
+        )
+        .subscribe();
   }
 
   Future<void> _initializeStudent() async {

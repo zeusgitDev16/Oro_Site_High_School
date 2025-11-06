@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:oro_site_high_school/flow/student/student_submission_logic.dart';
 import 'package:oro_site_high_school/screens/student/assignments/student_assignment_work_screen.dart';
 
@@ -11,25 +12,31 @@ class StudentAssignmentReadScreen extends StatefulWidget {
   const StudentAssignmentReadScreen({super.key, required this.assignmentId});
 
   @override
-  State<StudentAssignmentReadScreen> createState() => _StudentAssignmentReadScreenState();
+  State<StudentAssignmentReadScreen> createState() =>
+      _StudentAssignmentReadScreenState();
 }
 
-class _StudentAssignmentReadScreenState extends State<StudentAssignmentReadScreen> {
+class _StudentAssignmentReadScreenState
+    extends State<StudentAssignmentReadScreen> {
   final StudentSubmissionLogic _logic = StudentSubmissionLogic();
   bool _started = false; // gates rendering of questions
 
   // Local transient answers (UI-only placeholders, not persisted yet)
   final Map<int, dynamic> _answers = {};
 
+  RealtimeChannel? _subChannel;
+
   @override
   void initState() {
     super.initState();
     _logic.addListener(_onUpdate);
     _logic.load(widget.assignmentId);
+    _setupRealtime();
   }
 
   @override
   void dispose() {
+    _subChannel?.unsubscribe();
     _logic.removeListener(_onUpdate);
     super.dispose();
   }
@@ -38,10 +45,42 @@ class _StudentAssignmentReadScreenState extends State<StudentAssignmentReadScree
     if (mounted) setState(() {});
   }
 
+  void _setupRealtime() {
+    final supa = Supabase.instance.client;
+    final uid = supa.auth.currentUser?.id;
+    if (uid == null) return;
+
+    _subChannel = supa
+        .channel('student-sub:${widget.assignmentId}:$uid')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'assignment_submissions',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'assignment_id',
+            value: widget.assignmentId,
+          ),
+          callback: (payload) {
+            final map = payload.newRecord.isNotEmpty
+                ? payload.newRecord
+                : payload.oldRecord;
+            final row = Map<String, dynamic>.from(map);
+            final rowStudentId = (row['student_id'] ?? '').toString();
+            if (rowStudentId == uid) {
+              _logic.applySubmission(row);
+            }
+          },
+        )
+        .subscribe();
+  }
+
   @override
   Widget build(BuildContext context) {
     final a = _logic.assignment;
-    final submitted = (_logic.submission != null && (_logic.submission!['status']?.toString() == 'submitted'));
+    final submitted =
+        (_logic.submission != null &&
+        (_logic.submission!['status']?.toString() == 'submitted'));
     final submittedAt = _logic.submission?['submitted_at']?.toString();
 
     return Scaffold(
@@ -54,30 +93,38 @@ class _StudentAssignmentReadScreenState extends State<StudentAssignmentReadScree
       body: _logic.isLoading
           ? const Center(child: CircularProgressIndicator())
           : (a == null)
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.warning_amber_rounded, size: 48, color: Colors.orange),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Assignment not found or not accessible',
-                        style: TextStyle(color: Colors.grey.shade700),
-                      ),
-                    ],
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.warning_amber_rounded,
+                    size: 48,
+                    color: Colors.orange,
                   ),
-                )
-              : _buildContent(a),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Assignment not found or not accessible',
+                    style: TextStyle(color: Colors.grey.shade700),
+                  ),
+                ],
+              ),
+            )
+          : _buildContent(a),
     );
   }
 
   Widget _buildContent(Map<String, dynamic> a) {
-    final submitted = (_logic.submission != null && (_logic.submission!['status']?.toString() == 'submitted'));
+    final submitted =
+        (_logic.submission != null &&
+        (_logic.submission!['status']?.toString() == 'submitted'));
     final submittedAt = _logic.submission?['submitted_at']?.toString();
     final dueRaw = a['due_date'];
     DateTime? due;
     if (dueRaw != null && dueRaw.toString().isNotEmpty) {
-      try { due = DateTime.parse(dueRaw.toString()); } catch (_) {}
+      try {
+        due = DateTime.parse(dueRaw.toString());
+      } catch (_) {}
     }
 
     final type = (a['assignment_type'] ?? 'unknown').toString();
@@ -113,7 +160,11 @@ class _StudentAssignmentReadScreenState extends State<StudentAssignmentReadScree
                 ),
                 child: Text(
                   type.replaceAll('_', ' '),
-                  style: TextStyle(fontSize: 12, color: Colors.blue.shade700, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.blue.shade700,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -151,9 +202,12 @@ class _StudentAssignmentReadScreenState extends State<StudentAssignmentReadScree
                   Expanded(
                     child: Text(
                       submittedAt != null
-                          ? 'Submitted ${submittedAt.replaceFirst('T', ' ').split('.') [0]}'
+                          ? 'Submitted ${submittedAt.replaceFirst('T', ' ').split('.')[0]}'
                           : 'Submitted',
-                      style: TextStyle(color: Colors.green.shade900, fontWeight: FontWeight.w600),
+                      style: TextStyle(
+                        color: Colors.green.shade900,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ],
@@ -174,7 +228,10 @@ class _StudentAssignmentReadScreenState extends State<StudentAssignmentReadScree
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Colors.grey.shade300),
               ),
-              child: Text(a['description'], style: const TextStyle(fontSize: 14, height: 1.5)),
+              child: Text(
+                a['description'],
+                style: const TextStyle(fontSize: 14, height: 1.5),
+              ),
             ),
 
           // Instructions (from content.instructions). Also allowed in preview.
@@ -190,7 +247,10 @@ class _StudentAssignmentReadScreenState extends State<StudentAssignmentReadScree
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Colors.blue.shade200),
               ),
-              child: Text(instructions, style: TextStyle(fontSize: 14, color: Colors.blue.shade900)),
+              child: Text(
+                instructions,
+                style: TextStyle(fontSize: 14, color: Colors.blue.shade900),
+              ),
             ),
           ],
 
@@ -209,7 +269,9 @@ class _StudentAssignmentReadScreenState extends State<StudentAssignmentReadScree
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (ctx) => StudentAssignmentWorkScreen(assignmentId: widget.assignmentId),
+                            builder: (ctx) => StudentAssignmentWorkScreen(
+                              assignmentId: widget.assignmentId,
+                            ),
                           ),
                         );
                       },
@@ -245,7 +307,10 @@ class _StudentAssignmentReadScreenState extends State<StudentAssignmentReadScree
             Expanded(
               child: Text(
                 'This assignment is past due and late submissions are NOT allowed.',
-                style: TextStyle(color: Colors.red.shade900, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  color: Colors.red.shade900,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ],
@@ -269,7 +334,10 @@ class _StudentAssignmentReadScreenState extends State<StudentAssignmentReadScree
               allowLate
                   ? 'Late submissions are allowed.'
                   : 'Please submit before the due date.',
-              style: TextStyle(color: Colors.green.shade900, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: Colors.green.shade900,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
@@ -298,7 +366,9 @@ class _StudentAssignmentReadScreenState extends State<StudentAssignmentReadScree
     switch (type) {
       case 'quiz':
       case 'identification':
-        final questions = List<Map<String, dynamic>>.from((content['questions'] as List?) ?? const []);
+        final questions = List<Map<String, dynamic>>.from(
+          (content['questions'] as List?) ?? const [],
+        );
         if (questions.isEmpty) return _emptyBlock('No questions provided.');
         return Column(
           children: questions.asMap().entries.map((entry) {
@@ -321,7 +391,13 @@ class _StudentAssignmentReadScreenState extends State<StudentAssignmentReadScree
                     ],
                   ),
                   const SizedBox(height: 12),
-                  Text(qText, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                  Text(
+                    qText,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   TextField(
                     onChanged: (v) => _answers[idx] = v,
@@ -337,14 +413,19 @@ class _StudentAssignmentReadScreenState extends State<StudentAssignmentReadScree
         );
 
       case 'multiple_choice':
-        final questions = List<Map<String, dynamic>>.from((content['questions'] as List?) ?? const []);
+        final questions = List<Map<String, dynamic>>.from(
+          (content['questions'] as List?) ?? const [],
+        );
         if (questions.isEmpty) return _emptyBlock('No questions provided.');
         return Column(
           children: questions.asMap().entries.map((entry) {
             final idx = entry.key;
             final q = entry.value;
             final qText = (q['question'] ?? '').toString();
-            final choices = List<String>.from((q['choices'] as List?)?.map((e) => e.toString()).toList() ?? const []);
+            final choices = List<String>.from(
+              (q['choices'] as List?)?.map((e) => e.toString()).toList() ??
+                  const [],
+            );
             final pts = (q['points'] ?? 0).toString();
             final selected = _answers[idx] as int?;
             return Container(
@@ -362,7 +443,13 @@ class _StudentAssignmentReadScreenState extends State<StudentAssignmentReadScree
                     ],
                   ),
                   const SizedBox(height: 12),
-                  Text(qText, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                  Text(
+                    qText,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   const SizedBox(height: 8),
                   ...choices.asMap().entries.map((c) {
                     final cIdx = c.key;
@@ -381,10 +468,14 @@ class _StudentAssignmentReadScreenState extends State<StudentAssignmentReadScree
         );
 
       case 'matching_type':
-        final pairs = List<Map<String, dynamic>>.from((content['pairs'] as List?) ?? const []);
+        final pairs = List<Map<String, dynamic>>.from(
+          (content['pairs'] as List?) ?? const [],
+        );
         if (pairs.isEmpty) return _emptyBlock('No pairs provided.');
         // Build Column B options for dropdowns
-        final columnB = pairs.map((p) => (p['columnB'] ?? '').toString()).toList();
+        final columnB = pairs
+            .map((p) => (p['columnB'] ?? '').toString())
+            .toList();
         return Column(
           children: pairs.asMap().entries.map((entry) {
             final idx = entry.key;
@@ -397,13 +488,25 @@ class _StudentAssignmentReadScreenState extends State<StudentAssignmentReadScree
               decoration: _cardDecoration(),
               child: Row(
                 children: [
-                  Expanded(child: Text(a, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600))),
+                  Expanded(
+                    child: Text(
+                      a,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
                   const SizedBox(width: 12),
                   SizedBox(
                     width: 220,
                     child: DropdownButtonFormField<String>(
                       value: selected,
-                      items: columnB.map((b) => DropdownMenuItem(value: b, child: Text(b))).toList(),
+                      items: columnB
+                          .map(
+                            (b) => DropdownMenuItem(value: b, child: Text(b)),
+                          )
+                          .toList(),
                       onChanged: (val) => setState(() => _answers[idx] = val),
                       decoration: const InputDecoration(
                         hintText: 'Match to…',
@@ -418,7 +521,9 @@ class _StudentAssignmentReadScreenState extends State<StudentAssignmentReadScree
         );
 
       case 'essay':
-        final questions = List<Map<String, dynamic>>.from((content['questions'] as List?) ?? const []);
+        final questions = List<Map<String, dynamic>>.from(
+          (content['questions'] as List?) ?? const [],
+        );
         if (questions.isEmpty) return _emptyBlock('No prompts provided.');
         return Column(
           children: questions.asMap().entries.map((entry) {
@@ -442,14 +547,30 @@ class _StudentAssignmentReadScreenState extends State<StudentAssignmentReadScree
                     ],
                   ),
                   const SizedBox(height: 12),
-                  Text(qText, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                  Text(
+                    qText,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   if (minWords != null) ...[
                     const SizedBox(height: 8),
                     Row(
                       children: [
-                        Icon(Icons.text_fields, size: 16, color: Colors.grey.shade600),
+                        Icon(
+                          Icons.text_fields,
+                          size: 16,
+                          color: Colors.grey.shade600,
+                        ),
                         const SizedBox(width: 6),
-                        Text('Minimum words: $minWords', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                        Text(
+                          'Minimum words: $minWords',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
                       ],
                     ),
                   ],
@@ -525,7 +646,11 @@ class _StudentAssignmentReadScreenState extends State<StudentAssignmentReadScree
       ),
       child: Text(
         text,
-        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: textColor),
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          color: textColor,
+        ),
       ),
     );
   }
@@ -558,7 +683,10 @@ class _StudentAssignmentReadScreenState extends State<StudentAssignmentReadScree
           Expanded(
             child: Text(
               'Answer saving and submission will be enabled next. For now this is a preview of the working area after you press Start.',
-              style: TextStyle(color: Colors.orange.shade900, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: Colors.orange.shade900,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
@@ -573,10 +701,15 @@ class _StudentAssignmentReadScreenState extends State<StudentAssignmentReadScree
 
     final type = (assignment['assignment_type'] ?? '').toString();
     final score = sub['score'] as num?;
-    final maxScore = (sub['max_score'] as num?) ?? (assignment['total_points'] as num?) ?? 0;
+    final maxScore =
+        (sub['max_score'] as num?) ?? (assignment['total_points'] as num?) ?? 0;
 
     // For objective types, if score is present, show it regardless of status
-    final isObjective = type == 'quiz' || type == 'multiple_choice' || type == 'identification' || type == 'matching_type';
+    final isObjective =
+        type == 'quiz' ||
+        type == 'multiple_choice' ||
+        type == 'identification' ||
+        type == 'matching_type';
     if (isObjective && score != null) {
       return Container(
         width: double.infinity,
@@ -593,7 +726,10 @@ class _StudentAssignmentReadScreenState extends State<StudentAssignmentReadScree
             Expanded(
               child: Text(
                 'Score: ${score.toString()} / ${maxScore.toString()}',
-                style: TextStyle(color: Colors.blue.shade900, fontWeight: FontWeight.w700),
+                style: TextStyle(
+                  color: Colors.blue.shade900,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ],

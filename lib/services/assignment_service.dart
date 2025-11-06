@@ -7,10 +7,12 @@ class AssignmentService {
   final _supabase = Supabase.instance.client;
 
   /// Get all assignments for a specific classroom
-  Future<List<Map<String, dynamic>>> getClassroomAssignments(String classroomId) async {
+  Future<List<Map<String, dynamic>>> getClassroomAssignments(
+    String classroomId,
+  ) async {
     try {
       print('📚 Fetching assignments for classroom: $classroomId');
-      
+
       final response = await _supabase
           .from('assignments')
           .select()
@@ -38,7 +40,9 @@ class AssignmentService {
   }
 
   /// Get unpublished (draft) assignments for a classroom (management pool)
-  Future<List<Map<String, dynamic>>> getUnpublishedAssignmentsByClassroom(String classroomId) async {
+  Future<List<Map<String, dynamic>>> getUnpublishedAssignmentsByClassroom(
+    String classroomId,
+  ) async {
     try {
       final response = await _supabase
           .from('assignments')
@@ -58,7 +62,7 @@ class AssignmentService {
   Future<Map<String, dynamic>?> getAssignmentById(String assignmentId) async {
     try {
       print('📖 Fetching assignment: $assignmentId');
-      
+
       final response = await _supabase
           .from('assignments')
           .select()
@@ -86,7 +90,8 @@ class AssignmentService {
     Map<String, dynamic>? content,
     String? courseId,
     bool isPublished = false,
-    String? component, // 'written_works' | 'performance_task' | 'quarterly_assessment'
+    String?
+    component, // 'written_works' | 'performance_task' | 'quarterly_assessment'
     int? quarterNo, // 1..4
   }) async {
     try {
@@ -95,7 +100,7 @@ class AssignmentService {
       print('   Type: $assignmentType');
       print('   Points: $totalPoints');
       print('   Allow Late: $allowLateSubmissions');
-      
+
       final assignmentData = {
         'classroom_id': classroomId,
         'teacher_id': teacherId,
@@ -157,20 +162,22 @@ class AssignmentService {
     bool? isPublished,
     bool? isActive,
     String? courseId,
-    String? component, // 'written_works' | 'performance_task' | 'quarterly_assessment'
+    String?
+    component, // 'written_works' | 'performance_task' | 'quarterly_assessment'
     int? quarterNo, // 1..4
   }) async {
     try {
       print('✏️ Updating assignment: $assignmentId');
-      
+
       final updates = <String, dynamic>{};
-      
+
       if (title != null) updates['title'] = title;
       if (description != null) updates['description'] = description;
       if (assignmentType != null) updates['assignment_type'] = assignmentType;
       if (totalPoints != null) updates['total_points'] = totalPoints;
       if (dueDate != null) updates['due_date'] = dueDate.toIso8601String();
-      if (allowLateSubmissions != null) updates['allow_late_submissions'] = allowLateSubmissions;
+      if (allowLateSubmissions != null)
+        updates['allow_late_submissions'] = allowLateSubmissions;
       if (content != null) updates['content'] = content;
       if (isPublished != null) updates['is_published'] = isPublished;
       if (isActive != null) updates['is_active'] = isActive;
@@ -217,10 +224,7 @@ class AssignmentService {
       print('🗑️ Deleting assignment: $assignmentId');
 
       // Perform hard delete to avoid triggers on update and ensure removal from DB
-      await _supabase
-          .from('assignments')
-          .delete()
-          .eq('id', assignmentId);
+      await _supabase.from('assignments').delete().eq('id', assignmentId);
 
       print('✅ Assignment deleted successfully (hard delete)');
     } catch (e) {
@@ -230,22 +234,36 @@ class AssignmentService {
   }
 
   /// Publish/Unpublish an assignment
-  Future<void> togglePublishAssignment(String assignmentId, bool isPublished) async {
+  /// Defensive: also scope by teacher_id when available to avoid any accidental multi-row updates.
+  Future<void> togglePublishAssignment(
+    String assignmentId,
+    bool isPublished,
+  ) async {
     try {
-      print('📢 ${isPublished ? 'Publishing' : 'Unpublishing'} assignment: $assignmentId');
-      
+      print(
+        '📢 ${isPublished ? 'Publishing' : 'Unpublishing'} assignment: $assignmentId',
+      );
+
       final updates = <String, dynamic>{'is_published': isPublished};
       // When unpublishing, detach from subject so it returns to the pool cleanly
       if (!isPublished) {
         updates['course_id'] = null;
       }
 
-      await _supabase
+      final currentUserId = _supabase.auth.currentUser?.id;
+      var query = _supabase
           .from('assignments')
           .update(updates)
           .eq('id', assignmentId);
+      // Extra safety: scope by teacher_id if we know it (no-op for admins without matching teacher_id)
+      if (currentUserId != null && currentUserId.isNotEmpty) {
+        query = query.eq('teacher_id', currentUserId);
+      }
+      await query;
 
-      print('✅ Assignment ${isPublished ? 'published' : 'unpublished'} successfully');
+      print(
+        '✅ Assignment ${isPublished ? 'published' : 'unpublished'} successfully',
+      );
     } catch (e) {
       print('❌ Error toggling publish status: $e');
       rethrow;
@@ -258,8 +276,10 @@ class AssignmentService {
     required String assignmentType,
   }) async {
     try {
-      print('📚 Fetching $assignmentType assignments for classroom: $classroomId');
-      
+      print(
+        '📚 Fetching $assignmentType assignments for classroom: $classroomId',
+      );
+
       final response = await _supabase
           .from('assignments')
           .select()
@@ -276,13 +296,15 @@ class AssignmentService {
   }
 
   /// Get upcoming assignments (due within next 7 days)
-  Future<List<Map<String, dynamic>>> getUpcomingAssignments(String classroomId) async {
+  Future<List<Map<String, dynamic>>> getUpcomingAssignments(
+    String classroomId,
+  ) async {
     try {
       print('📅 Fetching upcoming assignments for classroom: $classroomId');
-      
+
       final now = DateTime.now();
       final nextWeek = now.add(const Duration(days: 7));
-      
+
       final response = await _supabase
           .from('assignments')
           .select()
@@ -300,12 +322,14 @@ class AssignmentService {
   }
 
   /// Get overdue assignments
-  Future<List<Map<String, dynamic>>> getOverdueAssignments(String classroomId) async {
+  Future<List<Map<String, dynamic>>> getOverdueAssignments(
+    String classroomId,
+  ) async {
     try {
       print('⏰ Fetching overdue assignments for classroom: $classroomId');
-      
+
       final now = DateTime.now();
-      
+
       final response = await _supabase
           .from('assignments')
           .select()
@@ -345,9 +369,10 @@ class AssignmentService {
   /// Increment view count
   Future<void> incrementViewCount(String assignmentId) async {
     try {
-      await _supabase.rpc('increment_assignment_view_count', params: {
-        'assignment_id': assignmentId,
-      });
+      await _supabase.rpc(
+        'increment_assignment_view_count',
+        params: {'assignment_id': assignmentId},
+      );
     } catch (e) {
       print('❌ Error incrementing view count: $e');
       // Don't rethrow - view count is not critical
@@ -361,17 +386,23 @@ class AssignmentService {
   }) async {
     if (files.isEmpty) return;
     try {
-      print('📎 Inserting ${files.length} assignment file records for assignment: $assignmentId');
+      print(
+        '📎 Inserting ${files.length} assignment file records for assignment: $assignmentId',
+      );
       // Normalize payload with assignment_id
-      final payload = files.map((f) => {
-            'assignment_id': assignmentId,
-            'file_name': f['file_name'],
-            'file_path': f['file_path'],
-            'file_size': f['file_size'],
-            'file_type': f['file_type'],
-            'uploaded_by': f['uploaded_by'],
-            if (f['description'] != null) 'description': f['description'],
-          }).toList();
+      final payload = files
+          .map(
+            (f) => {
+              'assignment_id': assignmentId,
+              'file_name': f['file_name'],
+              'file_path': f['file_path'],
+              'file_size': f['file_size'],
+              'file_type': f['file_type'],
+              'uploaded_by': f['uploaded_by'],
+              if (f['description'] != null) 'description': f['description'],
+            },
+          )
+          .toList();
 
       await _supabase.from('assignment_files').insert(payload);
       print('✅ Assignment files inserted');
@@ -407,7 +438,9 @@ class AssignmentService {
         print('ℹ️ No storage files to delete for assignment: $assignmentId');
         return;
       }
-      print('🗑️ Removing ${paths.length} storage object(s) for assignment: $assignmentId');
+      print(
+        '🗑️ Removing ${paths.length} storage object(s) for assignment: $assignmentId',
+      );
       await _supabase.storage.from('assignment_files').remove(paths);
       print('✅ Storage objects removed');
     } catch (e) {
@@ -420,7 +453,7 @@ class AssignmentService {
   Future<Map<String, dynamic>> getAssignmentStats(String assignmentId) async {
     try {
       print('📊 Fetching stats for assignment: $assignmentId');
-      
+
       final assignment = await getAssignmentById(assignmentId);
       if (assignment == null) {
         throw Exception('Assignment not found');
@@ -434,15 +467,19 @@ class AssignmentService {
 
       final submissionList = submissions as List;
       final totalSubmissions = submissionList.length;
-      final gradedSubmissions = submissionList.where((s) => s['status'] == 'graded').length;
-      final lateSubmissions = submissionList.where((s) => s['is_late'] == true).length;
-      
+      final gradedSubmissions = submissionList
+          .where((s) => s['status'] == 'graded')
+          .length;
+      final lateSubmissions = submissionList
+          .where((s) => s['is_late'] == true)
+          .length;
+
       // Calculate average score
       final gradedScores = submissionList
           .where((s) => s['score'] != null)
           .map((s) => s['score'] as int)
           .toList();
-      
+
       final averageScore = gradedScores.isEmpty
           ? 0.0
           : gradedScores.reduce((a, b) => a + b) / gradedScores.length;

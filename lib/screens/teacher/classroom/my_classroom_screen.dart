@@ -37,6 +37,8 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
   List<Course> _classroomCourses = [];
   StreamSubscription? _classroomStream;
 
+  RealtimeChannel? _assignmentsChannel;
+
   Course? _selectedCourse;
   List<CourseFile> _moduleFiles = [];
   // Assignments tab state
@@ -93,11 +95,41 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
     });
     _initializeTeacher();
     _subscribeClassroomsRealtime();
+    _subscribeAssignmentsRealtime();
+  }
+
+  void _subscribeAssignmentsRealtime() {
+    _assignmentsChannel?.unsubscribe();
+    final supa = Supabase.instance.client;
+    _assignmentsChannel = supa
+        .channel('teacher-assignments')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'assignments',
+          callback: (payload) {
+            final map = payload.newRecord.isNotEmpty
+                ? payload.newRecord
+                : payload.oldRecord;
+            final row = Map<String, dynamic>.from(map);
+            final clsId = (row['classroom_id'] ?? '').toString();
+            final selectedId = _selectedClassroom?.id;
+            if (selectedId != null && clsId == selectedId) {
+              if (mounted &&
+                  _tabController.index == 1 &&
+                  _canAccessAssignments()) {
+                _loadClassroomAssignments(selectedId);
+              }
+            }
+          },
+        )
+        .subscribe();
   }
 
   @override
   void dispose() {
     _classroomStream?.cancel();
+    _assignmentsChannel?.unsubscribe();
     _tabController.dispose();
     _quarterTabController.dispose();
     _studentsSearchCtrl.dispose();

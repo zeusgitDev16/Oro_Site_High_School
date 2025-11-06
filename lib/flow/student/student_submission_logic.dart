@@ -45,4 +45,10 @@ class StudentSubmissionLogic extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  /// Apply a fresh submission row (e.g., from realtime payload)
+  void applySubmission(Map<String, dynamic>? row) {
+    _submission = row;
+    notifyListeners();
+  }
 }

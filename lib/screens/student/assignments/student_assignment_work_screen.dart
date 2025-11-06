@@ -15,15 +15,18 @@ class StudentAssignmentWorkScreen extends StatefulWidget {
   const StudentAssignmentWorkScreen({super.key, required this.assignmentId});
 
   @override
-  State<StudentAssignmentWorkScreen> createState() => _StudentAssignmentWorkScreenState();
+  State<StudentAssignmentWorkScreen> createState() =>
+      _StudentAssignmentWorkScreenState();
 }
 
-class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScreen> {
+class _StudentAssignmentWorkScreenState
+    extends State<StudentAssignmentWorkScreen> {
   final StudentSubmissionLogic _logic = StudentSubmissionLogic();
   final SubmissionService _submissionService = SubmissionService();
 
   final Map<int, dynamic> _answers = {}; // simple per-question map
   Timer? _debounce;
+  RealtimeChannel? _subChannel;
   bool _ensuring = false; // ensure submission fallback if logic failed
 
   @override
@@ -31,13 +34,44 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
     super.initState();
     _logic.addListener(_onUpdate);
     _logic.load(widget.assignmentId);
+    _setupRealtime();
   }
 
   @override
   void dispose() {
     _debounce?.cancel();
+    _subChannel?.unsubscribe();
     _logic.removeListener(_onUpdate);
     super.dispose();
+  }
+
+  void _setupRealtime() {
+    final supa = Supabase.instance.client;
+    final uid = supa.auth.currentUser?.id;
+    if (uid == null) return;
+
+    _subChannel = supa
+        .channel('student-work:${widget.assignmentId}:$uid')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'assignment_submissions',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'assignment_id',
+            value: widget.assignmentId,
+          ),
+          callback: (payload) {
+            final map = payload.newRecord.isNotEmpty
+                ? payload.newRecord
+                : payload.oldRecord;
+            final row = Map<String, dynamic>.from(map);
+            if ((row['student_id'] ?? '').toString() == uid) {
+              _logic.applySubmission(row);
+            }
+          },
+        )
+        .subscribe();
   }
 
   void _onUpdate() {
@@ -46,7 +80,10 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
 
   bool get _isQuizLike {
     final t = (_logic.assignment?['assignment_type'] ?? '').toString();
-    return t == 'quiz' || t == 'multiple_choice' || t == 'identification' || t == 'matching_type';
+    return t == 'quiz' ||
+        t == 'multiple_choice' ||
+        t == 'identification' ||
+        t == 'matching_type';
   }
 
   Future<bool> _onWillPop() async {
@@ -60,10 +97,18 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('Leave and submit?'),
-          content: const Text('Once you exit, your answers will be submitted and you cannot go back.'),
+          content: const Text(
+            'Once you exit, your answers will be submitted and you cannot go back.',
+          ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Submit & Exit')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Submit & Exit'),
+            ),
           ],
         ),
       );
@@ -79,10 +124,18 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Leave work?'),
-        content: const Text('Your current work is saved as draft. You can come back later.'),
+        content: const Text(
+          'Your current work is saved as draft. You can come back later.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Stay')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Leave')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Stay'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Leave'),
+          ),
         ],
       ),
     );
@@ -121,7 +174,10 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
       if (userId == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Not authenticated'), backgroundColor: Colors.red),
+            const SnackBar(
+              content: Text('Not authenticated'),
+              backgroundColor: Colors.red,
+            ),
           );
         }
         return;
@@ -136,7 +192,10 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Cannot create submission: $e'), backgroundColor: Colors.red),
+            SnackBar(
+              content: Text('Cannot create submission: $e'),
+              backgroundColor: Colors.red,
+            ),
           );
         }
         return;
@@ -159,7 +218,10 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
     final type = (a['assignment_type'] ?? '').toString();
     int? autoScore;
     int? autoMax;
-    if (type == 'quiz' || type == 'multiple_choice' || type == 'identification' || type == 'matching_type') {
+    if (type == 'quiz' ||
+        type == 'multiple_choice' ||
+        type == 'identification' ||
+        type == 'matching_type') {
       final result = _autoGrade(a);
       autoScore = result.item1;
       autoMax = result.item2;
@@ -176,9 +238,11 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
       // Show quick confirmation and return to classroom view
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(autoScore != null && autoMax != null
-              ? 'Submitted • Score: $autoScore/$autoMax'
-              : 'Submitted!'),
+          content: Text(
+            autoScore != null && autoMax != null
+                ? 'Submitted • Score: $autoScore/$autoMax'
+                : 'Submitted!',
+          ),
           backgroundColor: Colors.green,
           duration: const Duration(milliseconds: 1200),
         ),
@@ -210,7 +274,10 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
           actions: [
             if (sub != null && sub['status'] == 'submitted')
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 child: _submittedBadge(sub),
               ),
           ],
@@ -218,10 +285,13 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
         body: _logic.isLoading
             ? const Center(child: CircularProgressIndicator())
             : (a == null)
-                ? Center(
-                    child: Text('Assignment not found', style: TextStyle(color: Colors.grey.shade700)),
-                  )
-                : _buildWorkContent(a, sub),
+            ? Center(
+                child: Text(
+                  'Assignment not found',
+                  style: TextStyle(color: Colors.grey.shade700),
+                ),
+              )
+            : _buildWorkContent(a, sub),
       ),
     );
   }
@@ -234,15 +304,26 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
       decoration: BoxDecoration(
         color: isLate ? Colors.red.shade50 : Colors.green.shade50,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: isLate ? Colors.red.shade200 : Colors.green.shade200),
+        border: Border.all(
+          color: isLate ? Colors.red.shade200 : Colors.green.shade200,
+        ),
       ),
       child: Row(
         children: [
-          Icon(isLate ? Icons.timer_off : Icons.check_circle, size: 16, color: isLate ? Colors.red : Colors.green),
+          Icon(
+            isLate ? Icons.timer_off : Icons.check_circle,
+            size: 16,
+            color: isLate ? Colors.red : Colors.green,
+          ),
           const SizedBox(width: 6),
           Text(
-            submittedAt != null ? 'Submitted ${submittedAt.replaceFirst('T', ' ').split('.') [0]}' : 'Submitted',
-            style: TextStyle(fontSize: 12, color: isLate ? Colors.red.shade900 : Colors.green.shade900),
+            submittedAt != null
+                ? 'Submitted ${submittedAt.replaceFirst('T', ' ').split('.')[0]}'
+                : 'Submitted',
+            style: TextStyle(
+              fontSize: 12,
+              color: isLate ? Colors.red.shade900 : Colors.green.shade900,
+            ),
           ),
         ],
       ),
@@ -254,7 +335,9 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
     final dueRaw = a['due_date'];
     DateTime? due;
     if (dueRaw != null && dueRaw.toString().isNotEmpty) {
-      try { due = DateTime.parse(dueRaw.toString()); } catch (_) {}
+      try {
+        due = DateTime.parse(dueRaw.toString());
+      } catch (_) {}
     }
 
     final allowLate = (a['allow_late_submissions'] ?? true) == true;
@@ -277,25 +360,59 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(a['title'] ?? 'Untitled', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                    Text(
+                      a['title'] ?? 'Untitled',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     const SizedBox(height: 4),
                     Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.blue.shade50,
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: Text((a['assignment_type'] ?? 'unknown').toString().replaceAll('_', ' '), style: TextStyle(fontSize: 12, color: Colors.blue.shade700, fontWeight: FontWeight.w600)),
+                          child: Text(
+                            (a['assignment_type'] ?? 'unknown')
+                                .toString()
+                                .replaceAll('_', ' '),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.blue.shade700,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ),
                         const SizedBox(width: 8),
-                        Text('${a['total_points'] ?? 0} pts', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                        Text(
+                          '${a['total_points'] ?? 0} pts',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
                         if (due != null) ...[
                           const SizedBox(width: 12),
-                          Icon(Icons.schedule, size: 14, color: Colors.grey.shade600),
+                          Icon(
+                            Icons.schedule,
+                            size: 14,
+                            color: Colors.grey.shade600,
+                          ),
                           const SizedBox(width: 4),
-                          Text('${due.month}/${due.day}/${due.year} ${_formatAmPm(due)}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                          Text(
+                            '${due.month}/${due.day}/${due.year} ${_formatAmPm(due)}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
                         ],
                       ],
                     ),
@@ -331,7 +448,10 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
                       await _persistAnswers();
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Saved'), backgroundColor: Colors.blue),
+                          const SnackBar(
+                            content: Text('Saved'),
+                            backgroundColor: Colors.blue,
+                          ),
                         );
                       }
                     },
@@ -345,7 +465,10 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
                   onPressed: readOnly ? null : _submit,
                   icon: const Icon(Icons.send),
                   label: const Text('Submit'),
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                  ),
                 ),
               ),
             ],
@@ -355,12 +478,18 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
     );
   }
 
-  Widget _buildQuestionsUI(String type, Map<String, dynamic> content, bool readOnly) {
+  Widget _buildQuestionsUI(
+    String type,
+    Map<String, dynamic> content,
+    bool readOnly,
+  ) {
     // Use simple builders; hook onChanged to _queueSave and _answers updates when editable
     switch (type) {
       case 'quiz':
       case 'identification':
-        final questions = List<Map<String, dynamic>>.from((content['questions'] as List?) ?? const []);
+        final questions = List<Map<String, dynamic>>.from(
+          (content['questions'] as List?) ?? const [],
+        );
         if (questions.isEmpty) return _empty('No questions provided.');
         return Column(
           children: questions.asMap().entries.map((entry) {
@@ -369,34 +498,69 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
             final qText = (q['question'] ?? '').toString();
             final pts = (q['points'] ?? 0).toString();
             return _questionCard([
-              Row(children: [ _chip('Q${idx + 1}'), const Spacer(), _chip('$pts pts', color: Colors.amber) ]),
+              Row(
+                children: [
+                  _chip('Q${idx + 1}'),
+                  const Spacer(),
+                  _chip('$pts pts', color: Colors.amber),
+                ],
+              ),
               const SizedBox(height: 12),
-              Text(qText, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+              Text(
+                qText,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
               const SizedBox(height: 12),
               TextField(
                 enabled: !readOnly,
-                onChanged: (v) { _answers[idx] = v; _queueSave(); },
-                decoration: const InputDecoration(hintText: 'Type your answer', border: OutlineInputBorder()),
+                onChanged: (v) {
+                  _answers[idx] = v;
+                  _queueSave();
+                },
+                decoration: const InputDecoration(
+                  hintText: 'Type your answer',
+                  border: OutlineInputBorder(),
+                ),
               ),
             ]);
           }).toList(),
         );
 
       case 'multiple_choice':
-        final questions = List<Map<String, dynamic>>.from((content['questions'] as List?) ?? const []);
+        final questions = List<Map<String, dynamic>>.from(
+          (content['questions'] as List?) ?? const [],
+        );
         if (questions.isEmpty) return _empty('No questions provided.');
         return Column(
           children: questions.asMap().entries.map((entry) {
             final idx = entry.key;
             final q = entry.value;
             final qText = (q['question'] ?? '').toString();
-            final choices = List<String>.from((q['choices'] as List?)?.map((e) => e.toString()).toList() ?? const []);
+            final choices = List<String>.from(
+              (q['choices'] as List?)?.map((e) => e.toString()).toList() ??
+                  const [],
+            );
             final pts = (q['points'] ?? 0).toString();
             final selected = _answers[idx] as int?;
             return _questionCard([
-              Row(children: [ _chip('Q${idx + 1}'), const Spacer(), _chip('$pts pts', color: Colors.amber) ]),
+              Row(
+                children: [
+                  _chip('Q${idx + 1}'),
+                  const Spacer(),
+                  _chip('$pts pts', color: Colors.amber),
+                ],
+              ),
               const SizedBox(height: 12),
-              Text(qText, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+              Text(
+                qText,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
               const SizedBox(height: 8),
               ...choices.asMap().entries.map((c) {
                 final cIdx = c.key;
@@ -404,7 +568,12 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
                 return RadioListTile<int>(
                   value: cIdx,
                   groupValue: selected,
-                  onChanged: !readOnly ? (val) { setState(() => _answers[idx] = val); _queueSave(); } : null,
+                  onChanged: !readOnly
+                      ? (val) {
+                          setState(() => _answers[idx] = val);
+                          _queueSave();
+                        }
+                      : null,
                   title: Text('${String.fromCharCode(65 + cIdx)}. $cText'),
                 );
               }).toList(),
@@ -413,9 +582,13 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
         );
 
       case 'matching_type':
-        final pairs = List<Map<String, dynamic>>.from((content['pairs'] as List?) ?? const []);
+        final pairs = List<Map<String, dynamic>>.from(
+          (content['pairs'] as List?) ?? const [],
+        );
         if (pairs.isEmpty) return _empty('No pairs provided.');
-        final columnB = pairs.map((p) => (p['columnB'] ?? '').toString()).toList();
+        final columnB = pairs
+            .map((p) => (p['columnB'] ?? '').toString())
+            .toList();
         return Column(
           children: pairs.asMap().entries.map((entry) {
             final idx = entry.key;
@@ -423,27 +596,51 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
             final a = (p['columnA'] ?? '').toString();
             final selected = _answers[idx] as String?;
             return _questionCard([
-              Row(children: [ _chip('Pair ${idx + 1}'), const Spacer() ]),
+              Row(children: [_chip('Pair ${idx + 1}'), const Spacer()]),
               const SizedBox(height: 12),
-              Row(children: [
-                Expanded(child: Text(a, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600))),
-                const SizedBox(width: 12),
-                SizedBox(
-                  width: 220,
-                  child: DropdownButtonFormField<String>(
-                    value: selected,
-                    items: columnB.map((b) => DropdownMenuItem(value: b, child: Text(b))).toList(),
-                    onChanged: !readOnly ? (val) { setState(() => _answers[idx] = val); _queueSave(); } : null,
-                    decoration: const InputDecoration(hintText: 'Match to…', border: OutlineInputBorder()),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      a,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
-                ),
-              ]),
+                  const SizedBox(width: 12),
+                  SizedBox(
+                    width: 220,
+                    child: DropdownButtonFormField<String>(
+                      value: selected,
+                      items: columnB
+                          .map(
+                            (b) => DropdownMenuItem(value: b, child: Text(b)),
+                          )
+                          .toList(),
+                      onChanged: !readOnly
+                          ? (val) {
+                              setState(() => _answers[idx] = val);
+                              _queueSave();
+                            }
+                          : null,
+                      decoration: const InputDecoration(
+                        hintText: 'Match to…',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ]);
           }).toList(),
         );
 
       case 'essay':
-        final questions = List<Map<String, dynamic>>.from((content['questions'] as List?) ?? const []);
+        final questions = List<Map<String, dynamic>>.from(
+          (content['questions'] as List?) ?? const [],
+        );
         if (questions.isEmpty) return _empty('No prompts provided.');
         return Column(
           children: questions.asMap().entries.map((entry) {
@@ -453,36 +650,84 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
             final pts = (q['points'] ?? 0).toString();
             final minWords = q['minWords']?.toString();
             return _questionCard([
-              Row(children: [ _chip('Essay ${idx + 1}'), const Spacer(), _chip('$pts pts', color: Colors.amber) ]),
+              Row(
+                children: [
+                  _chip('Essay ${idx + 1}'),
+                  const Spacer(),
+                  _chip('$pts pts', color: Colors.amber),
+                ],
+              ),
               const SizedBox(height: 12),
-              Text(qText, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+              Text(
+                qText,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
               if (minWords != null) ...[
                 const SizedBox(height: 8),
-                Row(children: [ Icon(Icons.text_fields, size: 16, color: Colors.grey.shade600), const SizedBox(width: 6), Text('Minimum words: $minWords', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)) ]),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.text_fields,
+                      size: 16,
+                      color: Colors.grey.shade600,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Minimum words: $minWords',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
               ],
               const SizedBox(height: 12),
               TextField(
                 enabled: !readOnly,
-                onChanged: (v) { _answers[idx] = v; _queueSave(); },
+                onChanged: (v) {
+                  _answers[idx] = v;
+                  _queueSave();
+                },
                 minLines: 6,
                 maxLines: 10,
-                decoration: const InputDecoration(hintText: 'Write your essay here…', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  hintText: 'Write your essay here…',
+                  border: OutlineInputBorder(),
+                ),
               ),
             ]);
           }).toList(),
         );
 
       case 'file_upload':
-        return _questionCard([
-          Row(children: [ Icon(Icons.upload_file, color: Colors.indigo.shade700), const SizedBox(width: 8), const Text('Upload will be available soon') ]),
-        ], altColor: Colors.indigo.shade50, altBorder: Colors.indigo.shade200);
+        return _questionCard(
+          [
+            Row(
+              children: [
+                Icon(Icons.upload_file, color: Colors.indigo.shade700),
+                const SizedBox(width: 8),
+                const Text('Upload will be available soon'),
+              ],
+            ),
+          ],
+          altColor: Colors.indigo.shade50,
+          altBorder: Colors.indigo.shade200,
+        );
 
       default:
         return _empty('Unsupported assignment type: $type');
     }
   }
 
-  Widget _questionCard(List<Widget> children, {Color? altColor, Color? altBorder}) {
+  Widget _questionCard(
+    List<Widget> children, {
+    Color? altColor,
+    Color? altBorder,
+  }) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
@@ -491,22 +736,40 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: altBorder ?? Colors.grey.shade300),
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: children,
+      ),
     );
   }
 
   Widget _empty(String text) => Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(color: Colors.grey.shade50, border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(12)),
-        child: Text(text, style: TextStyle(color: Colors.grey.shade700)),
-      );
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.grey.shade50,
+      border: Border.all(color: Colors.grey.shade300),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Text(text, style: TextStyle(color: Colors.grey.shade700)),
+  );
 
   Widget _chip(String text, {Color? color}) {
     final base = color ?? Colors.blue;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(color: base.withOpacity(0.08), borderRadius: BorderRadius.circular(6), border: Border.all(color: base.withOpacity(0.3))),
-      child: Text(text, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: (base is MaterialColor) ? base.shade700 : base)),
+      decoration: BoxDecoration(
+        color: base.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: base.withOpacity(0.3)),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          color: (base is MaterialColor) ? base.shade700 : base,
+        ),
+      ),
     );
   }
 
@@ -519,17 +782,15 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
       case 'matching_type':
       case 'essay':
         return {
-          'answers': List<dynamic>.from(_answers.entries.toList()
-            ..sort((a, b) => a.key.compareTo(b.key)))
-            .map((e) => e.value)
-            .toList(),
+          'answers': List<dynamic>.from(
+            _answers.entries.toList()..sort((a, b) => a.key.compareTo(b.key)),
+          ).map((e) => e.value).toList(),
         };
       case 'file_upload':
         return {
-          'files': List<dynamic>.from(_answers.entries.toList()
-            ..sort((a, b) => a.key.compareTo(b.key)))
-            .map((e) => e.value)
-            .toList(),
+          'files': List<dynamic>.from(
+            _answers.entries.toList()..sort((a, b) => a.key.compareTo(b.key)),
+          ).map((e) => e.value).toList(),
         };
       default:
         return {'answers': []};
@@ -546,8 +807,12 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
     int score = 0;
     int maxScore = 0;
 
-    if (type == 'multiple_choice' || type == 'quiz' || type == 'identification') {
-      final questions = List<Map<String, dynamic>>.from((content['questions'] as List?) ?? const []);
+    if (type == 'multiple_choice' ||
+        type == 'quiz' ||
+        type == 'identification') {
+      final questions = List<Map<String, dynamic>>.from(
+        (content['questions'] as List?) ?? const [],
+      );
       for (var i = 0; i < questions.length; i++) {
         final q = questions[i];
         final pts = (q['points'] as num?)?.toInt() ?? 0;
@@ -569,7 +834,9 @@ class _StudentAssignmentWorkScreenState extends State<StudentAssignmentWorkScree
         }
       }
     } else if (type == 'matching_type') {
-      final pairs = List<Map<String, dynamic>>.from((content['pairs'] as List?) ?? const []);
+      final pairs = List<Map<String, dynamic>>.from(
+        (content['pairs'] as List?) ?? const [],
+      );
       for (var i = 0; i < pairs.length; i++) {
         final p = pairs[i];
         final pts = (p['points'] as num?)?.toInt() ?? 0;

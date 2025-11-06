@@ -33,10 +33,44 @@ class _MyAssignmentsScreenState extends State<MyAssignmentsScreen> {
   String? _selectedClassroomId;
   String? _selectedAssignmentId;
 
+  RealtimeChannel? _poolChannel;
+
   @override
   void initState() {
     super.initState();
+    _setupPoolRealtime();
+
     _loadClassrooms();
+  }
+
+  void _setupPoolRealtime() {
+    _poolChannel?.unsubscribe();
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return;
+
+    _poolChannel = _supabase
+        .channel('teacher-assignment-pool:$uid')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'assignments',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'teacher_id',
+            value: uid,
+          ),
+          callback: (payload) {
+            if (!mounted) return;
+            _loadAssignments(_selectedClassroomId ?? '');
+          },
+        )
+        .subscribe();
+  }
+
+  @override
+  void dispose() {
+    _poolChannel?.unsubscribe();
+    super.dispose();
   }
 
   Future<void> _loadClassrooms() async {
@@ -101,8 +135,9 @@ class _MyAssignmentsScreenState extends State<MyAssignmentsScreen> {
           .eq('teacher_id', userId)
           .eq('is_published', false)
           .order('created_at', ascending: false);
-      final List<Map<String, dynamic>> list =
-          List<Map<String, dynamic>>.from(response as List);
+      final List<Map<String, dynamic>> list = List<Map<String, dynamic>>.from(
+        response as List,
+      );
 
       setState(() {
         _assignments = list;
@@ -193,14 +228,15 @@ class _MyAssignmentsScreenState extends State<MyAssignmentsScreen> {
     final ampm = am ? 'AM' : 'PM';
     return '$m $day, $year $h:$min $ampm';
   }
-  
+
   bool _isOwnedAssignment(Map<String, dynamic> a) {
-  final uid = _supabase.auth.currentUser?.id;
-  if (uid == null) return false;
-  final owner = (a['teacher_id'] ?? a['created_by'] ?? a['owner_id'])?.toString();
-  return owner != null && owner == uid;
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return false;
+    final owner = (a['teacher_id'] ?? a['created_by'] ?? a['owner_id'])
+        ?.toString();
+    return owner != null && owner == uid;
   }
-  
+
   // Read-only preview builder for selected assignment (type-aware)
   Widget _buildAssignmentPreview() {
     final a = _selectedAssignment!;
@@ -768,7 +804,9 @@ class _MyAssignmentsScreenState extends State<MyAssignmentsScreen> {
 
     try {
       // 2) Fetch available courses in classroom and filter to owned
-      List<Course> courses = await _classroomService.getClassroomCourses(classroom.id);
+      List<Course> courses = await _classroomService.getClassroomCourses(
+        classroom.id,
+      );
       final ownedCourses = courses.where((c) => c.teacherId == uid).toList();
 
       if (ownedCourses.isEmpty) {
@@ -817,12 +855,17 @@ class _MyAssignmentsScreenState extends State<MyAssignmentsScreen> {
                               child: Text(
                                 c.title,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontWeight: FontWeight.w600),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
                             const SizedBox(width: 8),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
                               decoration: BoxDecoration(
                                 color: Colors.blue.shade50,
                                 borderRadius: BorderRadius.circular(8),
@@ -830,7 +873,10 @@ class _MyAssignmentsScreenState extends State<MyAssignmentsScreen> {
                               ),
                               child: const Text(
                                 'owned',
-                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
                           ],
@@ -869,7 +915,9 @@ class _MyAssignmentsScreenState extends State<MyAssignmentsScreen> {
       // 4) Distribute assignments: update first course, clone for additional courses
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Distributing to ${selectedCourseIds.length} course${selectedCourseIds.length == 1 ? '' : 's'}...'),
+          content: Text(
+            'Distributing to ${selectedCourseIds.length} course${selectedCourseIds.length == 1 ? '' : 's'}...',
+          ),
           backgroundColor: Colors.blue,
         ),
       );
@@ -890,8 +938,11 @@ class _MyAssignmentsScreenState extends State<MyAssignmentsScreen> {
         // Extract reusable fields safely
         final String title = (a['title'] ?? '').toString();
         final String? description = a['description']?.toString();
-        final String type = (a['assignment_type'] ?? a['type'] ?? 'quiz').toString();
-        final int totalPoints = int.tryParse((a['total_points'] ?? a['points'] ?? 0).toString()) ?? 0;
+        final String type = (a['assignment_type'] ?? a['type'] ?? 'quiz')
+            .toString();
+        final int totalPoints =
+            int.tryParse((a['total_points'] ?? a['points'] ?? 0).toString()) ??
+            0;
         final bool allowLate = (a['allow_late_submissions'] ?? true) == true;
         final DateTime? dueDate = _parseDueDate(a['due_date']);
         Map<String, dynamic>? content;
@@ -900,8 +951,13 @@ class _MyAssignmentsScreenState extends State<MyAssignmentsScreen> {
             content = Map<String, dynamic>.from(a['content'] as Map);
           }
         } catch (_) {}
-        final String? component = a['component']?.toString() ?? content?['meta']?['component']?.toString();
-        final int? quarterNo = int.tryParse((a['quarter_no'] ?? content?['meta']?['quarter_no'])?.toString() ?? '');
+        final String? component =
+            a['component']?.toString() ??
+            content?['meta']?['component']?.toString();
+        final int? quarterNo = int.tryParse(
+          (a['quarter_no'] ?? content?['meta']?['quarter_no'])?.toString() ??
+              '',
+        );
 
         bool isFirstCourse = true;
         for (final courseId in selectedCourseIds) {
@@ -959,7 +1015,9 @@ class _MyAssignmentsScreenState extends State<MyAssignmentsScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Assignment successfully distributed to selected courses.'),
+          content: Text(
+            'Assignment successfully distributed to selected courses.',
+          ),
           backgroundColor: Colors.green,
         ),
       );
@@ -1145,7 +1203,7 @@ class _MyAssignmentsScreenState extends State<MyAssignmentsScreen> {
                 onPressed: _onDistributeSelectedAssignments,
               ),
             ),
-                  ],
+        ],
       ),
     );
   }
