@@ -248,7 +248,8 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
   Future<void> _loadStudentOverview() async {
     final classroom = _selectedClassroom;
     final student = _selectedStudent;
-    if (classroom == null || student == null) return;
+    final course = _selectedCourse;
+    if (classroom == null || student == null || course == null) return;
     setState(() {
       _loadingStudentData = true;
       _studentGraded = [];
@@ -287,8 +288,11 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
           .toList();
       final assignQuery = supabase
           .from('assignments')
-          .select('id, title, assignment_type, total_points, quarter_no')
-          .inFilter('id', ids);
+          .select(
+            'id, title, assignment_type, total_points, quarter_no, course_id',
+          )
+          .inFilter('id', ids)
+          .eq('course_id', course.id);
       final assigns = await (_selectedQuarter != null
           ? assignQuery.eq('quarter_no', _selectedQuarter!)
           : assignQuery);
@@ -609,10 +613,14 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
     final c = _selectedClassroom;
     if (c == null) return;
     try {
-      final courses = await _classroomService.getClassroomCourses(c.id);
+      final all = await _classroomService.getClassroomCourses(c.id);
+      final uid = _teacherId;
+      final owned = uid == null
+          ? all
+          : all.where((co) => co.teacherId == uid).toList();
       setState(() {
-        _courses = courses;
-        _selectedCourse = courses.isNotEmpty ? courses.first : null;
+        _courses = owned;
+        _selectedCourse = owned.isNotEmpty ? owned.first : null;
       });
     } catch (_) {}
   }

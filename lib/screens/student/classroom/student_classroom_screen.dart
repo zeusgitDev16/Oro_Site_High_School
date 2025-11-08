@@ -17,6 +17,8 @@ import 'package:oro_site_high_school/screens/student/assignments/student_assignm
 import 'package:oro_site_high_school/services/profile_service.dart';
 import 'package:oro_site_high_school/models/profile.dart';
 
+import 'package:url_launcher/url_launcher.dart';
+
 /// Student Classroom Screen (Unified Layout)
 /// Mirrors the teacher's 3-panel layout but with student permissions (read-only)
 class StudentClassroomScreen extends StatefulWidget {
@@ -216,18 +218,38 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
     Map<String, dynamic> assignment,
     Map<String, dynamic>? submission,
   ) {
-    // submitted or late
-    if (submission != null && (submission['status'] ?? '') == 'submitted') {
-      final due = _parseDateTime(assignment['due_date']);
-      final submittedAt = _parseDateTime(submission['submitted_at']);
-      final allowLate = (assignment['allow_late_submissions'] ?? false) == true;
-      if (allowLate &&
-          due != null &&
-          submittedAt != null &&
-          submittedAt.isAfter(due)) {
-        return 'late';
+    // graded/submitted or late
+    if (submission != null) {
+      final statusStr = (submission['status'] ?? '').toString();
+      // Explicit teacher-graded takes precedence
+      if (statusStr == 'graded') {
+        return 'graded';
       }
-      return 'submitted';
+      if (statusStr == 'submitted') {
+        final due = _parseDateTime(assignment['due_date']);
+        final submittedAt = _parseDateTime(submission['submitted_at']);
+        final allowLate =
+            (assignment['allow_late_submissions'] ?? false) == true;
+        // Preserve existing late handling
+        if (allowLate &&
+            due != null &&
+            submittedAt != null &&
+            submittedAt.isAfter(due)) {
+          return 'late';
+        }
+        // For objective types with an immediate score, reflect as graded
+        final type = (assignment['assignment_type'] ?? '').toString();
+        final isObjective =
+            type == 'quiz' ||
+            type == 'multiple_choice' ||
+            type == 'identification' ||
+            type == 'matching_type';
+        final hasScore = (submission['score'] as num?) != null;
+        if (isObjective && hasScore) {
+          return 'graded';
+        }
+        return 'submitted';
+      }
     }
     // pending or missed
     final due = _parseDateTime(assignment['due_date']);
@@ -1203,15 +1225,92 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
             ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
-              children: const [
-                // Students: read-only; viewing handled externally (teacher side uses launcher)
-                Icon(Icons.visibility, size: 20, color: Colors.green),
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.download, size: 20),
+                  onPressed: () => _downloadFile(file),
+                  tooltip: 'Download',
+                  color: Colors.blue,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.visibility, size: 20),
+                  onPressed: () => _viewFile(file),
+                  tooltip: 'View',
+                  color: Colors.green,
+                ),
               ],
             ),
+            onTap: () => _viewFile(file),
           ),
         );
       },
     );
+  }
+
+  Future<void> _downloadFile(CourseFile file) async {
+    try {
+      final uri = Uri.parse(file.fileUrl);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Downloading ${file.fileName}...'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not launch ${file.fileUrl}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error downloading file: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _viewFile(CourseFile file) async {
+    try {
+      final uri = Uri.parse(file.fileUrl);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.platformDefault);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Opening ${file.fileName}...'),
+            backgroundColor: Colors.blue,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not launch ${file.fileUrl}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error opening file: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Widget _buildAssignmentsTab() {
@@ -1328,7 +1427,12 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
         Color border;
         Color txt;
         String label;
-        if (status == 'submitted') {
+        if (status == 'graded') {
+          label = 'Graded';
+          bg = Colors.blue.shade100;
+          border = Colors.blue.shade300;
+          txt = Colors.blue.shade800;
+        } else if (status == 'submitted') {
           label = 'Submitted';
           bg = Colors.green.shade100;
           border = Colors.green.shade300;

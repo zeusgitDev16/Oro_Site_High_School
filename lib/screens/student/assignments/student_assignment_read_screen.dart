@@ -80,7 +80,8 @@ class _StudentAssignmentReadScreenState
     final a = _logic.assignment;
     final submitted =
         (_logic.submission != null &&
-        (_logic.submission!['status']?.toString() == 'submitted'));
+        ((_logic.submission!['status']?.toString() == 'submitted') ||
+            (_logic.submission!['status']?.toString() == 'graded')));
     final submittedAt = _logic.submission?['submitted_at']?.toString();
 
     return Scaffold(
@@ -117,7 +118,8 @@ class _StudentAssignmentReadScreenState
   Widget _buildContent(Map<String, dynamic> a) {
     final submitted =
         (_logic.submission != null &&
-        (_logic.submission!['status']?.toString() == 'submitted'));
+        ((_logic.submission!['status']?.toString() == 'submitted') ||
+            (_logic.submission!['status']?.toString() == 'graded')));
     final submittedAt = _logic.submission?['submitted_at']?.toString();
     final dueRaw = a['due_date'];
     DateTime? due;
@@ -704,13 +706,8 @@ class _StudentAssignmentReadScreenState
     final maxScore =
         (sub['max_score'] as num?) ?? (assignment['total_points'] as num?) ?? 0;
 
-    // For objective types, if score is present, show it regardless of status
-    final isObjective =
-        type == 'quiz' ||
-        type == 'multiple_choice' ||
-        type == 'identification' ||
-        type == 'matching_type';
-    if (isObjective && score != null) {
+    // If a score is present (auto-graded or teacher-graded), show it regardless of type
+    if (score != null) {
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.all(12),

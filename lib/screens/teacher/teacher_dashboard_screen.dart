@@ -6,7 +6,7 @@ import 'package:oro_site_high_school/screens/teacher/widgets/teacher_calendar_wi
 import 'package:oro_site_high_school/screens/teacher/courses/my_courses_screen.dart';
 import 'package:oro_site_high_school/screens/teacher/classroom/my_classroom_screen.dart';
 import 'package:oro_site_high_school/screens/teacher/grades/grade_entry_screen.dart';
-import 'package:oro_site_high_school/screens/teacher/attendance/attendance_main_screen.dart';
+import 'package:oro_site_high_school/screens/teacher/attendance/teacher_attendance_screen.dart';
 import 'package:oro_site_high_school/screens/teacher/assignments/my_assignments_screen.dart';
 import 'package:oro_site_high_school/screens/teacher/messaging/messages_screen.dart';
 import 'package:oro_site_high_school/screens/teacher/messaging/notifications_screen.dart';
@@ -136,15 +136,13 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen>
               _tabController.animateTo(0);
             }
           });
-          
+
           // Handle navigation
           if (index == 1) {
             // My Courses
             Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (context) => const MyCoursesScreen(),
-              ),
+              MaterialPageRoute(builder: (context) => const MyCoursesScreen()),
             );
           } else if (index == 2) {
             // My Classroom
@@ -158,16 +156,14 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen>
             // Grades
             Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (context) => const GradeEntryScreen(),
-              ),
+              MaterialPageRoute(builder: (context) => const GradeEntryScreen()),
             );
           } else if (index == 4) {
             // Attendance
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => const AttendanceMainScreen(),
+                builder: (context) => const TeacherAttendanceScreen(),
               ),
             );
           } else if (index == 5) {
@@ -182,9 +178,7 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen>
             // My Requests
             Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (context) => const MyRequestsScreen(),
-              ),
+              MaterialPageRoute(builder: (context) => const MyRequestsScreen()),
             );
           } else if (index == 7) {
             // Reports
@@ -405,10 +399,7 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen>
                 const SizedBox(width: 8),
                 const Text(
                   'Quick Stats',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
@@ -481,10 +472,7 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen>
                 const SizedBox(width: 8),
                 const Text(
                   'To-Do',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ],
             ),

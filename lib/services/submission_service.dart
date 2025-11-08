@@ -121,13 +121,19 @@ class SubmissionService {
   }
 
   /// Update/override the score for a student's submission (manual grading)
+  /// Also marks the submission as graded and timestamps it, so UI can reclassify
+  /// from "to grade" to "completed" immediately without a manual refresh.
   Future<void> updateSubmissionGrade({
     required String assignmentId,
     required String studentId,
     required int score,
     int? maxScore,
   }) async {
-    final update = <String, dynamic>{'score': score};
+    final update = <String, dynamic>{
+      'score': score,
+      'status': 'graded',
+      'graded_at': DateTime.now().toIso8601String(),
+    };
     if (maxScore != null) update['max_score'] = maxScore;
     await _supabase
         .from('assignment_submissions')

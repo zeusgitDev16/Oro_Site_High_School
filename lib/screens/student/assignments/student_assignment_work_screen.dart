@@ -89,7 +89,7 @@ class _StudentAssignmentWorkScreenState
   Future<bool> _onWillPop() async {
     // If submitted already, allow pop
     final status = _logic.submission?['status']?.toString();
-    if (status == 'submitted') return true;
+    if (status == 'submitted' || status == 'graded') return true;
 
     if (_isQuizLike) {
       // Warn and submit on exit
@@ -272,7 +272,8 @@ class _StudentAssignmentWorkScreenState
           backgroundColor: Colors.white,
           foregroundColor: Colors.black,
           actions: [
-            if (sub != null && sub['status'] == 'submitted')
+            if (sub != null &&
+                (sub['status'] == 'submitted' || sub['status'] == 'graded'))
               Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
@@ -343,7 +344,9 @@ class _StudentAssignmentWorkScreenState
     final allowLate = (a['allow_late_submissions'] ?? true) == true;
     final content = (a['content'] as Map<String, dynamic>?) ?? {};
 
-    final readOnly = (sub != null && sub['status'] == 'submitted');
+    final readOnly =
+        (sub != null &&
+        (sub['status'] == 'submitted' || sub['status'] == 'graded'));
 
     return Column(
       children: [

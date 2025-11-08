@@ -6,7 +6,7 @@ import 'package:oro_site_high_school/screens/teacher/messaging/messages_screen.d
 import 'package:oro_site_high_school/screens/teacher/courses/my_courses_screen.dart';
 import 'package:oro_site_high_school/screens/teacher/students/my_students_screen.dart';
 import 'package:oro_site_high_school/screens/teacher/grades/grade_entry_screen.dart';
-import 'package:oro_site_high_school/screens/teacher/attendance/attendance_main_screen.dart';
+import 'package:oro_site_high_school/screens/teacher/attendance/teacher_attendance_screen.dart';
 import 'package:oro_site_high_school/screens/teacher/assignments/my_assignments_screen.dart';
 import 'package:oro_site_high_school/screens/teacher/resources/my_resources_screen.dart';
 import 'package:oro_site_high_school/screens/teacher/reports/reports_main_screen.dart';
@@ -118,24 +118,20 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen>
             // My Students - TODO: add origin parameter
             Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (context) => const MyStudentsScreen(),
-              ),
+              MaterialPageRoute(builder: (context) => const MyStudentsScreen()),
             );
           } else if (index == 3) {
             // Grades - TODO: add origin parameter
             Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (context) => const GradeEntryScreen(),
-              ),
+              MaterialPageRoute(builder: (context) => const GradeEntryScreen()),
             );
           } else if (index == 4) {
             // Attendance - TODO: add origin parameter
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => const AttendanceMainScreen(),
+                builder: (context) => const TeacherAttendanceScreen(),
               ),
             );
           } else if (index == 5) {
@@ -158,9 +154,7 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen>
             // Messages - TODO: add origin parameter
             Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (context) => const MessagesScreen(),
-              ),
+              MaterialPageRoute(builder: (context) => const MessagesScreen()),
             );
           } else if (index == 8) {
             // Reports - TODO: add origin parameter
@@ -258,9 +252,7 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen>
                   ],
                 ),
               ),
-              Expanded(
-                child: _buildTabContent(),
-              ),
+              Expanded(child: _buildTabContent()),
             ],
           ),
         ),
@@ -313,7 +305,10 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen>
           Stack(
             children: [
               IconButton(
-                icon: const Icon(Icons.notifications_outlined, color: Colors.black),
+                icon: const Icon(
+                  Icons.notifications_outlined,
+                  color: Colors.black,
+                ),
                 onPressed: () {
                   Navigator.push(
                     context,
@@ -391,7 +386,10 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen>
             ],
           ),
           IconButton(
-            icon: const Icon(Icons.calendar_today_outlined, color: Colors.black),
+            icon: const Icon(
+              Icons.calendar_today_outlined,
+              color: Colors.black,
+            ),
             onPressed: () {
               showDialog(
                 context: context,
@@ -492,7 +490,8 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen>
           decoration: const BoxDecoration(
             image: DecorationImage(
               image: NetworkImage(
-                  'https://images.unsplash.com/photo-1509062522246-3755977927d7?w=1200'),
+                'https://images.unsplash.com/photo-1509062522246-3755977927d7?w=1200',
+              ),
               fit: BoxFit.cover,
             ),
           ),
@@ -529,8 +528,10 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen>
                   ),
                   const SizedBox(width: 8),
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.blue,
                       borderRadius: BorderRadius.circular(12),
@@ -698,12 +699,21 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen>
           Row(
             children: [
               Expanded(
-                child: _buildStatCard('Courses', '2', Icons.school, Colors.blue),
+                child: _buildStatCard(
+                  'Courses',
+                  '2',
+                  Icons.school,
+                  Colors.blue,
+                ),
               ),
               const SizedBox(width: 16),
               Expanded(
-                child:
-                    _buildStatCard('Students', '35', Icons.people, Colors.green),
+                child: _buildStatCard(
+                  'Students',
+                  '35',
+                  Icons.people,
+                  Colors.green,
+                ),
               ),
             ],
           ),
@@ -712,12 +722,20 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen>
             children: [
               Expanded(
                 child: _buildStatCard(
-                    'Assignments', '8', Icons.assignment, Colors.orange),
+                  'Assignments',
+                  '8',
+                  Icons.assignment,
+                  Colors.orange,
+                ),
               ),
               const SizedBox(width: 16),
               Expanded(
                 child: _buildStatCard(
-                    'Resources', '5', Icons.library_books, Colors.purple),
+                  'Resources',
+                  '5',
+                  Icons.library_books,
+                  Colors.purple,
+                ),
               ),
             ],
           ),
@@ -770,7 +788,12 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen>
     );
   }
 
-  Widget _buildStatCard(String label, String value, IconData icon, Color color) {
+  Widget _buildStatCard(
+    String label,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
     return Card(
       elevation: 2,
       child: Padding(
@@ -790,10 +813,7 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen>
             const SizedBox(height: 8),
             Text(
               label,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade600,
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
             ),
           ],
         ),
@@ -851,11 +871,7 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen>
       width: 300,
       color: Colors.grey.shade50,
       padding: const EdgeInsets.all(24),
-      child: ListView(
-        children: [
-          _buildAccountCard(),
-        ],
-      ),
+      child: ListView(children: [_buildAccountCard()]),
     );
   }
 
@@ -880,7 +896,10 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen>
             _buildInfoRowSmall(Icons.calendar_today, 'Joined', 'Aug 15, 2020'),
             const SizedBox(height: 12),
             _buildInfoRowSmall(
-                Icons.access_time, 'Last activity', 'less than a minute ago'),
+              Icons.access_time,
+              'Last activity',
+              'less than a minute ago',
+            ),
             const SizedBox(height: 12),
             TextButton.icon(
               onPressed: () {
@@ -910,19 +929,13 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen>
             width: 140,
             child: Text(
               label,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade600,
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
             ),
           ),
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-              ),
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -938,7 +951,10 @@ class _TeacherProfileScreenState extends State<TeacherProfileScreen>
         Text('$label:', style: TextStyle(color: Colors.grey.shade600)),
         const SizedBox(width: 8),
         Expanded(
-          child: Text(value, style: const TextStyle(fontWeight: FontWeight.w500)),
+          child: Text(
+            value,
+            style: const TextStyle(fontWeight: FontWeight.w500),
+          ),
         ),
       ],
     );
