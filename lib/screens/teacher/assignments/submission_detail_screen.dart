@@ -244,6 +244,10 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
 
           // Score summary for objective types (if score available or computed)
           if (evaluation != null) _buildScoreSummary(evaluation),
+          if (evaluation != null) const SizedBox(height: 12),
+          // Allow manual override for auto-graded types (keep simple & idempotent)
+          if (evaluation != null)
+            _buildObjectiveOverride(maxScore.toInt(), score),
           if (evaluation != null) const SizedBox(height: 16),
 
           // Title
@@ -575,6 +579,110 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
         }),
       ],
     );
+  }
+
+  Widget _buildObjectiveOverride(int maxPts, num? currentScore) {
+    return _qCard([
+      const Text(
+        'Manual override',
+        style: TextStyle(fontWeight: FontWeight.w600),
+      ),
+      const SizedBox(height: 8),
+      Row(
+        children: [
+          const SizedBox(width: 140, child: Text('Score')),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 120,
+            child: TextField(
+              controller: _scoreCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                hintText: 'Enter score',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          ElevatedButton.icon(
+            onPressed: _saving ? null : _saveOverride,
+            icon: _saving
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.save),
+            label: const Text('Update score'),
+          ),
+        ],
+      ),
+      const SizedBox(height: 6),
+      Text(
+        'Auto-graded. You can override this score. Bonus > max allowed (max: '
+        '$maxPts).',
+        style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+      ),
+      if (currentScore != null) ...[
+        const SizedBox(height: 8),
+        Text(
+          'Current saved: ${currentScore.toInt()}/$maxPts',
+          style: TextStyle(color: Colors.grey.shade700),
+        ),
+      ],
+    ]);
+  }
+
+  Future<void> _saveOverride() async {
+    final a = _assignment;
+    final s = _submission;
+    if (a == null || s == null) return;
+
+    final txt = _scoreCtrl.text.trim();
+    final parsed = int.tryParse(txt);
+    if (parsed == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Enter a valid integer score')),
+        );
+      }
+      return;
+    }
+    if (parsed < 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Score cannot be negative')),
+        );
+      }
+      return;
+    }
+
+    setState(() => _saving = true);
+    try {
+      await _submissionService.updateSubmissionGrade(
+        assignmentId: widget.assignmentId,
+        studentId: widget.studentId,
+        score: parsed,
+      );
+      await _loadData();
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Score updated')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save score: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   Widget _buildManualGrading(int totalPts, num? currentScore) {

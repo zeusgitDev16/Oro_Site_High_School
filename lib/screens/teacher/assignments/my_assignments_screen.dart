@@ -967,6 +967,8 @@ class _MyAssignmentsScreenState extends State<MyAssignmentsScreen> {
               assignmentId: assignmentId,
               isPublished: true,
               courseId: courseId,
+              component: component,
+              quarterNo: quarterNo,
             );
             // Ensure the publish flag is set at DB level (idempotent)
             try {

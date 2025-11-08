@@ -9,8 +9,13 @@ import 'package:oro_site_high_school/models/classroom.dart';
 import 'package:oro_site_high_school/models/course.dart';
 import 'package:oro_site_high_school/models/course_file.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:oro_site_high_school/services/submission_service.dart';
+
 import 'package:oro_site_high_school/widgets/announcement_tab.dart';
 import 'package:oro_site_high_school/screens/student/assignments/student_assignment_read_screen.dart';
+
+import 'package:oro_site_high_school/services/profile_service.dart';
+import 'package:oro_site_high_school/models/profile.dart';
 
 /// Student Classroom Screen (Unified Layout)
 /// Mirrors the teacher's 3-panel layout but with student permissions (read-only)
@@ -24,12 +29,13 @@ class StudentClassroomScreen extends StatefulWidget {
 class _StudentClassroomScreenState extends State<StudentClassroomScreen>
     with TickerProviderStateMixin {
   final ClassroomService _classroomService = ClassroomService();
+  final SubmissionService _submissionService = SubmissionService();
+
   final TeacherCourseService _teacherCourseService = TeacherCourseService();
   final AssignmentService _assignmentService = AssignmentService();
-  final TextEditingController _accessCodeController = TextEditingController();
-
   String? _studentId;
   RealtimeChannel? _assignmentsChannel;
+  RealtimeChannel? _submissionsChannel;
 
   // Left panel
   List<Classroom> _classrooms = [];
@@ -49,6 +55,8 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
 
   // Assignments (published only for students)
   List<Map<String, dynamic>> _assignments = [];
+  // Student submission lookup keyed by assignment_id
+  Map<String, Map<String, dynamic>> _submissionsByAssignment = {};
   // Quarter sub-tabs for assignments
   int _selectedQuarter = 1; // 1..4
   late TabController _quarterTabController;
@@ -59,6 +67,8 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
   bool _isLoadingModules = false;
   bool _isLoadingAssignments = false;
   bool _isJoining = false;
+
+  final TextEditingController _accessCodeController = TextEditingController();
 
   @override
   void initState() {
@@ -93,6 +103,7 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
   @override
   void dispose() {
     _assignmentsChannel?.unsubscribe();
+    _submissionsChannel?.unsubscribe();
     _accessCodeController.dispose();
     _quarterTabController.dispose();
     _tabController.dispose();
@@ -131,11 +142,107 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
         .subscribe();
   }
 
+  void _subscribeSubmissionsRealtime() {
+    _submissionsChannel?.unsubscribe();
+    final uid = _studentId;
+    if (uid == null) return;
+    final supa = Supabase.instance.client;
+    _submissionsChannel = supa
+        .channel('student-submissions:$uid')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'assignment_submissions',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'student_id',
+            value: uid,
+          ),
+          callback: (payload) {
+            if (!mounted) return;
+            if (_selectedClassroom != null &&
+                _selectedCourse != null &&
+                _tabController.index == 1 &&
+                _assignments.isNotEmpty) {
+              _loadSubmissionStatuses();
+            }
+          },
+        )
+        .subscribe();
+  }
+
+  Future<void> _loadSubmissionStatuses() async {
+    final uid = _studentId;
+    if (uid == null) return;
+    final ids = _assignments
+        .map((a) => (a['id'] ?? '').toString())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (ids.isEmpty) {
+      if (mounted) setState(() => _submissionsByAssignment = {});
+      return;
+    }
+    try {
+      final rows = await _submissionService.getStudentSubmissionsForAssignments(
+        studentId: uid,
+        assignmentIds: ids,
+      );
+      final map = <String, Map<String, dynamic>>{};
+      for (final r in rows) {
+        final aid = (r['assignment_id'] ?? '').toString();
+        if (aid.isNotEmpty) {
+          map[aid] = Map<String, dynamic>.from(r);
+        }
+      }
+      if (mounted) setState(() => _submissionsByAssignment = map);
+    } catch (e) {
+      debugPrint('❌ Error fetching submission statuses: $e');
+    }
+  }
+
+  DateTime? _parseDateTime(dynamic v) {
+    if (v == null) return null;
+    try {
+      if (v is DateTime) return v.toLocal();
+      final s = v.toString();
+      if (s.isEmpty) return null;
+      return DateTime.parse(s).toLocal();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _deriveSubmissionStatus(
+    Map<String, dynamic> assignment,
+    Map<String, dynamic>? submission,
+  ) {
+    // submitted or late
+    if (submission != null && (submission['status'] ?? '') == 'submitted') {
+      final due = _parseDateTime(assignment['due_date']);
+      final submittedAt = _parseDateTime(submission['submitted_at']);
+      final allowLate = (assignment['allow_late_submissions'] ?? false) == true;
+      if (allowLate &&
+          due != null &&
+          submittedAt != null &&
+          submittedAt.isAfter(due)) {
+        return 'late';
+      }
+      return 'submitted';
+    }
+    // pending or missed
+    final due = _parseDateTime(assignment['due_date']);
+    if (due != null && DateTime.now().isAfter(due)) {
+      return 'missed';
+    }
+    return 'pending';
+  }
+
   Future<void> _initializeStudent() async {
     try {
       final user = Supabase.instance.client.auth.currentUser;
       if (user != null) {
         _studentId = user.id;
+        _subscribeSubmissionsRealtime();
         await _loadStudentClassrooms();
       }
     } catch (e) {
@@ -247,7 +354,9 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
         classroomId: classroomId,
         courseId: courseId,
       );
+      if (!mounted) return;
       setState(() => _assignments = rows);
+      await _loadSubmissionStatuses();
     } catch (e) {
       debugPrint('❌ Error loading assignments: $e');
       setState(() => _assignments = []);
@@ -493,6 +602,84 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
                               color: Colors.grey.shade600,
                             ),
                           ),
+                          trailing: IconButton(
+                            tooltip: 'Leave classroom',
+                            icon: const Icon(
+                              Icons.logout,
+                              size: 20,
+                              color: Colors.redAccent,
+                            ),
+                            onPressed: () async {
+                              if (_studentId == null) {
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('You must be signed in.'),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                                return;
+                              }
+                              final confirmed = await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text('Leave classroom'),
+                                  content: Text(
+                                    'Are you sure you want to leave "${classroom.title}"?',
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () =>
+                                          Navigator.pop(ctx, false),
+                                      child: const Text('Cancel'),
+                                    ),
+                                    ElevatedButton(
+                                      onPressed: () => Navigator.pop(ctx, true),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.red,
+                                        foregroundColor: Colors.white,
+                                      ),
+                                      child: const Text('Leave'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                              if (confirmed != true) return;
+                              try {
+                                await _classroomService.leaveClassroom(
+                                  studentId: _studentId!,
+                                  classroomId: classroom.id,
+                                );
+                                await _loadStudentClassrooms();
+                                if (!mounted) return;
+                                if (_selectedClassroom?.id == classroom.id) {
+                                  setState(() {
+                                    _selectedClassroom = _classrooms.isNotEmpty
+                                        ? _classrooms.first
+                                        : null;
+                                    _classroomCourses = [];
+                                    _selectedCourse = null;
+                                  });
+                                }
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Left "${classroom.title}"'),
+                                    backgroundColor: Colors.green,
+                                  ),
+                                );
+                              } catch (e) {
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      'Error leaving classroom: $e',
+                                    ),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
+                            },
+                          ),
                           onTap: () => _onSelectClassroom(classroom),
                         ),
                       );
@@ -644,6 +831,38 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
                   ],
                 ),
               ),
+              const SizedBox(width: 8),
+              Tooltip(
+                message: 'View members',
+                child: InkWell(
+                  onTap: _selectedClassroom == null ? null : _showMembersDialog,
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    height: 32,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.blueGrey.shade50,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.blueGrey.shade200),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.groups_2,
+                          size: 16,
+                          color: Colors.blueGrey.shade700,
+                        ),
+                        const SizedBox(width: 6),
+                        const Text(
+                          'members',
+                          style: TextStyle(fontSize: 12, color: Colors.black87),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -719,6 +938,222 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
             child: Center(child: Text('Select a course to view content')),
           ),
       ],
+    );
+  }
+
+  void _showMembersDialog() {
+    if (_selectedClassroom == null) return;
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Joined'),
+          content: SizedBox(
+            width: 720,
+            height: 480,
+            child: FutureBuilder<Map<String, dynamic>>(
+              future: (() async {
+                final cid = _selectedClassroom!.id;
+                final students = await _classroomService.getClassroomStudents(
+                  cid,
+                );
+                final teachers = await _classroomService.getClassroomTeachers(
+                  cid,
+                );
+                Profile? owner;
+                try {
+                  owner = await ProfileService().getProfile(
+                    _selectedClassroom!.teacherId,
+                  );
+                } catch (_) {}
+                return {
+                  'students': students,
+                  'teachers': teachers,
+                  'owner': owner,
+                };
+              })(),
+              builder: (ctx, snap) {
+                if (snap.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  );
+                }
+                if (snap.hasError) {
+                  return Center(
+                    child: Text(
+                      'Failed to load members',
+                      style: TextStyle(color: Colors.red.shade700),
+                    ),
+                  );
+                }
+                final students =
+                    (snap.data?['students'] as List<dynamic>? ?? [])
+                        .cast<Map<String, dynamic>>();
+                final teachers =
+                    (snap.data?['teachers'] as List<dynamic>? ?? [])
+                        .cast<Map<String, dynamic>>();
+                final owner = snap.data?['owner'] as Profile?;
+                final sCount = students.length;
+                final tCount = teachers.length; // excludes owner
+
+                return DefaultTabController(
+                  length: 2,
+                  child: Column(
+                    children: [
+                      TabBar(
+                        labelColor: Colors.black87,
+                        unselectedLabelColor: Colors.grey,
+                        indicatorColor: Colors.blue,
+                        tabs: [
+                          Tab(text: 'Students ($sCount)'),
+                          Tab(text: 'Teachers ($tCount)'),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: TabBarView(
+                          children: [
+                            // Students list (read-only)
+                            ListView.separated(
+                              itemCount: students.length,
+                              separatorBuilder: (_, __) => Divider(
+                                height: 1,
+                                color: Colors.grey.shade200,
+                              ),
+                              itemBuilder: (ctx, i) {
+                                final s = students[i];
+                                final name =
+                                    (s['profiles']?['full_name'] ??
+                                            s['full_name'] ??
+                                            'Unknown Student')
+                                        .toString();
+                                final email =
+                                    (s['profiles']?['email'] ??
+                                            s['email'] ??
+                                            '')
+                                        .toString();
+                                final initials = name.isNotEmpty
+                                    ? name
+                                          .trim()
+                                          .split(' ')
+                                          .where((e) => e.isNotEmpty)
+                                          .map((e) => e[0])
+                                          .take(2)
+                                          .join()
+                                    : 'S';
+                                return ListTile(
+                                  leading: CircleAvatar(
+                                    backgroundColor: Colors.green.shade100,
+                                    child: Text(
+                                      initials,
+                                      style: TextStyle(
+                                        color: Colors.green.shade800,
+                                      ),
+                                    ),
+                                  ),
+                                  title: Text(name),
+                                  subtitle: Text(
+                                    email,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                            // Teachers list (read-only)
+                            ListView.separated(
+                              itemCount:
+                                  (owner != null ? 1 : 0) + teachers.length,
+                              separatorBuilder: (_, __) => Divider(
+                                height: 1,
+                                color: Colors.grey.shade200,
+                              ),
+                              itemBuilder: (ctx, i) {
+                                String name = '';
+                                String email = '';
+                                String role = '';
+                                if (owner != null && i == 0) {
+                                  name = owner.displayName;
+                                  email = owner.email ?? '';
+                                  role = 'Owner';
+                                } else {
+                                  final t =
+                                      teachers[i - (owner != null ? 1 : 0)];
+                                  name =
+                                      (t['profiles']?['full_name'] ??
+                                              t['full_name'] ??
+                                              'Unknown')
+                                          .toString();
+                                  email =
+                                      (t['profiles']?['email'] ??
+                                              t['email'] ??
+                                              '')
+                                          .toString();
+                                  role = 'Co-teacher';
+                                }
+                                final initials = name.isNotEmpty
+                                    ? name
+                                          .trim()
+                                          .split(' ')
+                                          .where((e) => e.isNotEmpty)
+                                          .map((e) => e[0])
+                                          .take(2)
+                                          .join()
+                                    : 'T';
+                                return ListTile(
+                                  leading: CircleAvatar(
+                                    backgroundColor: Colors.purple.shade100,
+                                    child: Text(
+                                      initials,
+                                      style: const TextStyle(
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                  ),
+                                  title: Text(name),
+                                  subtitle: Text(email),
+                                  trailing: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.purple.shade50,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: Colors.purple.shade200,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      role,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.purple.shade800,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -877,6 +1312,43 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
             dueStr = '${dt.month}/${dt.day}/${dt.year}';
           }
         } catch (_) {}
+        final Map<String, dynamic>? submission =
+            _submissionsByAssignment[(a['id'] ?? '').toString()];
+        final String status = _deriveSubmissionStatus(a, submission);
+        String submittedStr = '';
+        final submittedAt = _parseDateTime(submission?['submitted_at']);
+        if (submittedAt != null) {
+          final hh = submittedAt.hour.toString().padLeft(2, '0');
+          final mm = submittedAt.minute.toString().padLeft(2, '0');
+          submittedStr =
+              '${submittedAt.month}/${submittedAt.day}/${submittedAt.year} $hh:$mm';
+        }
+        // Status display colors and label
+        Color bg;
+        Color border;
+        Color txt;
+        String label;
+        if (status == 'submitted') {
+          label = 'Submitted';
+          bg = Colors.green.shade100;
+          border = Colors.green.shade300;
+          txt = Colors.green.shade800;
+        } else if (status == 'late') {
+          label = 'Submitted Late';
+          bg = Colors.orange.shade100;
+          border = Colors.orange.shade300;
+          txt = Colors.orange.shade800;
+        } else if (status == 'missed') {
+          label = 'Missed';
+          bg = Colors.red.shade100;
+          border = Colors.red.shade300;
+          txt = Colors.red.shade800;
+        } else {
+          label = 'Pending';
+          bg = Colors.yellow.shade100;
+          border = Colors.yellow.shade300;
+          txt = Colors.yellow.shade800;
+        }
 
         return Card(
           margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
@@ -938,6 +1410,64 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
                             color: Colors.grey.shade700,
                           ),
                         ),
+                        const SizedBox(height: 4),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
+                          children: [
+                            if ((((a['component'] ??
+                                        (a['content']?['meta']?['component'] ??
+                                            ''))
+                                    .toString())
+                                .isNotEmpty))
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.brown.shade50,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: Colors.brown.shade200,
+                                  ),
+                                ),
+                                child: Text(
+                                  ((a['component'] ??
+                                          (a['content']?['meta']?['component'] ??
+                                              ''))
+                                      .toString()
+                                      .replaceAll('_', ' ')),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.brown.shade700,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.blueGrey.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: Colors.blueGrey.shade200,
+                                ),
+                              ),
+                              child: Text(
+                                'Q$_selectedQuarter',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.blueGrey.shade700,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ],
                     ),
                   ),
@@ -946,22 +1476,34 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
                     children: [
                       Container(
                         decoration: BoxDecoration(
-                          color: Colors.green.shade100,
+                          color: bg,
                           borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: border),
                         ),
                         padding: const EdgeInsets.symmetric(
                           horizontal: 8,
                           vertical: 3,
                         ),
                         child: Text(
-                          'Published',
+                          label,
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
-                            color: Colors.green.shade800,
+                            color: txt,
                           ),
                         ),
                       ),
+                      if ((status == 'submitted' || status == 'late') &&
+                          submittedStr.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          'Submitted on: $submittedStr',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 6),
                       Text(
                         '$points pts • $dueStr',

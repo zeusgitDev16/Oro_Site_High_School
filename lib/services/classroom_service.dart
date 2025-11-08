@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:oro_site_high_school/models/classroom.dart';
 import 'package:oro_site_high_school/models/course.dart';
+import 'package:oro_site_high_school/services/assignment_service.dart';
 
 /// Classroom Service
 /// Handles all classroom-related database operations
@@ -10,9 +11,13 @@ class ClassroomService {
 
   /// Generate random access code
   String _generateAccessCode() {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const chars =
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     final random = Random();
-    return List.generate(8, (index) => chars[random.nextInt(chars.length)]).join();
+    return List.generate(
+      8,
+      (index) => chars[random.nextInt(chars.length)],
+    ).join();
   }
 
   /// Create a new classroom
@@ -35,7 +40,7 @@ class ClassroomService {
       }
 
       final accessCode = _generateAccessCode();
-      
+
       final response = await _supabase
           .from('classrooms')
           .insert({
@@ -173,6 +178,64 @@ class ClassroomService {
     }
   }
 
+  /// Delete classroom with cleanup
+  /// - Removes all course mappings (courses remain in "My Courses")
+  /// - Deletes all assignments in this classroom and their submissions (hard delete)
+  /// - Soft-deactivates the classroom (is_active = false)
+  Future<void> deleteClassroomAndCleanup(String classroomId) async {
+    try {
+      print('🧹 Deleting classroom with cleanup: $classroomId');
+
+      // 1) Collect assignments for this classroom
+      final rows = await _supabase
+          .from('assignments')
+          .select('id')
+          .eq('classroom_id', classroomId);
+      final assignmentIds = (rows as List)
+          .map((r) => r['id']?.toString())
+          .whereType<String>()
+          .toList();
+
+      final assignmentService = AssignmentService();
+
+      // 2) Best-effort storage cleanup for each assignment first
+      for (final aId in assignmentIds) {
+        try {
+          await assignmentService.deleteAssignmentStorageFiles(aId);
+        } catch (e) {
+          print('⚠️ Storage cleanup failed for assignment $aId: $e');
+        }
+      }
+
+      // 3) Delete assignments (DB cascade should remove submissions and file metadata)
+      for (final aId in assignmentIds) {
+        try {
+          await assignmentService.deleteAssignment(aId);
+        } catch (e) {
+          print('❌ Error deleting assignment $aId: $e');
+        }
+      }
+
+      // 4) Remove course mappings so courses go back to "My Courses"
+      try {
+        await _supabase
+            .from('classroom_courses')
+            .delete()
+            .eq('classroom_id', classroomId);
+      } catch (e) {
+        print('⚠️ Error removing classroom_courses mappings (non-fatal): $e');
+      }
+
+      // 5) Soft-delete the classroom itself
+      await deleteClassroom(classroomId);
+
+      print('✅ Classroom cleanup completed for $classroomId');
+    } catch (e) {
+      print('❌ Error deleting classroom with cleanup: $e');
+      rethrow;
+    }
+  }
+
   /// Get classroom count for a teacher
   Future<int> getTeacherClassroomCount(String teacherId) async {
     try {
@@ -243,8 +306,8 @@ class ClassroomService {
       }
 
       // Decrement count (don't go below 0)
-      final newCount = classroom.currentStudents > 0 
-          ? classroom.currentStudents - 1 
+      final newCount = classroom.currentStudents > 0
+          ? classroom.currentStudents - 1
           : 0;
 
       await _supabase
@@ -261,7 +324,7 @@ class ClassroomService {
   Future<String> regenerateAccessCode(String classroomId) async {
     try {
       final newAccessCode = _generateAccessCode();
-      
+
       await _supabase
           .from('classrooms')
           .update({'access_code': newAccessCode})
@@ -340,18 +403,20 @@ class ClassroomService {
       print('🔍 Searching for classroom with exact access code: $accessCode');
       print('🔍 Access code length: ${accessCode.length}');
       print('🔍 Access code bytes: ${accessCode.codeUnits}');
-      
+
       // First, let's check all active classrooms to debug
       final allClassrooms = await _supabase
           .from('classrooms')
           .select()
           .eq('is_active', true);
-      
+
       print('📊 Total active classrooms: ${(allClassrooms as List).length}');
       for (var classroom in allClassrooms) {
-        print('   - Classroom: ${classroom['title']}, Code: ${classroom['access_code']}');
+        print(
+          '   - Classroom: ${classroom['title']}, Code: ${classroom['access_code']}',
+        );
       }
-      
+
       // Query using exact match (case-sensitive)
       final response = await _supabase
           .from('classrooms')
@@ -362,7 +427,7 @@ class ClassroomService {
 
       if (response == null) {
         print('❌ No classroom found with access code: $accessCode');
-        
+
         // Try case-insensitive as fallback to see if it's a case issue
         final caseInsensitiveResponse = await _supabase
             .from('classrooms')
@@ -370,17 +435,19 @@ class ClassroomService {
             .ilike('access_code', accessCode)
             .eq('is_active', true)
             .maybeSingle();
-        
+
         if (caseInsensitiveResponse != null) {
           print('⚠️ Found classroom with case-insensitive match!');
           print('⚠️ Expected: $accessCode');
           print('⚠️ Found: ${caseInsensitiveResponse['access_code']}');
         }
-        
+
         return null;
       }
-      
-      print('✅ Found classroom: ${response['title']} with code: ${response['access_code']}');
+
+      print(
+        '✅ Found classroom: ${response['title']} with code: ${response['access_code']}',
+      );
       return Classroom.fromJson(response);
     } catch (e, stackTrace) {
       print('❌ Error finding classroom by access code: $e');
@@ -396,10 +463,10 @@ class ClassroomService {
   }) async {
     try {
       print('🎓 Student $studentId attempting to join with code: $accessCode');
-      
+
       // Find classroom by access code (exact match - case sensitive)
       final classroom = await findClassroomByAccessCode(accessCode);
-      
+
       if (classroom == null) {
         print('❌ No classroom found with access code: $accessCode');
         return {
@@ -417,7 +484,9 @@ class ClassroomService {
           .eq('classroom_id', classroom.id);
       final enrollmentCount = (enrollments as List).length;
       if (enrollmentCount >= classroom.maxStudents) {
-        print('❌ Classroom is full (live): $enrollmentCount/${classroom.maxStudents}');
+        print(
+          '❌ Classroom is full (live): $enrollmentCount/${classroom.maxStudents}',
+        );
         return {
           'success': false,
           'message': 'This classroom is full. Cannot join at this time.',
@@ -474,7 +543,8 @@ class ClassroomService {
       print('❌ Stack trace: ${StackTrace.current}');
       return {
         'success': false,
-        'message': 'An error occurred while joining the classroom. Please try again. Error: $e',
+        'message':
+            'An error occurred while joining the classroom. Please try again. Error: $e',
       };
     }
   }
@@ -539,7 +609,8 @@ class ClassroomService {
         // Likely missing mapping table or policies; surface a helpful message
         return {
           'success': false,
-          'message': 'Co-teacher access is not yet enabled on the backend. Please set up classroom_teachers and RLS policies.',
+          'message':
+              'Co-teacher access is not yet enabled on the backend. Please set up classroom_teachers and RLS policies.',
         };
       }
     } catch (e) {
@@ -560,10 +631,45 @@ class ClassroomService {
           .eq('student_id', studentId)
           .order('enrolled_at', ascending: false);
 
-      return (response as List).map((item) {
-        final classroomData = item['classrooms'];
-        return Classroom.fromJson(classroomData);
-      }).where((classroom) => classroom.isActive).toList();
+      final List<dynamic> rows = (response as List<dynamic>);
+      final List<Classroom> classrooms = [];
+
+      for (final item in rows) {
+        if (item == null) continue;
+        final map = item as Map<String, dynamic>;
+        Classroom? c;
+        final data = map['classrooms'];
+        if (data is Map<String, dynamic>) {
+          c = Classroom.fromJson(data);
+        } else {
+          // Fallback: fetch classroom by id if nested data is null/blocked
+          final cid = map['classroom_id'];
+          if (cid is String && cid.isNotEmpty) {
+            try {
+              final single = await _supabase
+                  .from('classrooms')
+                  .select()
+                  .eq('id', cid)
+                  .maybeSingle();
+              if (single != null && single is Map<String, dynamic>) {
+                c = Classroom.fromJson(single);
+              }
+            } catch (e) {
+              // Swallow and continue; we'll just skip this row
+              print('⚠️ Fallback fetch failed for classroom_id=$cid: $e');
+            }
+          }
+        }
+        if (c != null && c.isActive) {
+          classrooms.add(c);
+        } else if (c == null) {
+          print(
+            '⚠️ Skipping row with null/invalid classrooms for student $studentId: $map',
+          );
+        }
+      }
+
+      return classrooms;
     } catch (e) {
       print('❌ Error fetching student classrooms: $e');
       rethrow;
@@ -611,14 +717,16 @@ class ClassroomService {
   }
 
   /// Get enrollment counts for a list of classrooms
-  Future<Map<String, int>> getEnrollmentCountsForClassrooms(List<String> classroomIds) async {
+  Future<Map<String, int>> getEnrollmentCountsForClassrooms(
+    List<String> classroomIds,
+  ) async {
     if (classroomIds.isEmpty) return {};
     try {
       final response = await _supabase
           .from('classroom_students')
           .select('classroom_id')
           .inFilter('classroom_id', classroomIds);
-      
+
       final counts = <String, int>{};
       for (final row in (response as List)) {
         final id = row['classroom_id'] as String;
@@ -630,9 +738,11 @@ class ClassroomService {
       return {};
     }
   }
-  
+
   /// Get all students enrolled in a classroom
-  Future<List<Map<String, dynamic>>> getClassroomStudents(String classroomId) async {
+  Future<List<Map<String, dynamic>>> getClassroomStudents(
+    String classroomId,
+  ) async {
     try {
       // Prefer secure RPC that enforces owner/co-teacher visibility server-side.
       try {
@@ -640,12 +750,16 @@ class ClassroomService {
           'get_classroom_students_with_profile',
           params: {'p_classroom_id': classroomId},
         );
-        return (rows as List).map((r) => {
-              'student_id': r['student_id'],
-              'full_name': r['full_name'],
-              'email': r['email'],
-              'enrolled_at': r['enrolled_at'],
-            }).toList();
+        return (rows as List)
+            .map(
+              (r) => {
+                'student_id': r['student_id'],
+                'full_name': r['full_name'],
+                'email': r['email'],
+                'enrolled_at': r['enrolled_at'],
+              },
+            )
+            .toList();
       } catch (_) {
         // Fallback to direct select for environments where RPC isn't yet deployed
       }
@@ -668,6 +782,86 @@ class ClassroomService {
     } catch (e) {
       print('❌ Error fetching classroom students: $e');
       rethrow;
+    }
+  }
+
+  /// Get all teachers (co-teachers) joined in a classroom with profile data
+  /// Includes entries from classroom_teachers mapping table. The owner is NOT included
+  /// here; fetch the owner via the classrooms.teacher_id separately if needed.
+  Future<List<Map<String, dynamic>>> getClassroomTeachers(
+    String classroomId,
+  ) async {
+    try {
+      // Prefer secure RPC that can enforce visibility server-side if available
+      try {
+        final rows = await _supabase.rpc(
+          'get_classroom_teachers_with_profile',
+          params: {'p_classroom_id': classroomId},
+        );
+        return (rows as List)
+            .map(
+              (r) => {
+                'teacher_id': r['teacher_id'],
+                'full_name': r['full_name'],
+                'email': r['email'],
+                'joined_at': r['joined_at'],
+              },
+            )
+            .toList();
+      } catch (_) {
+        // Fallback to direct select for environments where RPC isn't yet deployed
+      }
+
+      final response = await _supabase
+          .from('classroom_teachers')
+          .select('teacher_id, joined_at, profiles!inner(full_name, email)')
+          .eq('classroom_id', classroomId)
+          .order('joined_at', ascending: false);
+
+      return (response as List).map((item) {
+        final profile = item['profiles'];
+        return {
+          'teacher_id': item['teacher_id'],
+          'full_name': profile['full_name'],
+          'email': profile['email'],
+          'joined_at': item['joined_at'],
+        };
+      }).toList();
+    } catch (e) {
+      print('❌ Error fetching classroom teachers: $e');
+      rethrow;
+    }
+  }
+
+  /// Returns the number of co-teachers joined in the classroom (excludes owner)
+  Future<int> getClassroomTeacherCount(String classroomId) async {
+    try {
+      final res = await _supabase
+          .from('classroom_teachers')
+          .select('teacher_id')
+          .eq('classroom_id', classroomId);
+      return (res as List).length;
+    } catch (e) {
+      print('❌ Error counting classroom teachers: $e');
+      return 0;
+    }
+  }
+
+  /// Removes a co-teacher from the classroom (owner cannot be removed by design)
+  Future<bool> removeTeacherFromClassroom({
+    required String classroomId,
+    required String teacherId,
+  }) async {
+    try {
+      await _supabase
+          .from('classroom_teachers')
+          .delete()
+          .eq('classroom_id', classroomId)
+          .eq('teacher_id', teacherId);
+      return true;
+    } catch (e) {
+      print('❌ Error removing co-teacher: $e');
+      return false;
     }
   }
 }

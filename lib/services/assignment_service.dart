@@ -218,15 +218,44 @@ class AssignmentService {
     }
   }
 
-  /// Delete an assignment (hard delete)
+  /// Delete an assignment and its related data (hard delete + safe cleanup)
   Future<void> deleteAssignment(String assignmentId) async {
-    try {
-      print('🗑️ Deleting assignment: $assignmentId');
+    print('🗑️ Deleting assignment and related data: $assignmentId');
 
-      // Perform hard delete to avoid triggers on update and ensure removal from DB
+    // 1) Best-effort: delete storage files first so we still have file paths
+    try {
+      await deleteAssignmentStorageFiles(assignmentId);
+    } catch (e) {
+      print('⚠️ Storage cleanup failed (non-fatal): $e');
+    }
+
+    try {
+      // 2) Best-effort: explicitly delete dependent rows (RLS may block; parent delete will cascade)
+      try {
+        await _supabase
+            .from('assignment_files')
+            .delete()
+            .eq('assignment_id', assignmentId);
+      } catch (e) {
+        print(
+          'ℹ️ Skipping explicit assignment_files delete (will cascade on parent delete): $e',
+        );
+      }
+      try {
+        await _supabase
+            .from('assignment_submissions')
+            .delete()
+            .eq('assignment_id', assignmentId);
+      } catch (e) {
+        print(
+          'ℹ️ Skipping explicit submissions delete (will cascade on parent delete): $e',
+        );
+      }
+
+      // 3) Delete the assignment itself (ON DELETE CASCADE should remove children if configured)
       await _supabase.from('assignments').delete().eq('id', assignmentId);
 
-      print('✅ Assignment deleted successfully (hard delete)');
+      print('✅ Assignment deleted successfully (hard delete + cascade)');
     } catch (e) {
       print('❌ Error deleting assignment: $e');
       rethrow;

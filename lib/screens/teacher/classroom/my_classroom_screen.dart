@@ -54,6 +54,8 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
   late TabController _tabController;
   final TextEditingController _studentsSearchCtrl = TextEditingController();
   String _studentsQuery = '';
+  final TextEditingController _teachersSearchCtrl = TextEditingController();
+  String _teachersQuery = '';
 
   // Join as co-teacher input state
   final TextEditingController _joinCodeCtrl = TextEditingController();
@@ -1191,7 +1193,7 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                           ),
                           const SizedBox(width: 6),
                           const Text(
-                            'my students',
+                            'joined',
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.black87,
@@ -1209,13 +1211,26 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                               borderRadius: BorderRadius.circular(10),
                               border: Border.all(color: Colors.green.shade200),
                             ),
-                            child: Text(
-                              '${_enrollmentCounts[_selectedClassroom!.id] ?? _selectedClassroom!.currentStudents}',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.black87,
-                              ),
+                            child: FutureBuilder<int>(
+                              future: _classroomService
+                                  .getClassroomTeacherCount(
+                                    _selectedClassroom!.id,
+                                  ),
+                              builder: (ctx, snap) {
+                                final sCount =
+                                    _enrollmentCounts[_selectedClassroom!.id] ??
+                                    _selectedClassroom!.currentStudents;
+                                final tCount =
+                                    (snap.data ?? 0) + 1; // include owner
+                                return Text(
+                                  '${sCount + tCount}',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.black87,
+                                  ),
+                                );
+                              },
                             ),
                           ),
                         ],
@@ -1427,7 +1442,43 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
             width: 900,
             height: 560,
             padding: const EdgeInsets.all(12),
-            child: _buildStudentsTab(setLocal: setLocal),
+            child: DefaultTabController(
+              length: 2,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  FutureBuilder<int>(
+                    future: _classroomService.getClassroomTeacherCount(
+                      _selectedClassroom!.id,
+                    ),
+                    builder: (ctx, snap) {
+                      final sCount =
+                          _enrollmentCounts[_selectedClassroom!.id] ??
+                          _selectedClassroom!.currentStudents;
+                      final tCount = (snap.data ?? 0) + 1; // include owner
+                      return TabBar(
+                        labelColor: Colors.black87,
+                        unselectedLabelColor: Colors.grey,
+                        indicatorColor: Colors.blue,
+                        tabs: [
+                          Tab(text: 'Students ($sCount)'),
+                          Tab(text: 'Teachers ($tCount)'),
+                        ],
+                      );
+                    },
+                  ),
+                  SizedBox(height: 8),
+                  Expanded(
+                    child: TabBarView(
+                      children: [
+                        _buildStudentsTab(setLocal: setLocal),
+                        _buildTeachersTab(setLocal: setLocal),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -1549,74 +1600,80 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                               );
                             },
                           ),
-                          IconButton(
-                            tooltip: 'Remove from classroom',
-                            icon: const Icon(
-                              Icons.person_remove_alt_1_outlined,
-                            ),
-                            color: Colors.red.shade400,
-                            onPressed: () async {
-                              final confirmed = await showDialog<bool>(
-                                context: context,
-                                builder: (ctx) => AlertDialog(
-                                  title: const Text('Remove student'),
-                                  content: Text(
-                                    'Are you sure you want to remove "$fullName" from this classroom?',
+                          if (_teacherId != null &&
+                              _selectedClassroom!.teacherId == _teacherId)
+                            IconButton(
+                              tooltip: 'Remove from classroom',
+                              icon: const Icon(
+                                Icons.person_remove_alt_1_outlined,
+                              ),
+                              color: Colors.red.shade400,
+                              onPressed: () async {
+                                final confirmed = await showDialog<bool>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    title: const Text('Remove student'),
+                                    content: Text(
+                                      'Are you sure you want to remove "$fullName" from this classroom?',
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, false),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      ElevatedButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, true),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.red,
+                                          foregroundColor: Colors.white,
+                                        ),
+                                        child: const Text('Remove'),
+                                      ),
+                                    ],
                                   ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () =>
-                                          Navigator.pop(ctx, false),
-                                      child: const Text('Cancel'),
-                                    ),
-                                    ElevatedButton(
-                                      onPressed: () => Navigator.pop(ctx, true),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.red,
-                                        foregroundColor: Colors.white,
-                                      ),
-                                      child: const Text('Remove'),
-                                    ),
-                                  ],
-                                ),
-                              );
-                              if (confirmed == true) {
-                                try {
-                                  await _classroomService.leaveClassroom(
-                                    studentId: student['student_id'],
-                                    classroomId: _selectedClassroom!.id,
-                                  );
-                                  await _refreshEnrollmentCount(
-                                    _selectedClassroom!.id,
-                                  );
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                          'Removed $fullName from classroom',
-                                        ),
-                                        backgroundColor: Colors.green,
-                                      ),
+                                );
+                                if (confirmed == true) {
+                                  try {
+                                    await _classroomService.leaveClassroom(
+                                      studentId: student['student_id'],
+                                      classroomId: _selectedClassroom!.id,
                                     );
-                                  }
-                                  setState(
-                                    () {},
-                                  ); // trigger FutureBuilder refresh
-                                } catch (e) {
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                          'Error removing student: $e',
-                                        ),
-                                        backgroundColor: Colors.red,
-                                      ),
+                                    await _refreshEnrollmentCount(
+                                      _selectedClassroom!.id,
                                     );
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            'Removed $fullName from classroom',
+                                          ),
+                                          backgroundColor: Colors.green,
+                                        ),
+                                      );
+                                    }
+                                    setState(() {});
+                                    setLocal?.call(() {});
+                                  } catch (e) {
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            'Error removing student: $e',
+                                          ),
+                                          backgroundColor: Colors.red,
+                                        ),
+                                      );
+                                    }
                                   }
                                 }
-                              }
-                            },
-                          ),
+                              },
+                            ),
                         ],
                       ),
                     ),
@@ -1692,7 +1749,9 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
           Tooltip(
             message: 'Add student',
             child: InkWell(
-              onTap: _selectedClassroom == null ? null : _showAddStudentDialog,
+              onTap: _selectedClassroom == null
+                  ? null
+                  : () => _showAddMemberDialog(initialType: 'student'),
               borderRadius: BorderRadius.circular(16),
               child: Container(
                 height: 32,
@@ -1774,7 +1833,8 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
               isLoading = true;
             });
             final res = await _classroomService.joinClassroom(
-              accessCode: _selectedClassroom!.id,
+              accessCode:
+                  _selectedClassroom!.accessCode ?? _selectedClassroom!.id,
               studentId: p.id,
             );
             setDialogState(() {
@@ -1875,6 +1935,820 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
     );
   }
 
+  Widget _buildTeachersToolbar({StateSetter? setLocal}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          bottom: BorderSide(color: Colors.grey.shade300, width: 1),
+        ),
+      ),
+      child: Row(
+        children: [
+          // Search (left)
+          Expanded(
+            child: SizedBox(
+              height: 36,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: TextField(
+                  controller: _teachersSearchCtrl,
+                  style: const TextStyle(fontSize: 13),
+                  decoration: const InputDecoration(
+                    hintText: 'Search teachers',
+                    border: InputBorder.none,
+                    icon: Icon(Icons.search, size: 18),
+                  ),
+                  onChanged: (q) {
+                    setLocal?.call(() {
+                      _teachersQuery = q.trim();
+                    });
+                  },
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Add teacher
+          Tooltip(
+            message: 'Add teacher',
+            child: InkWell(
+              onTap: _selectedClassroom == null
+                  ? null
+                  : () => _showAddMemberDialog(initialType: 'teacher'),
+              borderRadius: BorderRadius.circular(16),
+              child: Container(
+                height: 32,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  color: Colors.purple.shade50,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.purple.shade200),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.person_add_alt_1,
+                      size: 16,
+                      color: Colors.purple.shade700,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'add teacher',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.purple.shade800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTeachersTab({StateSetter? setLocal}) {
+    if (_selectedClassroom == null) {
+      return const Center(child: Text('Select a classroom first'));
+    }
+
+    final cid = _selectedClassroom!.id;
+    return Column(
+      children: [
+        _buildTeachersToolbar(setLocal: setLocal),
+        Expanded(
+          child: FutureBuilder<Map<String, dynamic>>(
+            future: (() async {
+              // Fetch owner profile and co-teachers concurrently
+              Profile? owner;
+              try {
+                owner = await _profileService.getProfile(
+                  _selectedClassroom!.teacherId,
+                );
+              } catch (_) {}
+              final coTeachers = await _classroomService.getClassroomTeachers(
+                cid,
+              );
+              return {'owner': owner, 'coTeachers': coTeachers};
+            })(),
+            builder: (ctx, snap) {
+              if (snap.connectionState == ConnectionState.waiting) {
+                return const Center(
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                );
+              }
+              if (snap.hasError) {
+                return Center(
+                  child: Text(
+                    'Failed to load teachers',
+                    style: TextStyle(color: Colors.red.shade700),
+                  ),
+                );
+              }
+              final owner = snap.data?['owner'] as Profile?;
+              final co = (snap.data?['coTeachers'] as List<dynamic>? ?? [])
+                  .cast<Map<String, dynamic>>();
+
+              final List<Map<String, String>> items = [];
+              if (owner != null) {
+                items.add({
+                  'id': owner.id,
+                  'name': owner.displayName,
+                  'email': owner.email ?? '',
+                  'role': 'Owner',
+                });
+              }
+              for (final t in co) {
+                items.add({
+                  'id': (t['teacher_id'] ?? '').toString(),
+                  'name': (t['full_name'] ?? '').toString(),
+                  'email': (t['email'] ?? '').toString(),
+                  'role': 'Co-teacher',
+                });
+              }
+
+              final q = _teachersQuery.toLowerCase();
+              final filtered = q.isEmpty
+                  ? items
+                  : items
+                        .where(
+                          (m) =>
+                              (m['name'] ?? '').toLowerCase().contains(q) ||
+                              (m['email'] ?? '').toLowerCase().contains(q),
+                        )
+                        .toList();
+
+              if (filtered.isEmpty) {
+                return Center(
+                  child: Text(
+                    'No teachers found',
+                    style: TextStyle(color: Colors.grey.shade700),
+                  ),
+                );
+              }
+
+              return ListView.separated(
+                itemCount: filtered.length,
+                separatorBuilder: (_, __) =>
+                    Divider(height: 1, color: Colors.grey.shade200),
+                itemBuilder: (ctx, i) {
+                  final m = filtered[i];
+                  return ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: Colors.purple.shade100,
+                      child: Text(
+                        (m['name'] ?? 'T').isNotEmpty
+                            ? m['name']!
+                                  .trim()
+                                  .split(' ')
+                                  .map((e) => e.isNotEmpty ? e[0] : '')
+                                  .take(2)
+                                  .join()
+                            : 'T',
+                        style: const TextStyle(color: Colors.black87),
+                      ),
+                    ),
+                    title: Text(m['name'] ?? ''),
+                    subtitle: Text(m['email'] ?? ''),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.purple.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.purple.shade200),
+                          ),
+                          child: Text(
+                            m['role'] ?? 'Teacher',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.purple.shade800,
+                            ),
+                          ),
+                        ),
+                        if (m['role'] == 'Co-teacher' &&
+                            _teacherId != null &&
+                            _selectedClassroom!.teacherId == _teacherId) ...[
+                          const SizedBox(width: 6),
+                          Tooltip(
+                            message: 'Remove co-teacher',
+                            child: IconButton(
+                              icon: Icon(
+                                Icons.person_remove,
+                                color: Colors.redAccent,
+                                size: 20,
+                              ),
+                              onPressed: () async {
+                                final confirmed = await showDialog<bool>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    title: const Text('Remove co-teacher'),
+                                    content: Text(
+                                      'Are you sure you want to remove "${m['name'] ?? 'this co-teacher'}" from this classroom?',
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, false),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      ElevatedButton(
+                                        onPressed: () =>
+                                            Navigator.pop(ctx, true),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.red,
+                                          foregroundColor: Colors.white,
+                                        ),
+                                        child: const Text('Remove'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (confirmed != true) return;
+                                final ok = await _classroomService
+                                    .removeTeacherFromClassroom(
+                                      classroomId: _selectedClassroom!.id,
+                                      teacherId: m['id']!,
+                                    );
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      ok
+                                          ? 'Co-teacher removed'
+                                          : 'Failed to remove co-teacher',
+                                    ),
+                                    backgroundColor: ok
+                                        ? Colors.green
+                                        : Colors.red,
+                                  ),
+                                );
+                                setLocal?.call(() {});
+                              },
+                            ),
+                          ),
+                        ],
+                        if (m['role'] == 'Co-teacher' &&
+                            _teacherId != null &&
+                            m['id'] == _teacherId &&
+                            _selectedClassroom!.teacherId != _teacherId) ...[
+                          const SizedBox(width: 6),
+                          Tooltip(
+                            message: 'Leave classroom',
+                            child: IconButton(
+                              icon: Icon(
+                                Icons.logout,
+                                color: Colors.redAccent,
+                                size: 20,
+                              ),
+                              onPressed: () async {
+                                await _confirmLeaveClassroom(
+                                  _selectedClassroom!,
+                                );
+                                if (mounted) {
+                                  Navigator.of(context).maybePop();
+                                }
+                              },
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showAddMemberDialog({String initialType = 'student'}) async {
+    if (_selectedClassroom == null) return;
+
+    String type = initialType; // 'student' or 'teacher'
+    final TextEditingController searchCtrl = TextEditingController();
+    List<Profile> results = [];
+    bool isLoading = false;
+
+    // Preload membership sets to show status in the Add dialog and avoid duplicates
+    final Set<String> enrolledIds = <String>{};
+    final Set<String> teacherIds = <String>{};
+    try {
+      final enrolled = await _classroomService.getClassroomStudents(
+        _selectedClassroom!.id,
+      );
+      for (final s in enrolled) {
+        final sid = (s['student_id'] ?? '').toString();
+        if (sid.isNotEmpty) enrolledIds.add(sid);
+      }
+    } catch (_) {}
+    try {
+      final co = await _classroomService.getClassroomTeachers(
+        _selectedClassroom!.id,
+      );
+      for (final t in co) {
+        final tid = (t['teacher_id'] ?? '').toString();
+        if (tid.isNotEmpty) teacherIds.add(tid);
+      }
+    } catch (_) {}
+    // Include the owner so we treat them as already in classroom for teacher type
+    if (_selectedClassroom?.teacherId != null) {
+      teacherIds.add(_selectedClassroom!.teacherId);
+    }
+
+    Future<void> runSearch(String q) async {
+      isLoading = true;
+      try {
+        // Fetch users broadly then filter client-side to keep this change minimal
+        final all = await _profileService.getAllUsers(
+          searchQuery: q.isEmpty ? null : q,
+          limit: 100,
+          page: 1,
+        );
+        List<Profile> filtered;
+        if (type == 'student') {
+          filtered = all
+              .where(
+                (p) =>
+                    (p.roleName ?? '').toLowerCase() == 'student' ||
+                    p.roleId == 3,
+              )
+              .toList();
+        } else {
+          bool isTeacherLike(Profile p) {
+            final rn = (p.roleName ?? '').toLowerCase();
+            return rn == 'teacher' ||
+                rn == 'grade_level_coordinator' ||
+                rn == 'coordinator' ||
+                rn == 'hybrid' ||
+                rn == 'admin' ||
+                p.roleId == 2 ||
+                p.roleId == 5 ||
+                p.roleId == 1;
+          }
+
+          filtered = all.where(isTeacherLike).toList();
+        }
+        results = filtered;
+      } catch (_) {
+        results = [];
+      } finally {
+        isLoading = false;
+      }
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          Future<void> searchNow(String q) async {
+            setDialogState(() => isLoading = true);
+            await runSearch(q);
+            setDialogState(() {});
+          }
+
+          Future<void> addSelected(Profile p) async {
+            // Prevent duplicates based on preloaded membership sets
+            if (type == 'student' && enrolledIds.contains(p.id)) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Student is already in this classroom'),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+              return;
+            }
+            if (type == 'teacher' && teacherIds.contains(p.id)) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Teacher is already in this classroom'),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+              return;
+            }
+
+            final code = _selectedClassroom!.accessCode;
+            if (code == null || code.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Classroom has no access code. Please generate one.',
+                  ),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+              return;
+            }
+
+            setDialogState(() => isLoading = true);
+            Map<String, dynamic> res;
+            try {
+              if (type == 'student') {
+                res = await _classroomService.joinClassroom(
+                  studentId: p.id,
+                  accessCode: code,
+                );
+              } else {
+                res = await _classroomService.joinClassroomAsTeacher(
+                  teacherId: p.id,
+                  accessCode: code,
+                );
+              }
+            } finally {
+              setDialogState(() => isLoading = false);
+            }
+
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(res['message'] ?? 'Operation complete'),
+                backgroundColor: (res['success'] == true)
+                    ? Colors.green
+                    : Colors.orange,
+              ),
+            );
+            if (res['success'] == true) {
+              if (type == 'student') {
+                enrolledIds.add(p.id);
+                await _refreshEnrollmentCount(_selectedClassroom!.id);
+              } else {
+                teacherIds.add(p.id);
+              }
+              // Ask parent to refresh data; counts in outer dialog update on reopen
+              setState(() {});
+              setDialogState(() {});
+            }
+          }
+
+          if (results.isEmpty && !isLoading) {
+            searchNow('');
+          }
+
+          return AlertDialog(
+            title: const Text('Add member to classroom'),
+            content: SizedBox(
+              width: 650,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      const Text(
+                        'Type:',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(width: 8),
+                      DropdownButton<String>(
+                        value: type,
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'student',
+                            child: Text('Student'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'teacher',
+                            child: Text('Teacher/Coordinator/Hybrid'),
+                          ),
+                        ],
+                        onChanged: (v) {
+                          if (v == null) return;
+                          setDialogState(() {
+                            type = v;
+                            results = [];
+                          });
+                          searchNow(searchCtrl.text);
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: searchCtrl,
+                    decoration: InputDecoration(
+                      hintText: type == 'student'
+                          ? 'Search students by name or email...'
+                          : 'Search teachers by name or email...',
+                      prefixIcon: const Icon(Icons.search),
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                      suffixIcon: searchCtrl.text.isEmpty
+                          ? null
+                          : IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                searchCtrl.clear();
+                                searchNow('');
+                              },
+                            ),
+                    ),
+                    onChanged: (q) => searchNow(q),
+                  ),
+                  const SizedBox(height: 12),
+                  if (isLoading) const LinearProgressIndicator(minHeight: 2),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 360,
+                    width: double.infinity,
+                    child: results.isEmpty && !isLoading
+                        ? Center(
+                            child: Text(
+                              type == 'student'
+                                  ? 'No students found'
+                                  : 'No teachers found',
+                              style: TextStyle(color: Colors.grey.shade700),
+                            ),
+                          )
+                        : ListView.builder(
+                            itemCount: results.length,
+                            itemBuilder: (ctx, i) {
+                              final p = results[i];
+                              final bool isOwner =
+                                  _selectedClassroom != null &&
+                                  _selectedClassroom!.teacherId == _teacherId;
+                              final bool isAlready = type == 'student'
+                                  ? enrolledIds.contains(p.id)
+                                  : teacherIds.contains(p.id);
+                              return ListTile(
+                                leading: CircleAvatar(child: Text(p.initials)),
+                                title: Text(p.displayName),
+                                subtitle: Text(p.email ?? ''),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (isAlready)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: type == 'student'
+                                              ? Colors.green.shade50
+                                              : Colors.purple.shade50,
+                                          borderRadius: const BorderRadius.all(
+                                            Radius.circular(12),
+                                          ),
+                                          border: Border.all(
+                                            color: type == 'student'
+                                                ? Colors.green.shade200
+                                                : Colors.purple.shade200,
+                                          ),
+                                        ),
+                                        child: const Text(
+                                          'Already in classroom',
+                                          style: TextStyle(fontSize: 11),
+                                        ),
+                                      ),
+                                    if (isAlready) const SizedBox(width: 6),
+                                    if (isAlready &&
+                                        type == 'student' &&
+                                        isOwner)
+                                      IconButton(
+                                        tooltip: 'Remove from classroom',
+                                        icon: const Icon(
+                                          Icons.person_remove_alt_1_outlined,
+                                        ),
+                                        color: Colors.red.shade400,
+                                        onPressed: isLoading
+                                            ? null
+                                            : () async {
+                                                final confirm =
+                                                    await showDialog<bool>(
+                                                      context: context,
+                                                      builder: (_) => AlertDialog(
+                                                        title: const Text(
+                                                          'Remove student?',
+                                                        ),
+                                                        content: Text(
+                                                          'Remove ${p.displayName} from this classroom?',
+                                                        ),
+                                                        actions: [
+                                                          TextButton(
+                                                            onPressed: () =>
+                                                                Navigator.pop(
+                                                                  context,
+                                                                  false,
+                                                                ),
+                                                            child: const Text(
+                                                              'Cancel',
+                                                            ),
+                                                          ),
+                                                          TextButton(
+                                                            onPressed: () =>
+                                                                Navigator.pop(
+                                                                  context,
+                                                                  true,
+                                                                ),
+                                                            child: const Text(
+                                                              'Remove',
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    );
+                                                if (confirm != true) return;
+                                                setDialogState(
+                                                  () => isLoading = true,
+                                                );
+                                                try {
+                                                  await _classroomService
+                                                      .leaveClassroom(
+                                                        studentId: p.id,
+                                                        classroomId:
+                                                            _selectedClassroom!
+                                                                .id,
+                                                      );
+                                                  enrolledIds.remove(p.id);
+                                                  await _refreshEnrollmentCount(
+                                                    _selectedClassroom!.id,
+                                                  );
+                                                  if (mounted) {
+                                                    ScaffoldMessenger.of(
+                                                      context,
+                                                    ).showSnackBar(
+                                                      const SnackBar(
+                                                        content: Text(
+                                                          'Student removed',
+                                                        ),
+                                                        backgroundColor:
+                                                            Colors.green,
+                                                      ),
+                                                    );
+                                                  }
+                                                  setState(() {});
+                                                } catch (e) {
+                                                  if (mounted) {
+                                                    ScaffoldMessenger.of(
+                                                      context,
+                                                    ).showSnackBar(
+                                                      const SnackBar(
+                                                        content: Text(
+                                                          'Failed to remove student',
+                                                        ),
+                                                        backgroundColor:
+                                                            Colors.orange,
+                                                      ),
+                                                    );
+                                                  }
+                                                } finally {
+                                                  setDialogState(
+                                                    () => isLoading = false,
+                                                  );
+                                                }
+                                              },
+                                      ),
+                                    if (isAlready &&
+                                        type == 'teacher' &&
+                                        isOwner &&
+                                        p.id != _selectedClassroom!.teacherId)
+                                      IconButton(
+                                        tooltip: 'Remove co-teacher',
+                                        icon: const Icon(
+                                          Icons.person_remove_alt_1_outlined,
+                                        ),
+                                        color: Colors.red.shade400,
+                                        onPressed: isLoading
+                                            ? null
+                                            : () async {
+                                                final confirm =
+                                                    await showDialog<bool>(
+                                                      context: context,
+                                                      builder: (_) => AlertDialog(
+                                                        title: const Text(
+                                                          'Remove co-teacher?',
+                                                        ),
+                                                        content: Text(
+                                                          'Remove ${p.displayName} as co-teacher?',
+                                                        ),
+                                                        actions: [
+                                                          TextButton(
+                                                            onPressed: () =>
+                                                                Navigator.pop(
+                                                                  context,
+                                                                  false,
+                                                                ),
+                                                            child: const Text(
+                                                              'Cancel',
+                                                            ),
+                                                          ),
+                                                          TextButton(
+                                                            onPressed: () =>
+                                                                Navigator.pop(
+                                                                  context,
+                                                                  true,
+                                                                ),
+                                                            child: const Text(
+                                                              'Remove',
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    );
+                                                if (confirm != true) return;
+                                                setDialogState(
+                                                  () => isLoading = true,
+                                                );
+                                                try {
+                                                  final ok = await _classroomService
+                                                      .removeTeacherFromClassroom(
+                                                        classroomId:
+                                                            _selectedClassroom!
+                                                                .id,
+                                                        teacherId: p.id,
+                                                      );
+                                                  if (ok) {
+                                                    teacherIds.remove(p.id);
+                                                    if (mounted) {
+                                                      ScaffoldMessenger.of(
+                                                        context,
+                                                      ).showSnackBar(
+                                                        const SnackBar(
+                                                          content: Text(
+                                                            'Co-teacher removed',
+                                                          ),
+                                                          backgroundColor:
+                                                              Colors.green,
+                                                        ),
+                                                      );
+                                                    }
+                                                    setState(() {});
+                                                  } else {
+                                                    if (mounted) {
+                                                      ScaffoldMessenger.of(
+                                                        context,
+                                                      ).showSnackBar(
+                                                        const SnackBar(
+                                                          content: Text(
+                                                            'Failed to remove co-teacher',
+                                                          ),
+                                                          backgroundColor:
+                                                              Colors.orange,
+                                                        ),
+                                                      );
+                                                    }
+                                                  }
+                                                } finally {
+                                                  setDialogState(
+                                                    () => isLoading = false,
+                                                  );
+                                                }
+                                              },
+                                      ),
+                                    if (!isAlready && isOwner)
+                                      IconButton(
+                                        tooltip: type == 'student'
+                                            ? 'Add student'
+                                            : 'Add teacher',
+                                        icon: Icon(
+                                          Icons.add_circle_outline,
+                                          color: type == 'student'
+                                              ? Colors.green
+                                              : Colors.purple,
+                                        ),
+                                        onPressed: isLoading
+                                            ? null
+                                            : () => addSelected(p),
+                                      ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   Future<void> _loadClassroomAssignments(String classroomId) async {
     setState(() {
       _isLoadingClassroomAssignments = true;
@@ -1931,6 +2805,252 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
         );
       }
     }
+  }
+
+  Future<void> _showAssignmentOverview(Map<String, dynamic> a) async {
+    final String assignmentId = a['id'].toString();
+    bool allowLate = (a['allow_late_submissions'] == true);
+    final bool originalAllowLate = allowLate;
+
+    String? currentComponent =
+        (a['component'] ?? a['content']?['meta']?['component'])?.toString();
+    final String? originalComponent = currentComponent;
+    const List<String> allowedComponents = [
+      'written_works',
+      'performance_task',
+    ];
+    final bool canChangeComponent =
+        currentComponent == null ||
+        allowedComponents.contains(currentComponent);
+    String selectedComponent = canChangeComponent
+        ? (currentComponent ?? 'written_works')
+        : (currentComponent ?? 'written_works');
+
+    bool saving = false;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDlg) {
+            return AlertDialog(
+              title: const Text('Assignment overview'),
+              content: SizedBox(
+                width: 520,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        (a['title'] ?? 'Untitled').toString(),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: [
+                          if (((a['assignment_type'] ?? '').toString())
+                              .isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.deepPurple.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: Colors.deepPurple.shade200,
+                                ),
+                              ),
+                              child: Text(
+                                (a['assignment_type'] ?? '')
+                                    .toString()
+                                    .replaceAll('_', ' '),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.deepPurple.shade700,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          if (((currentComponent ?? '').toString()).isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.brown.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: Colors.brown.shade200,
+                                ),
+                              ),
+                              child: Text(
+                                currentComponent!.replaceAll('_', ' '),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.brown.shade700,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Allow late submissions'),
+                        value: allowLate,
+                        onChanged: (val) => setDlg(() => allowLate = val),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Component',
+                        style: TextStyle(
+                          color: Colors.grey.shade800,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      if (canChangeComponent)
+                        DropdownButtonFormField<String>(
+                          value: selectedComponent,
+                          decoration: const InputDecoration(
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          items: allowedComponents
+                              .map(
+                                (c) => DropdownMenuItem(
+                                  value: c,
+                                  child: Text(c.replaceAll('_', ' ')),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (val) => setDlg(
+                            () => selectedComponent = val ?? selectedComponent,
+                          ),
+                        )
+                      else
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.grey.shade300),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.lock_outline,
+                                size: 16,
+                                color: Colors.grey,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                (currentComponent ?? '').toString().replaceAll(
+                                  '_',
+                                  ' ',
+                                ),
+                                style: TextStyle(color: Colors.grey.shade700),
+                              ),
+                            ],
+                          ),
+                        ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'To edit other fields, unpublish the assignment and edit it from My Assignments.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.orange.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).maybePop(),
+                  child: const Text('Close'),
+                ),
+                ElevatedButton(
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          final bool lateChanged =
+                              allowLate != originalAllowLate;
+                          final bool compChanged =
+                              canChangeComponent &&
+                              (selectedComponent !=
+                                  (originalComponent ?? 'written_works'));
+                          if (!lateChanged && !compChanged) {
+                            Navigator.of(ctx).maybePop();
+                            return;
+                          }
+                          setDlg(() => saving = true);
+                          try {
+                            await _assignmentService.updateAssignment(
+                              assignmentId: assignmentId,
+                              allowLateSubmissions: lateChanged
+                                  ? allowLate
+                                  : null,
+                              component: compChanged ? selectedComponent : null,
+                            );
+                            if (mounted && _selectedClassroom != null) {
+                              await _loadClassroomAssignments(
+                                _selectedClassroom!.id,
+                              );
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Assignment updated'),
+                                  backgroundColor: Colors.green,
+                                  duration: Duration(seconds: 2),
+                                ),
+                              );
+                            }
+                            if (Navigator.canPop(ctx)) Navigator.pop(ctx);
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Error updating: $e'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+                            setDlg(() => saving = false);
+                          }
+                        },
+                  child: saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   Widget _buildModulesTab() {
@@ -2152,170 +3272,258 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
           } catch (_) {}
         }
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 10),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey.shade200),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 3,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // Left Icon
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(8),
+        return GestureDetector(
+          onTap: () => _showAssignmentOverview(a),
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade200),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 3,
+                  offset: const Offset(0, 2),
                 ),
-                child: const Icon(
-                  Icons.assignment_outlined,
-                  color: Colors.blue,
-                  size: 22,
+              ],
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Left Icon
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.assignment_outlined,
+                    color: Colors.blue,
+                    size: 22,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
+                const SizedBox(width: 12),
 
-              // Title + info
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Title + status chip
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            (a['title'] ?? 'Untitled').toString(),
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                              color: Colors.black87,
+                // Title + info
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Title + status chip
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              (a['title'] ?? 'Untitled').toString(),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                                color: Colors.black87,
+                              ),
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: (a['is_published'] == true)
-                                ? Colors.green.shade50
-                                : Colors.orange.shade50,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
                               color: (a['is_published'] == true)
-                                  ? Colors.green.shade200
-                                  : Colors.orange.shade200,
+                                  ? Colors.green.shade50
+                                  : Colors.orange.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: (a['is_published'] == true)
+                                    ? Colors.green.shade200
+                                    : Colors.orange.shade200,
+                              ),
                             ),
-                          ),
-                          child: Text(
-                            (a['is_published'] == true) ? 'published' : 'draft',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                              color: (a['is_published'] == true)
-                                  ? Colors.green.shade700
-                                  : Colors.orange.shade700,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Text(
-                          '${a['total_points'] ?? 0} pts',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade700,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        if (due != null) ...[
-                          Icon(
-                            Icons.access_time,
-                            size: 13,
-                            color: Colors.grey.shade600,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '${due.month}/${due.day}/${due.year} ${_formatAmPm(due)}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade600,
+                            child: Text(
+                              (a['is_published'] == true)
+                                  ? 'published'
+                                  : 'draft',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: (a['is_published'] == true)
+                                    ? Colors.green.shade700
+                                    : Colors.orange.shade700,
+                              ),
                             ),
                           ),
                         ],
-                      ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Text(
+                            '${a['total_points'] ?? 0} pts',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade700,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          if (due != null) ...[
+                            Icon(
+                              Icons.access_time,
+                              size: 13,
+                              color: Colors.grey.shade600,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${due.month}/${due.day}/${due.year} ${_formatAmPm(due)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: [
+                          if (((a['assignment_type'] ?? '').toString())
+                              .isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.deepPurple.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: Colors.deepPurple.shade200,
+                                ),
+                              ),
+                              child: Text(
+                                (a['assignment_type'] ?? '')
+                                    .toString()
+                                    .replaceAll('_', ' '),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.deepPurple.shade700,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          if (((a['component'] ??
+                                      (a['content']?['meta']?['component'] ??
+                                          ''))
+                                  .toString())
+                              .isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.brown.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: Colors.brown.shade200,
+                                ),
+                              ),
+                              child: Text(
+                                ((a['component'] ??
+                                        (a['content']?['meta']?['component'] ??
+                                            ''))
+                                    .toString()
+                                    .replaceAll('_', ' ')),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.brown.shade700,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.blueGrey.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: Colors.blueGrey.shade200,
+                              ),
+                            ),
+                            child: Text(
+                              'Q$_selectedQuarter',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.blueGrey.shade700,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Action buttons
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: 'View submissions',
+                      icon: const Icon(Icons.people_alt_outlined, size: 18),
+                      color: Colors.blueGrey.shade600,
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (ctx) => AssignmentSubmissionsScreen(
+                              classroomId: _selectedClassroom!.id,
+                              assignmentId: a['id'].toString(),
+                              courseTitle: _selectedCourse?.title,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    IconButton(
+                      tooltip: 'Publish',
+                      icon: const Icon(Icons.visibility_outlined, size: 18),
+                      color: Colors.green.shade700,
+                      onPressed: (a['is_published'] == true)
+                          ? null
+                          : () async {
+                              await _togglePublishAssignment(
+                                a['id'].toString(),
+                                true,
+                              );
+                            },
+                    ),
+                    IconButton(
+                      tooltip: 'Unpublish',
+                      icon: const Icon(Icons.visibility_off_outlined, size: 18),
+                      color: Colors.orange.shade700,
+                      onPressed: (a['is_published'] == true)
+                          ? () async {
+                              await _togglePublishAssignment(
+                                a['id'].toString(),
+                                false,
+                              );
+                            }
+                          : null,
                     ),
                   ],
                 ),
-              ),
-
-              // Action buttons
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    tooltip: 'View submissions',
-                    icon: const Icon(Icons.people_alt_outlined, size: 18),
-                    color: Colors.blueGrey.shade600,
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (ctx) => AssignmentSubmissionsScreen(
-                            classroomId: _selectedClassroom!.id,
-                            assignmentId: a['id'].toString(),
-                            courseTitle: _selectedCourse?.title,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                  IconButton(
-                    tooltip: 'Publish',
-                    icon: const Icon(Icons.visibility_outlined, size: 18),
-                    color: Colors.green.shade700,
-                    onPressed: (a['is_published'] == true)
-                        ? null
-                        : () async {
-                            await _togglePublishAssignment(
-                              a['id'].toString(),
-                              true,
-                            );
-                          },
-                  ),
-                  IconButton(
-                    tooltip: 'Unpublish',
-                    icon: const Icon(Icons.visibility_off_outlined, size: 18),
-                    color: Colors.orange.shade700,
-                    onPressed: (a['is_published'] == true)
-                        ? () async {
-                            await _togglePublishAssignment(
-                              a['id'].toString(),
-                              false,
-                            );
-                          }
-                        : null,
-                  ),
-                ],
-              ),
-            ],
+              ],
+            ),
           ),
         );
       },
@@ -3017,9 +4225,9 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '• All courses will be removed from this classroom\n'
-                    '• Classroom data will be permanently deleted\n'
-                    '• Courses will remain in "My Courses"',
+                    '• All assignments and their submissions will be permanently deleted\n'
+                    '• All courses will be removed from this classroom (they remain in "My Courses")\n'
+                    '• The classroom will be deactivated',
                     style: TextStyle(
                       fontSize: 12,
                       color: Colors.red.shade800,
@@ -3107,8 +4315,8 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
         );
       }
 
-      // Delete the classroom (this will cascade delete classroom_courses due to ON DELETE CASCADE)
-      await _classroomService.deleteClassroom(classroom.id);
+      // Delete the classroom with cleanup: remove course mappings, delete assignments+submissions, then soft-deactivate
+      await _classroomService.deleteClassroomAndCleanup(classroom.id);
 
       // Clear the selected classroom if it was the one deleted
       if (_selectedClassroom?.id == classroom.id) {

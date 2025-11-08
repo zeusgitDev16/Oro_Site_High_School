@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:oro_site_high_school/flow/student/student_grades_logic.dart';
-import 'package:oro_site_high_school/screens/student/grades/student_course_grades_screen.dart';
-import 'package:oro_site_high_school/screens/student/dashboard/student_dashboard_screen.dart';
+import 'package:oro_site_high_school/screens/student/grades/student_grade_viewer_screen.dart';
 
 /// Student Grades Overview Screen
 /// Displays all course grades and overall performance - UI only
@@ -11,6 +9,8 @@ class StudentGradesScreen extends StatefulWidget {
   @override
   State<StudentGradesScreen> createState() => _StudentGradesScreenState();
 }
+
+/*
 
 class _StudentGradesScreenState extends State<StudentGradesScreen> {
   late StudentGradesLogic _logic;
@@ -33,55 +33,7 @@ class _StudentGradesScreenState extends State<StudentGradesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: () async {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => const StudentDashboardScreen(),
-          ),
-        );
-        return false;
-      },
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('My Grades'),
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black,
-          elevation: 1,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const StudentDashboardScreen(),
-                ),
-              );
-            },
-          ),
-        ),
-        body: ListenableBuilder(
-          listenable: _logic,
-          builder: (context, _) {
-            if (_logic.isLoadingGrades) {
-              return const Center(child: CircularProgressIndicator());
-            }
-
-            return SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildOverallPerformance(),
-                  _buildCourseGrades(),
-                  _buildRecentGrades(),
-                ],
-              ),
-            );
-          },
-        ),
-      ),
-    );
+    return const StudentGradeViewerScreen();
   }
 
   Widget _buildOverallPerformance() {
@@ -162,7 +114,12 @@ class _StudentGradesScreenState extends State<StudentGradesScreen> {
     );
   }
 
-  Widget _buildPerformanceCard(String label, String value, String subtitle, IconData icon) {
+  Widget _buildPerformanceCard(
+    String label,
+    String value,
+    String subtitle,
+    IconData icon,
+  ) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -193,10 +150,7 @@ class _StudentGradesScreenState extends State<StudentGradesScreen> {
           ),
           Text(
             subtitle,
-            style: const TextStyle(
-              fontSize: 12,
-              color: Colors.white60,
-            ),
+            style: const TextStyle(fontSize: 12, color: Colors.white60),
           ),
         ],
       ),
@@ -217,10 +171,7 @@ class _StudentGradesScreenState extends State<StudentGradesScreen> {
         const SizedBox(height: 4),
         Text(
           label,
-          style: const TextStyle(
-            fontSize: 12,
-            color: Colors.white70,
-          ),
+          style: const TextStyle(fontSize: 12, color: Colors.white70),
         ),
       ],
     );
@@ -234,10 +185,7 @@ class _StudentGradesScreenState extends State<StudentGradesScreen> {
         children: [
           const Text(
             'Course Grades',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 16),
           ..._logic.courseGrades.map((course) => _buildCourseCard(course)),
@@ -325,7 +273,10 @@ class _StudentGradesScreenState extends State<StudentGradesScreen> {
                           ),
                         ),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
                           decoration: BoxDecoration(
                             color: statusColor.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(20),
@@ -351,7 +302,11 @@ class _StudentGradesScreenState extends State<StudentGradesScreen> {
                     const SizedBox(height: 8),
                     Row(
                       children: [
-                        Icon(Icons.person, size: 14, color: Colors.grey.shade600),
+                        Icon(
+                          Icons.person,
+                          size: 14,
+                          color: Colors.grey.shade600,
+                        ),
                         const SizedBox(width: 6),
                         Text(
                           course['teacher'],
@@ -420,10 +375,7 @@ class _StudentGradesScreenState extends State<StudentGradesScreen> {
         children: [
           const Text(
             'Recent Grades',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 16),
           ...recentGrades.map((grade) => _buildRecentGradeCard(grade)),
@@ -474,10 +426,7 @@ class _StudentGradesScreenState extends State<StudentGradesScreen> {
                   const SizedBox(height: 4),
                   Text(
                     '${grade['courseName']} • ${grade['type']}',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.grey.shade600,
-                    ),
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
                   ),
                 ],
               ),
@@ -495,10 +444,7 @@ class _StudentGradesScreenState extends State<StudentGradesScreen> {
                 ),
                 Text(
                   '${percentage.toStringAsFixed(0)}%',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: gradeColor,
-                  ),
+                  style: TextStyle(fontSize: 14, color: gradeColor),
                 ),
               ],
             ),
@@ -506,5 +452,14 @@ class _StudentGradesScreenState extends State<StudentGradesScreen> {
         ),
       ),
     );
+  }
+}
+
+*/
+
+class _StudentGradesScreenState extends State<StudentGradesScreen> {
+  @override
+  Widget build(BuildContext context) {
+    return const StudentGradeViewerScreen();
   }
 }

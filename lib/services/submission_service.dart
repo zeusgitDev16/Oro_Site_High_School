@@ -27,6 +27,21 @@ class SubmissionService {
     }
   }
 
+  /// Batch fetch submissions for a student across multiple assignments
+  /// Returns a list of rows with at least: assignment_id, status, submitted_at, score, max_score
+  Future<List<Map<String, dynamic>>> getStudentSubmissionsForAssignments({
+    required String studentId,
+    required List<String> assignmentIds,
+  }) async {
+    if (assignmentIds.isEmpty) return [];
+    final rows = await _supabase
+        .from('assignment_submissions')
+        .select('assignment_id, status, submitted_at, score, max_score')
+        .inFilter('assignment_id', assignmentIds)
+        .eq('student_id', studentId);
+    return List<Map<String, dynamic>>.from(rows as List);
+  }
+
   /// Create a draft submission row for a student. RLS requires student is enrolled.
   Future<Map<String, dynamic>> createSubmission({
     required String assignmentId,
@@ -45,7 +60,7 @@ class SubmissionService {
         .insert(payload)
         .select()
         .single();
-    return inserted as Map<String, dynamic>;
+    return Map<String, dynamic>.from(inserted);
   }
 
   /// Get or create (draft) submission row for a student.
