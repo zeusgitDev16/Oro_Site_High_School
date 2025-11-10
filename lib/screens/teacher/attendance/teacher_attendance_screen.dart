@@ -5,9 +5,10 @@ import 'package:oro_site_high_school/models/course.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:oro_site_high_school/screens/teacher/teacher_dashboard_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:io';
 import 'package:excel/excel.dart' as xls;
-import 'package:path_provider/path_provider.dart';
+import 'package:oro_site_high_school/utils/excel_download.dart';
+
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 /// Teacher Attendance (Structure Only)
 /// 2-layer workspace layout mirroring GradeEntry screen.
@@ -473,6 +474,16 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
           .cast<Map<String, dynamic>>();
 
       final daysInMonth = end.day;
+      bool _isWeekendDay(int day) {
+        final wd = DateTime(month.year, month.month, day).weekday;
+        return wd == DateTime.saturday || wd == DateTime.sunday;
+      }
+
+      final int schoolDays = List<int>.generate(
+        daysInMonth,
+        (i) => i + 1,
+      ).where((d) => !_isWeekendDay(d)).length;
+
       // map[studentId][day] = code
       final Map<String, Map<int, String>> monthMap = {
         for (final id in studentIds) id: {},
@@ -538,17 +549,46 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
         final u = Supabase.instance.client.auth.currentUser;
         final meta = u?.userMetadata;
         teacherName = (meta?['full_name'] ?? u?.email ?? '').toString();
+
+        final uid = u?.id;
+        if (uid != null) {
+          try {
+            final prof = await Supabase.instance.client
+                .from('profiles')
+                .select('full_name')
+                .eq('id', uid)
+                .maybeSingle();
+            if (prof != null) {
+              final fn = (prof['full_name'] ?? '').toString();
+              if (fn.trim().isNotEmpty) {
+                teacherName = fn;
+              }
+            }
+          } catch (_) {}
+        }
       } catch (_) {}
+
+      // School/system information (env with fallbacks)
+      final schoolName = dotenv.env['SCHOOL_NAME'] ?? 'Oro Site High School';
+      final schoolId = dotenv.env['SCHOOL_ID'] ?? '';
+      final division =
+          dotenv.env['DIVISION'] ?? 'Division of Cagayan de Oro City';
+      final region = dotenv.env['REGION'] ?? 'Region X - Northern Mindanao';
+
+      // Title
+      sheet.appendRow(<xls.CellValue?>[
+        xls.TextCellValue('SCHOOL FORM 2 (SF2) – Daily Attendance of Learners'),
+      ]);
 
       final header1 = <xls.CellValue?>[
         xls.TextCellValue('School:'),
-        xls.TextCellValue(''),
+        xls.TextCellValue(schoolName),
         xls.TextCellValue('School ID:'),
-        xls.TextCellValue(''),
+        xls.TextCellValue(schoolId),
         xls.TextCellValue('Division:'),
-        xls.TextCellValue(''),
+        xls.TextCellValue(division),
         xls.TextCellValue('Region:'),
-        xls.TextCellValue(''),
+        xls.TextCellValue(region),
       ];
       final header2 = <xls.CellValue?>[
         xls.TextCellValue('Grade Level:'),
@@ -574,7 +614,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
       sheet.appendRow(header1);
       sheet.appendRow(header2);
       sheet.appendRow(header3);
-      sheet.appendRow([null]);
+      sheet.appendRow(<xls.CellValue?>[null]);
 
       // Table header
       final dayCols = List<xls.CellValue?>.generate(
@@ -665,7 +705,10 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
       // Save file
       // Summary row (monthly totals/average)
       final avgPct = pctCount == 0 ? 0 : (pctSum / pctCount).round();
-      final blankDays = List<xls.CellValue?>.filled(daysInMonth, null);
+      final blankDays = List<xls.CellValue?>.generate(
+        daysInMonth,
+        (_) => xls.TextCellValue(''),
+      );
       sheet.appendRow(<xls.CellValue?>[
         xls.TextCellValue(''),
         xls.TextCellValue('Totals'),
@@ -676,15 +719,318 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
         xls.IntCellValue(totalE),
         xls.TextCellValue('Avg $avgPct%'),
       ]);
+      // DepEd formatting and auto-computations
+      final thin = xls.Border(borderStyle: xls.BorderStyle.Thin);
 
+      final headerStyle = xls.CellStyle(
+        bold: true,
+        fontSize: 10,
+        horizontalAlign: xls.HorizontalAlign.Center,
+        verticalAlign: xls.VerticalAlign.Center,
+        topBorder: thin,
+        bottomBorder: thin,
+        leftBorder: thin,
+        rightBorder: thin,
+      );
+      final weekendHeaderStyle = xls.CellStyle(
+        bold: true,
+        fontSize: 10,
+        horizontalAlign: xls.HorizontalAlign.Center,
+        verticalAlign: xls.VerticalAlign.Center,
+        topBorder: thin,
+        bottomBorder: thin,
+        leftBorder: thin,
+        rightBorder: thin,
+        backgroundColorHex: xls.ExcelColor.fromHexString('FFF2F2F2'),
+      );
+      final baseCellStyle = xls.CellStyle(
+        horizontalAlign: xls.HorizontalAlign.Center,
+        verticalAlign: xls.VerticalAlign.Center,
+        topBorder: thin,
+        bottomBorder: thin,
+        leftBorder: thin,
+        rightBorder: thin,
+      );
+      final weekendDataStyle = xls.CellStyle(
+        horizontalAlign: xls.HorizontalAlign.Center,
+        verticalAlign: xls.VerticalAlign.Center,
+        topBorder: thin,
+        bottomBorder: thin,
+        leftBorder: thin,
+        rightBorder: thin,
+        backgroundColorHex: xls.ExcelColor.fromHexString('FFF2F2F2'),
+      );
+      final missingStyle = xls.CellStyle(
+        horizontalAlign: xls.HorizontalAlign.Center,
+        verticalAlign: xls.VerticalAlign.Center,
+        topBorder: thin,
+        bottomBorder: thin,
+        leftBorder: thin,
+        rightBorder: thin,
+        backgroundColorHex: xls.ExcelColor.fromHexString('FFFFF2CC'),
+      );
+      final nameStyle = xls.CellStyle(
+        horizontalAlign: xls.HorizontalAlign.Left,
+        verticalAlign: xls.VerticalAlign.Center,
+        topBorder: thin,
+        bottomBorder: thin,
+        leftBorder: thin,
+        rightBorder: thin,
+      );
+      final aStyle = xls.CellStyle(
+        horizontalAlign: xls.HorizontalAlign.Center,
+        verticalAlign: xls.VerticalAlign.Center,
+        topBorder: thin,
+        bottomBorder: thin,
+        leftBorder: thin,
+        rightBorder: thin,
+        fontColorHex: xls.ExcelColor.fromHexString('FFFF0000'),
+      );
+      final lStyle = xls.CellStyle(
+        horizontalAlign: xls.HorizontalAlign.Center,
+        verticalAlign: xls.VerticalAlign.Center,
+        topBorder: thin,
+        bottomBorder: thin,
+        leftBorder: thin,
+        rightBorder: thin,
+        fontColorHex: xls.ExcelColor.fromHexString('FFFF8C00'),
+      );
+      final eStyle = xls.CellStyle(
+        horizontalAlign: xls.HorizontalAlign.Center,
+        verticalAlign: xls.VerticalAlign.Center,
+        topBorder: thin,
+        bottomBorder: thin,
+        leftBorder: thin,
+        rightBorder: thin,
+        fontColorHex: xls.ExcelColor.fromHexString('FF0070C0'),
+      );
+
+      final int lastCol = 2 + daysInMonth + 4; // LRN, Name, days, P, A, L, E, %
+      const int titleRow = 0;
+      const int header1Row = 1;
+      const int header2Row = 2;
+      const int header3Row = 3;
+      const int spacerRow = 4;
+      const int tableHeaderRow = 5;
+      final int dataStartRow = tableHeaderRow + 1;
+      final int summaryRow = dataStartRow + sorted.length;
+
+      const int lrnCol = 0;
+      const int nameCol = 1;
+      final int firstDayCol = 2;
+      final int pCol = firstDayCol + daysInMonth;
+      final int aCol = pCol + 1;
+      final int lCol = pCol + 2;
+      final int eCol = pCol + 3;
+      final int pctCol = pCol + 4;
+
+      // Merge title across
+      sheet.merge(
+        xls.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: titleRow),
+        xls.CellIndex.indexByColumnRow(
+          columnIndex: lastCol,
+          rowIndex: titleRow,
+        ),
+        customValue: xls.TextCellValue(
+          'SCHOOL FORM 2 (SF2) – Daily Attendance of Learners',
+        ),
+      );
+      sheet
+          .cell(
+            xls.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: titleRow),
+          )
+          .cellStyle = xls.CellStyle(
+        bold: true,
+        fontSize: 12,
+        horizontalAlign: xls.HorizontalAlign.Center,
+        verticalAlign: xls.VerticalAlign.Center,
+      );
+
+      // Style table header and highlight weekends
+      for (int c = 0; c <= lastCol; c++) {
+        final ci = xls.CellIndex.indexByColumnRow(
+          columnIndex: c,
+          rowIndex: tableHeaderRow,
+        );
+        final cell = sheet.cell(ci);
+        if (c >= firstDayCol && c < firstDayCol + daysInMonth) {
+          final day = c - firstDayCol + 1;
+          final isWknd = _isWeekendDay(day);
+          cell.cellStyle = isWknd ? weekendHeaderStyle : headerStyle;
+        } else {
+          cell.cellStyle = headerStyle;
+        }
+      }
+
+      // Style data rows, apply color coding, and recompute % against schoolDays
+      int pctSumNew = 0;
+      int pctCountNew = 0;
+      final orderedIds = sorted
+          .map((s) => (s['student_id'] ?? s['id']).toString())
+          .toList();
+
+      for (int r = 0; r < orderedIds.length; r++) {
+        final rowIndex = dataStartRow + r;
+        final sid = orderedIds[r];
+        final byDay = monthMap[sid] ?? {};
+
+        // LRN and Name styles
+        sheet
+                .cell(
+                  xls.CellIndex.indexByColumnRow(
+                    columnIndex: lrnCol,
+                    rowIndex: rowIndex,
+                  ),
+                )
+                .cellStyle =
+            baseCellStyle;
+        sheet
+                .cell(
+                  xls.CellIndex.indexByColumnRow(
+                    columnIndex: nameCol,
+                    rowIndex: rowIndex,
+                  ),
+                )
+                .cellStyle =
+            nameStyle;
+
+        int pCount = 0;
+        for (int d = 1; d <= daysInMonth; d++) {
+          final col = firstDayCol + d - 1;
+          final ci = xls.CellIndex.indexByColumnRow(
+            columnIndex: col,
+            rowIndex: rowIndex,
+          );
+          final code = (byDay[d] ?? '').toString();
+          final isWknd = _isWeekendDay(d);
+          if (code == 'P') pCount++;
+
+          if (isWknd) {
+            sheet.cell(ci).cellStyle = weekendDataStyle;
+          } else if (code.isEmpty) {
+            sheet.cell(ci).cellStyle = missingStyle;
+          } else if (code == 'A') {
+            sheet.cell(ci).cellStyle = aStyle;
+          } else if (code == 'L') {
+            sheet.cell(ci).cellStyle = lStyle;
+          } else if (code == 'E') {
+            sheet.cell(ci).cellStyle = eStyle;
+          } else {
+            sheet.cell(ci).cellStyle = baseCellStyle;
+          }
+        }
+
+        // Totals columns
+        for (final col in [pCol, aCol, lCol, eCol]) {
+          sheet
+                  .cell(
+                    xls.CellIndex.indexByColumnRow(
+                      columnIndex: col,
+                      rowIndex: rowIndex,
+                    ),
+                  )
+                  .cellStyle =
+              baseCellStyle;
+        }
+
+        // New percentage = P / totalSchoolDays
+        final pct = schoolDays == 0 ? 0 : ((pCount / schoolDays) * 100).round();
+        sheet
+            .cell(
+              xls.CellIndex.indexByColumnRow(
+                columnIndex: pctCol,
+                rowIndex: rowIndex,
+              ),
+            )
+            .value = xls.TextCellValue(
+          '$pct%',
+        );
+        sheet
+                .cell(
+                  xls.CellIndex.indexByColumnRow(
+                    columnIndex: pctCol,
+                    rowIndex: rowIndex,
+                  ),
+                )
+                .cellStyle =
+            baseCellStyle;
+
+        if (schoolDays > 0) {
+          pctSumNew += pct;
+          pctCountNew++;
+        }
+      }
+
+      // Update summary row '%'
+      final avgNew = pctCountNew == 0 ? 0 : (pctSumNew / pctCountNew).round();
+      sheet
+          .cell(
+            xls.CellIndex.indexByColumnRow(
+              columnIndex: pctCol,
+              rowIndex: summaryRow,
+            ),
+          )
+          .value = xls.TextCellValue(
+        'Avg $avgNew%',
+      );
+
+      // Summary section at bottom
+      sheet.appendRow(<xls.CellValue?>[
+        xls.TextCellValue(''),
+        xls.TextCellValue('Total Students:'),
+        xls.IntCellValue(orderedIds.length),
+        xls.TextCellValue('Average Attendance Rate:'),
+        xls.TextCellValue('$avgNew%'),
+        xls.TextCellValue('Total School Days:'),
+        xls.IntCellValue(schoolDays),
+        xls.TextCellValue('Generated:'),
+        xls.TextCellValue(DateTime.now().toString().split('.').first),
+      ]);
+
+      // Footer sign-off
+      final todayStr = DateTime.now().toIso8601String().substring(0, 10);
+      sheet.appendRow(<xls.CellValue?>[
+        xls.TextCellValue('Prepared by:'),
+        xls.TextCellValue(teacherName),
+      ]);
+      sheet.appendRow(<xls.CellValue?>[
+        xls.TextCellValue('Checked by:'),
+        xls.TextCellValue('_____________________'),
+      ]);
+      sheet.appendRow(<xls.CellValue?>[
+        xls.TextCellValue('Date:'),
+        xls.TextCellValue(todayStr),
+      ]);
+
+      final sectionSanitized = (classroom?.title ?? course.title)
+          .toString()
+          .replaceAll(' ', '');
       final fileName =
-          'Attendance_${course.title.replaceAll(' ', '')}_${monthName}_${month.year}_Q$_selectedQuarter.xlsx';
-      final dir = await getApplicationDocumentsDirectory();
-      final path = '${dir.path}/$fileName';
-      final bytes = book.encode();
+          'SF2_${sectionSanitized}_${monthName}_${month.year}_Q$_selectedQuarter.xlsx';
+
+      List<int>? bytes;
+      try {
+        bytes = book.encode();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Export failed during Excel encoding: $e')),
+          );
+        }
+        return;
+      }
+
       if (bytes != null) {
-        final file = File(path);
-        await file.writeAsBytes(bytes, flush: true);
+        try {
+          await saveExcelBytes(bytes, fileName);
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Export failed while saving: $e')),
+            );
+          }
+          return;
+        }
       }
 
       if (mounted) {
