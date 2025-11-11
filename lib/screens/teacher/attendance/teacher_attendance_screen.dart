@@ -7,8 +7,13 @@ import 'package:oro_site_high_school/screens/teacher/teacher_dashboard_screen.da
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:excel/excel.dart' as xls;
 import 'package:oro_site_high_school/utils/excel_download.dart';
+import 'package:archive/archive.dart';
+import 'package:xml/xml.dart';
+
+import 'dart:convert';
 
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter/services.dart' show rootBundle;
 
 /// Teacher Attendance (Structure Only)
 /// 2-layer workspace layout mirroring GradeEntry screen.
@@ -50,7 +55,17 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
   bool _isSaving = false;
   bool _isExporting = false;
 
+  // SF2 export manual overrides (from dialog)
+  String? _sf2OverrideSchoolYear;
+  String? _sf2OverrideGradeLevel;
+  String? _sf2OverrideSection;
+
   final Set<String> _markedDateKeys = {};
+
+  // Active quarter lock (teacher-controlled)
+  RealtimeChannel? _rtActiveQuarter;
+  int? _activeQuarterForCourse;
+  bool _isSettingActiveQuarter = false;
 
   @override
   void initState() {
@@ -59,6 +74,12 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
     _selectedDate = DateTime(now.year, now.month, now.day);
     _visibleMonth = DateTime(now.year, now.month);
     _initializeTeacher();
+  }
+
+  @override
+  void dispose() {
+    _teardownActiveQuarterRealtime();
+    super.dispose();
   }
 
   // Date helpers
@@ -268,9 +289,49 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
     setState(() => _isLoadingStudents = true);
     try {
       final rows = await _classroomService.getClassroomStudents(c.id);
+
+      // Enrich with LRN from students table (idempotent: only adds if available)
+      Map<String, String> lrnById = {};
+      try {
+        final ids = rows
+            .map((r) => (r['student_id'] ?? r['id'])?.toString())
+            .whereType<String>()
+            .where((s) => s.isNotEmpty)
+            .toList();
+        if (ids.isNotEmpty) {
+          final resp = await Supabase.instance.client
+              .from('students')
+              .select('id, lrn')
+              .inFilter('id', ids);
+          final list = (resp as List).cast<Map<String, dynamic>>();
+          for (final m in list) {
+            final sid = m['id']?.toString();
+            final lrn = m['lrn']?.toString();
+            if (sid != null && lrn != null && lrn.isNotEmpty) {
+              lrnById[sid] = lrn;
+            }
+          }
+          debugPrint(
+            'SF2: fetched LRN for ${lrnById.length}/${ids.length} students',
+          );
+        }
+      } catch (e) {
+        debugPrint('SF2: LRN enrichment skipped (error): $e');
+      }
+
+      // Apply enrichment
+      final enriched = rows.map<Map<String, dynamic>>((r) {
+        final sid = (r['student_id'] ?? r['id'])?.toString();
+        final lrn = sid != null ? (lrnById[sid] ?? r['lrn']) : r['lrn'];
+        if (lrn != null) {
+          return {...r, 'lrn': lrn};
+        }
+        return r;
+      }).toList();
+
       if (!mounted) return;
       setState(() {
-        _students = rows;
+        _students = enriched;
         _isLoadingStudents = false;
       });
     } catch (e) {
@@ -287,6 +348,9 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
       setState(() => _markedDateKeys.clear());
       return;
     }
+    // Snapshot to avoid stale updates when switching quarters rapidly
+    final String? expectedCourseIdStr = _selectedCourse?.id;
+    final int? expectedQuarter = _selectedQuarter;
     try {
       final start = DateTime(_visibleMonth.year, _visibleMonth.month, 1);
       final end = DateTime(_visibleMonth.year, _visibleMonth.month + 1, 0);
@@ -305,6 +369,12 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
         if (dStr == null) continue;
         final d = DateTime.tryParse(dStr);
         if (d != null) keys.add(_dateKey(_normalizeDate(d)));
+      }
+      if (!mounted) return;
+      if (expectedCourseIdStr != _selectedCourse?.id ||
+          expectedQuarter != _selectedQuarter) {
+        // Drop stale result
+        return;
       }
       setState(() {
         _markedDateKeys
@@ -332,6 +402,11 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
       return;
     }
 
+    // Snapshot to prevent stale updates when toggling quickly
+    final String? expectedCourseIdStr = _selectedCourse?.id;
+    final int? expectedQuarter = _selectedQuarter;
+    final String expectedDateIso = selected.toIso8601String();
+
     try {
       final courseId = int.tryParse(_selectedCourse!.id);
       if (courseId == null) return;
@@ -353,6 +428,12 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
         final sid = row['student_id']?.toString();
         final status = row['status']?.toString();
         if (sid != null && status != null) map[sid] = status;
+      }
+      if (!mounted) return;
+      if (expectedCourseIdStr != _selectedCourse?.id ||
+          expectedQuarter != _selectedQuarter ||
+          expectedDateIso != _normalizeDate(_selectedDate!).toIso8601String()) {
+        return; // drop stale response
       }
       setState(() {
         _statusByStudent
@@ -422,6 +503,184 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
+  }
+
+  // Active quarter lock helpers
+  Future<void> _loadActiveQuarterForCurrentCourse() async {
+    final co = _selectedCourse;
+    if (co == null) return;
+    try {
+      final cid = int.tryParse(co.id);
+      if (cid == null) return;
+      final row = await Supabase.instance.client
+          .from('course_active_quarters')
+          .select('active_quarter')
+          .eq('course_id', cid)
+          .maybeSingle();
+      final aq = row == null ? null : int.tryParse('${row['active_quarter']}');
+      if (!mounted) return;
+      setState(() => _activeQuarterForCourse = aq);
+    } catch (e) {
+      // silently ignore if table not present or query fails
+    }
+  }
+
+  void _setupActiveQuarterRealtime() {
+    final co = _selectedCourse;
+    if (co == null) return;
+    final cid = int.tryParse(co.id);
+    if (cid == null) return;
+    // Teardown previous
+    if (_rtActiveQuarter != null) {
+      Supabase.instance.client.removeChannel(_rtActiveQuarter!);
+      _rtActiveQuarter = null;
+    }
+    _rtActiveQuarter = Supabase.instance.client
+        .channel('teacher_active_q_${co.id}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'course_active_quarters',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'course_id',
+            value: cid,
+          ),
+          callback: (payload) async {
+            try {
+              final data = payload.newRecord.isNotEmpty
+                  ? payload.newRecord
+                  : payload.oldRecord;
+              final aqVal = data['active_quarter'];
+              final aq = aqVal == null ? null : int.tryParse('$aqVal');
+              if (!mounted) return;
+              setState(() => _activeQuarterForCourse = aq);
+            } catch (_) {}
+          },
+        )
+        .subscribe();
+  }
+
+  void _teardownActiveQuarterRealtime() {
+    if (_rtActiveQuarter != null) {
+      Supabase.instance.client.removeChannel(_rtActiveQuarter!);
+      _rtActiveQuarter = null;
+    }
+  }
+
+  Future<void> _setActiveQuarter(int q) async {
+    final co = _selectedCourse;
+    if (co == null) return;
+    final cid = int.tryParse(co.id);
+    if (cid == null) return;
+    setState(() => _isSettingActiveQuarter = true);
+    try {
+      await Supabase.instance.client.from('course_active_quarters').upsert({
+        'course_id': cid,
+        'active_quarter': q,
+        'set_by_teacher_id': _teacherId,
+      }, onConflict: 'course_id');
+      await _loadActiveQuarterForCurrentCourse();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to set active quarter: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSettingActiveQuarter = false);
+    }
+  }
+
+  Future<void> _confirmAndSetActiveQuarter() async {
+    final q = _selectedQuarter;
+    if (q == null) return;
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Set Active Quarter'),
+        content: Text('Set Q$q as active quarter for this course?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Set'),
+          ),
+        ],
+      ),
+    );
+    if (proceed == true) {
+      await _setActiveQuarter(q);
+    }
+  }
+
+  Widget _buildActiveQuarterBanner() {
+    final aq = _activeQuarterForCourse;
+    if (aq == null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12.0),
+        child: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.amber.shade50,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.amber.shade200),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.info, color: Colors.amber.shade800, size: 16),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'No active quarter set — students may view any quarter. You may set an active quarter.',
+                  style: TextStyle(color: Colors.amber.shade800, fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    final isActive = _selectedQuarter == aq;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12.0),
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: isActive ? Colors.green.shade50 : Colors.amber.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isActive ? Colors.green.shade200 : Colors.amber.shade200,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              isActive ? Icons.check_circle : Icons.lock,
+              color: isActive ? Colors.green.shade700 : Colors.amber.shade800,
+              size: 16,
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                isActive
+                    ? 'Active Quarter (Q$aq)'
+                    : 'Viewing Q${_selectedQuarter ?? '-'} (Read-only) — Q$aq is active',
+                style: TextStyle(
+                  color: isActive
+                      ? Colors.green.shade700
+                      : Colors.amber.shade800,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   // Toolbar helpers
@@ -1049,21 +1308,1582 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
     }
   }
 
-  Widget _buildDownloadButton() {
+  // ===== SF2 Template-based Export Helpers =====
+
+  String _monthName(int m) {
+    const names = [
+      '',
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+    return (m >= 1 && m <= 12) ? names[m] : '';
+  }
+
+  String _computeSchoolYear(DateTime m) {
+    final y = m.year;
+    return m.month >= 6 ? '$y-${y + 1}' : '${y - 1}-$y';
+  }
+
+  ({int row, int col})? _findCellContainingText(
+    xls.Sheet sheet,
+    String substring,
+  ) {
+    final needle = substring.toLowerCase();
+    for (int r = 0; r < sheet.rows.length; r++) {
+      final row = sheet.rows[r];
+      for (int c = 0; c < row.length; c++) {
+        final s = row[c]?.value?.toString() ?? '';
+        if (s.toLowerCase().contains(needle)) {
+          return (row: r, col: c);
+        }
+      }
+    }
+    return null;
+  }
+
+  bool _writeRightOf(
+    xls.Sheet sheet,
+    ({int row, int col}) pos,
+    xls.CellValue value, {
+    int maxOffset = 20,
+  }) {
+    for (int off = 1; off <= maxOffset; off++) {
+      final ci = xls.CellIndex.indexByColumnRow(
+        columnIndex: pos.col + off,
+        rowIndex: pos.row,
+      );
+      final existing = sheet.cell(ci).value;
+      final existingStr = existing?.toString() ?? '';
+      if (existing == null || existingStr.isEmpty) {
+        sheet.cell(ci).value = value;
+        debugPrint('SF2: wrote header at r=${pos.row}, c=${pos.col + off}');
+        return true;
+      }
+    }
+    debugPrint(
+      'SF2: could not find empty cell to the right of r=${pos.row}, c=${pos.col} within $maxOffset',
+    );
+    return false;
+  }
+
+  // Detect the header row that contains the day numbers (1..31) and map day->column
+  // Returns tuple-like via a small holder class pattern.
+  ({int headerRow, Map<int, int> dayToCol})? _findDayColumnsInTemplate(
+    xls.Sheet sheet,
+  ) {
+    int bestRow = -1;
+    int bestCount = 0;
+    Map<int, int> bestMap = {};
+    for (int r = 0; r < sheet.rows.length; r++) {
+      final row = sheet.rows[r];
+      final Map<int, int> map = {};
+      for (int c = 0; c < row.length; c++) {
+        final s = row[c]?.value?.toString().trim() ?? '';
+        if (s.isEmpty) continue;
+        final d = int.tryParse(s);
+        if (d != null && d >= 1 && d <= 31) {
+          map[d] = c;
+        }
+      }
+      if (map.length >= bestCount && map.isNotEmpty) {
+        bestCount = map.length;
+        bestRow = r;
+        bestMap = Map<int, int>.from(map);
+      }
+    }
+    if (bestRow >= 0 && bestMap.isNotEmpty) {
+      return (headerRow: bestRow, dayToCol: bestMap);
+    }
+    return null;
+  }
+
+  int _computeDataStartRow(
+    xls.Sheet sheet,
+    ({int headerRow, Map<int, int> dayToCol}) dayCols,
+  ) {
+    // If the next row has day-of-week letters under the day cols, skip it.
+    final nextRow = dayCols.headerRow + 1;
+    final dow = {'m', 't', 'w', 'th', 'f', 'sat', 'sun'};
+    bool hasDow = false;
+    if (nextRow < sheet.rows.length) {
+      final row = sheet.rows[nextRow];
+      for (final col in dayCols.dayToCol.values) {
+        if (col < row.length) {
+          final s = row[col]?.value?.toString().toLowerCase() ?? '';
+          if (s.isNotEmpty && dow.any((d) => s.contains(d))) {
+            hasDow = true;
+            break;
+          }
+        }
+      }
+    }
+    return dayCols.headerRow + (hasDow ? 2 : 1);
+  }
+
+  // Fill a header field by finding a label and writing to the right (with debug and wider search span)
+  void _fillHeaderField(
+    xls.Sheet sheet,
+    String labelSubstring,
+    String value, {
+    int maxOffset = 16,
+  }) {
+    final pos = _findCellContainingText(sheet, labelSubstring);
+    debugPrint(
+      'SF2: header locate "$labelSubstring" => \'${pos?.row}\', \'${pos?.col}\'',
+    );
+    if (pos != null) {
+      final ok = _writeRightOf(
+        sheet,
+        pos,
+        xls.TextCellValue(value),
+        maxOffset: maxOffset,
+      );
+      if (!ok) {
+        debugPrint('SF2: writeRightOf failed for "$labelSubstring"');
+      }
+    } else {
+      debugPrint('SF2: header label "$labelSubstring" not found');
+    }
+  }
+
+  // Locate and load the SF2 template bytes using the asset manifest for robustness
+  Future<List<int>> _loadSf2TemplateBytes() async {
+    const preferred = 'assets/School Form 2 (SF2).xlsx';
+    try {
+      // Try resolving via AssetManifest first (exact key matching)
+      final manifestJson = await rootBundle.loadString('AssetManifest.json');
+      final Map<String, dynamic> manifest =
+          jsonDecode(manifestJson) as Map<String, dynamic>;
+
+      String? chosen;
+      if (manifest.containsKey(preferred)) {
+        chosen = preferred;
+      } else {
+        // Search for reasonable candidates (any .xlsx containing 'sf2' or 'school form 2')
+        final candidates = manifest.keys.where((k) {
+          final kl = k.toLowerCase();
+          if (!kl.endsWith('.xlsx')) return false;
+          final base = k.split('/').last.toLowerCase();
+          // Exclude Excel temp/lock files and common junk
+          if (base.startsWith('~\$') || base.startsWith('._')) return false;
+          if (base.endsWith('~') ||
+              base.endsWith('.tmp') ||
+              base.endsWith('.bak')) {
+            return false;
+          }
+          return kl.contains('sf2') || kl.contains('school form 2');
+        }).toList();
+        if (candidates.isNotEmpty) {
+          candidates.sort((a, b) => a.length.compareTo(b.length));
+          chosen =
+              candidates.first; // prefer the shortest, typically under assets/
+        }
+      }
+
+      if (chosen != null) {
+        final data = await rootBundle.load(chosen);
+        final bytes = data.buffer.asUint8List();
+        if (bytes.isEmpty) {
+          throw Exception('Asset "$chosen" exists but is empty.');
+        }
+        return bytes;
+      }
+
+      // Fallback: try the preferred path directly
+      final data = await rootBundle.load(preferred);
+      final bytes = data.buffer.asUint8List();
+      if (bytes.isEmpty) {
+        throw Exception('Asset "$preferred" exists but is empty.');
+      }
+      return bytes;
+    } catch (e) {
+      // As a last resort, try a few common alternate names
+      const alts = <String>[
+        'assets/SchoolForm2(SF2).xlsx',
+        'assets/School_Form_2_(SF2).xlsx',
+        'assets/SF2.xlsx',
+        'assets/sf2.xlsx',
+      ];
+      for (final p in alts) {
+        try {
+          final data = await rootBundle.load(p);
+          final bytes = data.buffer.asUint8List();
+          if (bytes.isNotEmpty) return bytes;
+        } catch (_) {}
+      }
+      throw Exception('Unable to load SF2 template asset. Details: $e');
+    }
+  }
+
+  Future<void> _exportMonthlyAttendanceSf2TemplateBased({
+    DateTime? selectedMonth,
+    String? overrideSchoolYear,
+    String? overrideGradeLevel,
+    String? overrideSection,
+  }) async {
+    if (_selectedCourse == null || _selectedQuarter == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select course and quarter first')),
+      );
+      return;
+    }
+
+    final course = _selectedCourse!;
+    final classroom = _selectedClassroom;
+    final month = selectedMonth ?? _visibleMonth;
+    final start = DateTime(month.year, month.month, 1);
+    final end = DateTime(month.year, month.month + 1, 0);
+
+    // Manual overrides from dialog (captured for inner closures)
+    final String? _ovSy = overrideSchoolYear;
+    final String? _ovGrade = overrideGradeLevel;
+    final String? _ovSection = overrideSection;
+
+    // Build student id list
+    final studentIds = _students
+        .map((s) => (s['student_id'] ?? s['id']).toString())
+        .toList();
+
+    if (studentIds.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No students in this course')),
+      );
+      return;
+    }
+
+    setState(() => _isExporting = true);
+    try {
+      final courseId = int.tryParse(course.id);
+      if (courseId == null) {
+        throw Exception('Invalid course id');
+      }
+
+      // Fetch month attendance (student_id, date, status)
+      final resp = await Supabase.instance.client
+          .from('attendance')
+          .select('student_id,date,status')
+          .eq('course_id', courseId)
+          .eq('quarter', _selectedQuarter!)
+          .gte('date', start.toIso8601String())
+          .lte('date', end.toIso8601String())
+          .inFilter('student_id', studentIds)
+          .order('date');
+
+      final List<Map<String, dynamic>> list = (resp as List)
+          .cast<Map<String, dynamic>>();
+      debugPrint('SF2: attendance rows fetched: ${list.length}');
+
+      // map[studentId][day] = code (kept for next steps)
+      final Map<String, Map<int, String>> monthMap = {
+        for (final id in studentIds) id: {},
+      };
+      for (final row in list) {
+        final sid = row['student_id']?.toString();
+        final dStr = row['date']?.toString();
+        final st = row['status']?.toString();
+        if (sid == null || dStr == null || st == null) continue;
+        final d = DateTime.tryParse(dStr);
+        if (d == null) continue;
+        String code;
+        switch (st.toLowerCase()) {
+          case 'present':
+            code = 'P';
+            break;
+          case 'absent':
+            code = 'A';
+            break;
+          case 'late':
+            code = 'L';
+            break;
+          case 'excused':
+            code = 'E';
+            break;
+          default:
+            code = '';
+        }
+        monthMap[sid]?[d.day] = code;
+      }
+      final nonEmptyMonthMapEntries = monthMap.values.fold<int>(
+        0,
+        (acc, m) => acc + m.length,
+      );
+      debugPrint(
+        'SF2: monthMap day entries (all statuses): $nonEmptyMonthMapEntries',
+      );
+      // New: XML-injection export (preserves template formatting)
+      final okXml = await _exportSf2ViaXmlInjection(
+        month: month,
+        classroom: classroom,
+        course: course,
+        studentIds: studentIds,
+        monthMap: monthMap,
+      );
+      if (okXml) {
+        return;
+      }
+
+      // Load official template
+      final templateBytes = await _loadSf2TemplateBytes();
+      debugPrint('SF2: template bytes loaded: \\${templateBytes.length}');
+      final book = xls.Excel.decodeBytes(templateBytes);
+      debugPrint('SF2: workbook sheets: \\${book.sheets.keys.toList()}');
+      const wantedSheetName = 'School Form 2 (SF2)';
+      xls.Sheet? sheet = book.sheets[wantedSheetName];
+      if (sheet == null) {
+        for (final entry in book.sheets.entries) {
+          final k = entry.key.trim().toLowerCase();
+          if (k == wantedSheetName.trim().toLowerCase() ||
+              k.contains('school form 2')) {
+            sheet = entry.value;
+            break;
+          }
+        }
+      }
+      sheet ??= book.sheets.values.first;
+      final chosenName = book.sheets.entries
+          .firstWhere(
+            (e) => e.value == sheet,
+            orElse: () => book.sheets.entries.first,
+          )
+          .key;
+      debugPrint('SF2: using sheet: $chosenName');
+
+      // Populate header fields (Step 3)
+      final schoolName = dotenv.env['SCHOOL_NAME'] ?? 'Oro Site High School';
+      final schoolId = '302258';
+      final division = dotenv.env['DIVISION'] ?? '';
+      final region = dotenv.env['REGION'] ?? '';
+
+      _fillHeaderField(sheet, 'Name of School', schoolName);
+      _fillHeaderField(sheet, 'School ID', schoolId);
+      if (division.isNotEmpty) _fillHeaderField(sheet, 'Division', division);
+      if (region.isNotEmpty) _fillHeaderField(sheet, 'Region', region);
+      _fillHeaderField(sheet, 'School Year', _computeSchoolYear(month));
+      _fillHeaderField(
+        sheet,
+        'Report for the Month',
+        '${_monthName(month.month)} ${month.year}',
+      );
+      if (classroom?.gradeLevel != null) {
+        _fillHeaderField(
+          sheet,
+          'Grade Level',
+          classroom!.gradeLevel.toString(),
+        );
+      }
+      final sectionStr = classroom?.title ?? course.title;
+      _fillHeaderField(sheet, 'Section', sectionStr);
+
+      // Prepare day columns (Step 4: detect only; writing marks in next step)
+      final dayCols = _findDayColumnsInTemplate(sheet);
+      if (dayCols == null) {
+        debugPrint('SF2: day columns not found');
+      } else {
+        debugPrint(
+          'SF2: day headerRow=\\${dayCols.headerRow} cols=\\${dayCols.dayToCol.length}',
+        );
+      }
+
+      // Step 5: Populate student identity rows (No., LRN, LEARNER'S NAME)
+      // Locate header columns for No., LRN, and Learner's Name
+      ({int row, int col})? nameLabel =
+          _findCellContainingText(sheet, "LEARNER'S NAME") ??
+          _findCellContainingText(sheet, 'LEARNER');
+      final int headerRowId = nameLabel?.row ?? (dayCols?.headerRow ?? 0);
+      int colName = nameLabel?.col ?? -1;
+      int colLrn = -1;
+      int colNo = -1;
+      if (headerRowId < sheet.rows.length) {
+        final row = sheet.rows[headerRowId];
+        for (int c = 0; c < row.length; c++) {
+          final t = row[c]?.value?.toString().toLowerCase().trim() ?? '';
+          if (t.contains('lrn')) colLrn = c;
+          final tn = t.replaceAll('.', '').replaceAll(':', '').trim();
+          if (tn == 'no') colNo = c;
+          if (colLrn >= 0 && colNo >= 0 && colName >= 0) break;
+        }
+      }
+      if (colName < 0 && headerRowId < sheet.rows.length) {
+        // Try a looser search on the header row
+        final row = sheet.rows[headerRowId];
+        for (int c = 0; c < row.length; c++) {
+          final t = row[c]?.value?.toString().toLowerCase() ?? '';
+          if (t.contains('learn')) {
+            colName = c;
+            break;
+          }
+        }
+      }
+      if (colName >= 1 && colLrn < 0) colLrn = colName - 1;
+      if (colLrn >= 1 && colNo < 0) colNo = colLrn - 1;
+
+      debugPrint(
+        'SF2: headerRowId=$headerRowId colNo=$colNo colLrn=$colLrn colName=$colName',
+      );
+
+      final int dataStartRow = dayCols != null
+          ? _computeDataStartRow(sheet, dayCols)
+          : (headerRowId + 1);
+
+      // Create a sorted copy of students by name
+      List<Map<String, dynamic>> sorted = [..._students];
+      sorted.sort(
+        (a, b) => (a['full_name'] ?? a['name'] ?? '')
+            .toString()
+            .toLowerCase()
+            .compareTo(
+              (b['full_name'] ?? b['name'] ?? '').toString().toLowerCase(),
+            ),
+      );
+
+      // Helper to format name as "LAST, FIRST MI" when possible
+      String formatStudentName(Map<String, dynamic> s) {
+        final last = (s['last_name'] ?? s['lastname'] ?? s['surname'] ?? '')
+            .toString()
+            .trim();
+        final first = (s['first_name'] ?? s['firstname'] ?? '')
+            .toString()
+            .trim();
+        final middleRaw =
+            (s['middle_initial'] ??
+                    s['mi'] ??
+                    s['middle_name'] ??
+                    s['middlename'] ??
+                    '')
+                .toString()
+                .trim();
+        final mi = middleRaw.isNotEmpty ? middleRaw[0].toUpperCase() : '';
+        if (last.isNotEmpty && first.isNotEmpty) {
+          return mi.isNotEmpty ? '$last, $first $mi' : '$last, $first';
+        }
+        return (s['full_name'] ?? s['name'] ?? '').toString();
+      }
+
+      // Write identity rows
+      int totalX = 0;
+      final int daysInMonth = DateTime(month.year, month.month + 1, 0).day;
+      debugPrint(
+        'SF2: dataStartRow=$dataStartRow students=\\${sorted.length} daysInMonth=\\$daysInMonth',
+      );
+      for (int i = 0; i < sorted.length; i++) {
+        final s = sorted[i];
+        final rowIndex = dataStartRow + i;
+        final sid = (s['student_id'] ?? s['id']).toString();
+        final lrn = (s['lrn'] ?? '').toString();
+        final nameStr = formatStudentName(s);
+        if (i < 3) {
+          debugPrint(
+            'SF2: write row=\\$rowIndex sid=\\$sid name=\\"$nameStr\\" lrn=\\"$lrn\\"',
+          );
+        }
+
+        if (colNo >= 0) {
+          sheet
+              .cell(
+                xls.CellIndex.indexByColumnRow(
+                  columnIndex: colNo,
+                  rowIndex: rowIndex,
+                ),
+              )
+              .value = xls.TextCellValue(
+            (i + 1).toString(),
+          );
+        }
+        if (colLrn >= 0) {
+          sheet
+              .cell(
+                xls.CellIndex.indexByColumnRow(
+                  columnIndex: colLrn,
+                  rowIndex: rowIndex,
+                ),
+              )
+              .value = xls.TextCellValue(
+            lrn,
+          );
+        }
+        if (colName >= 0) {
+          sheet
+              .cell(
+                xls.CellIndex.indexByColumnRow(
+                  columnIndex: colName,
+                  rowIndex: rowIndex,
+                ),
+              )
+              .value = xls.TextCellValue(
+            nameStr,
+          );
+        }
+
+        // Step 6: Absence marking (X for absences only), skip weekends
+        if (dayCols != null) {
+          final byDay = monthMap[sid] ?? const <int, String>{};
+          for (final entry in dayCols.dayToCol.entries) {
+            final d = entry.key;
+            final col = entry.value;
+            if (d < 1 || d > daysInMonth) continue;
+            final dt = DateTime(month.year, month.month, d);
+            if (dt.weekday == DateTime.saturday ||
+                dt.weekday == DateTime.sunday) {
+              continue; // leave weekends blank
+            }
+            final code = (byDay[d] ?? '').toUpperCase();
+            if (code == 'A') {
+              sheet
+                  .cell(
+                    xls.CellIndex.indexByColumnRow(
+                      columnIndex: col,
+                      rowIndex: rowIndex,
+                    ),
+                  )
+                  .value = xls.TextCellValue(
+                'X',
+              );
+              totalX++;
+            }
+          }
+        }
+      }
+
+      debugPrint('SF2: total X written: $totalX');
+
+      // Save result for visual verification
+      final sectionSanitized = sectionStr.replaceAll(' ', '');
+      final fileName =
+          'SF2_${sectionSanitized}_${_monthName(month.month)}_${month.year}_Q$_selectedQuarter.xlsx';
+      final bytes = book.encode();
+      if (bytes == null) throw Exception('Failed to encode workbook');
+      await saveExcelBytes(bytes, fileName);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Exported (template-based): $fileName')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Template export failed: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  Future<bool> _exportSf2ViaXmlInjection({
+    required DateTime month,
+    required dynamic classroom,
+    required dynamic course,
+    required List<String> studentIds,
+    required Map<String, Map<int, String>> monthMap,
+  }) async {
+    try {
+      final templateBytes = await _loadSf2TemplateBytes();
+      debugPrint('SF2: XML: template bytes=${templateBytes.length}');
+
+      // Unzip .xlsx
+      final arc = ZipDecoder().decodeBytes(templateBytes, verify: false);
+      String norm(String p) => p.replaceAll('\\', '/');
+      ArchiveFile? fileWhere(bool Function(ArchiveFile f) test) {
+        for (final f in arc.files) {
+          if (test(f)) return f;
+        }
+        return null;
+      }
+
+      // Locate workbook & rels
+      final workbook =
+          fileWhere((f) => norm(f.name).endsWith('xl/workbook.xml')) ??
+          fileWhere((f) => norm(f.name).toLowerCase().endsWith('workbook.xml'));
+      if (workbook == null) throw Exception('workbook.xml not found');
+      final rels =
+          fileWhere(
+            (f) => norm(f.name).endsWith('xl/_rels/workbook.xml.rels'),
+          ) ??
+          fileWhere(
+            (f) => norm(f.name).toLowerCase().endsWith('workbook.xml.rels'),
+          );
+
+      final wbDoc = XmlDocument.parse(
+        utf8.decode(workbook.content as List<int>),
+      );
+      Map<String, String> relMap = {};
+      if (rels != null) {
+        final relDoc = XmlDocument.parse(
+          utf8.decode(rels.content as List<int>),
+        );
+        for (final r in relDoc.findAllElements('Relationship')) {
+          final id = r.getAttribute('Id');
+          final tgt = r.getAttribute('Target');
+          if (id != null && tgt != null) relMap[id] = tgt;
+        }
+      }
+
+      // Choose the SF2 sheet
+      XmlElement? chosenSheetElem;
+      for (final s in wbDoc.findAllElements('sheet')) {
+        final name = s.getAttribute('name')?.trim().toLowerCase();
+        if (name == 'school form 2 (sf2)'.toLowerCase() ||
+            (name != null && name.contains('school form 2'))) {
+          chosenSheetElem = s;
+          break;
+        }
+      }
+      final sheetsList = wbDoc.findAllElements('sheet').toList();
+      chosenSheetElem ??= sheetsList.isNotEmpty ? sheetsList.first : null;
+      if (chosenSheetElem == null) throw Exception('No <sheet> in workbook');
+      final rid =
+          chosenSheetElem.getAttribute('r:id') ??
+          chosenSheetElem.getAttribute('id');
+      final rawTarget =
+          (rid != null ? relMap[rid] : null) ?? 'worksheets/sheet1.xml';
+      final sheetPath = rawTarget.startsWith('xl/')
+          ? rawTarget
+          : 'xl/$rawTarget';
+      final sheetFile =
+          fileWhere((f) => norm(f.name) == norm(sheetPath)) ??
+          fileWhere((f) => norm(f.name).endsWith(norm(rawTarget))) ??
+          fileWhere((f) => norm(f.name).toLowerCase().endsWith('sheet1.xml'));
+      if (sheetFile == null) throw Exception('Sheet xml not found: $sheetPath');
+
+      final sstFile = fileWhere(
+        (f) => norm(f.name).endsWith('xl/sharedStrings.xml'),
+      );
+      List<String> shared = [];
+      if (sstFile != null) {
+        final sstDoc = XmlDocument.parse(
+          utf8.decode(sstFile.content as List<int>),
+        );
+        for (final si in sstDoc.findAllElements('si')) {
+          final buf = StringBuffer();
+          for (final t in si.findAllElements('t')) {
+            buf.write(t.innerText);
+          }
+          shared.add(buf.toString());
+        }
+      }
+
+      String colToLetters(int col) {
+        var s = '';
+        while (col > 0) {
+          final r = (col - 1) % 26;
+          s = String.fromCharCode(65 + r) + s;
+          col = (col - 1) ~/ 26;
+        }
+        return s;
+      }
+
+      int lettersToCol(String s) {
+        int n = 0;
+        for (final ch in s.codeUnits) {
+          if (ch < 65 || ch > 90) continue;
+          n = n * 26 + (ch - 64);
+        }
+        return n;
+      }
+
+      (int row, int col) parseRef(String r) {
+        final m = RegExp(r'([A-Z]+)(\d+)').firstMatch(r)!;
+        return (int.parse(m.group(2)!), lettersToCol(m.group(1)!));
+      }
+
+      final sheetDoc = XmlDocument.parse(
+        utf8.decode(sheetFile.content as List<int>),
+      );
+      final sheetData = sheetDoc.findAllElements('sheetData').first;
+
+      XmlElement? findRow(int r) {
+        for (final row in sheetData.findElements('row')) {
+          if (row.getAttribute('r') == r.toString()) return row;
+        }
+        return null;
+      }
+
+      XmlElement? findCell(XmlElement row, int col) {
+        final ref = '${colToLetters(col)}${row.getAttribute('r')}';
+        for (final c in row.findElements('c')) {
+          if (c.getAttribute('r') == ref) return c;
+        }
+        return null;
+      }
+
+      String readCell(XmlElement c) {
+        final t = c.getAttribute('t');
+        if (t == 's') {
+          final v = c.getElement('v')?.innerText;
+          if (v == null) return '';
+          final i = int.tryParse(v) ?? -1;
+          return (i >= 0 && i < shared.length) ? shared[i] : '';
+        }
+        if (t == 'inlineStr') {
+          return c
+                  .getElement('is')
+                  ?.findAllElements('t')
+                  .map((e) => e.innerText)
+                  .join() ??
+              '';
+        }
+        return c.getElement('v')?.innerText ?? '';
+      }
+
+      String textAt(int r, int c) {
+        final row = findRow(r);
+        if (row == null) return '';
+        final cell = findCell(row, c);
+        if (cell == null) return '';
+        return readCell(cell);
+      }
+
+      int xmlWrites = 0;
+      int xmlSkips = 0;
+      void setTextAt(int r, int c, String v) {
+        final row = findRow(r);
+        if (row == null) {
+          debugPrint('SF2: XML skip write missing row r=$r');
+          xmlSkips++;
+          return;
+        }
+        final ref = '${colToLetters(c)}$r';
+        var cell = findCell(row, c);
+        if (cell == null) {
+          debugPrint('SF2: XML skip write missing cell $ref');
+          xmlSkips++;
+          return;
+        }
+        // preserve style 's' if present; replace content with inlineStr
+        cell.attributes.removeWhere((a) => a.name.local == 't');
+        cell.attributes.add(XmlAttribute(XmlName('t'), 'inlineStr'));
+        cell.children.removeWhere(
+          (n) =>
+              n is XmlElement &&
+              (n.name.local == 'v' ||
+                  n.name.local == 'f' ||
+                  n.name.local == 'is'),
+        );
+        final isElem = XmlElement(XmlName('is'));
+        isElem.children.add(XmlElement(XmlName('t'), [], [XmlText(v)]));
+        cell.children.add(isElem);
+        xmlWrites++;
+      }
+
+      bool isEmptyAt(int r, int c) => textAt(r, c).trim().isEmpty;
+
+      // Find header cells and day columns
+      ({int row, int col})? findCellContaining(String sub) {
+        final needle = sub.toLowerCase();
+        for (final c in sheetDoc.findAllElements('c')) {
+          final rAttr = c.getAttribute('r');
+          if (rAttr == null) continue;
+          final txt = readCell(c).toLowerCase();
+          if (txt.contains(needle)) {
+            final pr = parseRef(rAttr);
+            return (row: pr.$1, col: pr.$2);
+          }
+        }
+        return null;
+      }
+
+      // Day columns detection: numeric scan first, then DOW-label heuristic
+      Map<int, int> dayToCol = {};
+      int headerRow = 0;
+
+      // Numeric day scan across all cells
+      final rowMap = <int, Map<int, int>>{};
+      int scan = 0, hits = 0;
+      for (final c in sheetDoc.findAllElements('c')) {
+        scan++;
+        final rAttr = c.getAttribute('r');
+        if (rAttr == null) continue;
+        final txt = readCell(c).trim();
+        int? d = int.tryParse(txt);
+        if (d == null) {
+          final dd = double.tryParse(txt);
+          if (dd != null && dd == dd.roundToDouble()) d = dd.toInt();
+        }
+        if (d != null && d >= 1 && d <= 31) {
+          hits++;
+          final pr = parseRef(rAttr);
+          final map = rowMap.putIfAbsent(pr.$1, () => {});
+          map[d] = pr.$2;
+        }
+      }
+      int bestCount = 0;
+      rowMap.forEach((r, m) {
+        if (m.length > bestCount) {
+          bestCount = m.length;
+          headerRow = r;
+          dayToCol = m;
+        }
+      });
+      debugPrint(
+        'SF2: numeric day-scan cells=$scan hits=$hits rows=${rowMap.length} topRow=$headerRow cnt=$bestCount',
+      );
+      if (bestCount < 3) {
+        // Treat as not found; fall back to DOW heuristic
+        dayToCol = {};
+      }
+
+      // Fallback: DOW row heuristic
+      if (dayToCol.isEmpty) {
+        debugPrint('SF2: numeric day-scan found none; trying DOW heuristic');
+        int bestDowCount = 0;
+        int dowRow = 0;
+        final colToken = <int, String>{};
+        for (final row in sheetData.findElements('row')) {
+          int cnt = 0;
+          final cur = <int, String>{};
+          for (final c in row.findElements('c')) {
+            final rAttr = c.getAttribute('r');
+            if (rAttr == null) continue;
+            final s0 = readCell(
+              c,
+            ).trim().toUpperCase().replaceAll(RegExp(r'[^A-Z]'), '');
+            String? tok;
+            if (s0 == 'M') {
+              tok = 'M';
+            } else if (s0 == 'T') {
+              tok = 'T';
+            } else if (s0 == 'W') {
+              tok = 'W';
+            } else if (s0 == 'TH') {
+              tok = 'TH';
+            } else if (s0 == 'F') {
+              tok = 'F';
+            } else if (s0 == 'SAT') {
+              tok = 'SAT';
+            } else if (s0 == 'SUN') {
+              tok = 'SUN';
+            }
+            if (tok != null) {
+              final pr = parseRef(rAttr);
+              cur[pr.$2] = tok;
+              cnt++;
+            }
+          }
+          if (cnt > bestDowCount) {
+            bestDowCount = cnt;
+            dowRow = int.tryParse(row.getAttribute('r') ?? '0') ?? 0;
+            colToken
+              ..clear()
+              ..addAll(cur);
+          }
+        }
+        debugPrint('SF2: DOW heuristic row=$dowRow tokens=$bestDowCount');
+        if (bestDowCount >= 5) {
+          final wkCols = <int>[];
+          final wkToks = <String>[];
+          final sortedCols = colToken.keys.toList()..sort();
+          for (final col in sortedCols) {
+            final tok = colToken[col]!;
+            if (tok == 'M' ||
+                tok == 'T' ||
+                tok == 'W' ||
+                tok == 'TH' ||
+                tok == 'F') {
+              wkCols.add(col);
+              wkToks.add(tok);
+            }
+          }
+          debugPrint('SF2: weekday header columns=${wkCols.length}');
+          String letterFor(int wd) {
+            switch (wd) {
+              case DateTime.monday:
+                return 'M';
+              case DateTime.tuesday:
+                return 'T';
+              case DateTime.wednesday:
+                return 'W';
+              case DateTime.thursday:
+                return 'TH';
+              case DateTime.friday:
+                return 'F';
+              case DateTime.saturday:
+                return 'SAT';
+              case DateTime.sunday:
+                return 'SUN';
+              default:
+                return '';
+            }
+          }
+
+          dayToCol = {};
+          int p = 0;
+          final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
+          for (int d = 1; d <= daysInMonth; d++) {
+            final wd = DateTime(month.year, month.month, d).weekday;
+            final want = letterFor(wd);
+            if (want == 'SAT' || want == 'SUN') continue;
+            while (p < wkToks.length && wkToks[p] != want) {
+              p++;
+            }
+            if (p >= wkToks.length) break;
+            dayToCol[d] = wkCols[p];
+            p++;
+          }
+          headerRow =
+              dowRow -
+              1; // assume DOW row is the one visible; data starts below it
+          debugPrint(
+            'SF2: DOW heuristic mapped days=${dayToCol.length} headerRow=$headerRow',
+          );
+        }
+      }
+
+      if (dayToCol.isEmpty) throw Exception('Day header not found');
+      debugPrint('SF2: day headerRow=$headerRow cols=${dayToCol.length}');
+
+      // Data start row (skip DOW row if present)
+      bool hasDow() {
+        final next = headerRow + 1;
+        const dows = ['m', 't', 'w', 'th', 'f', 'sat', 'sun'];
+        for (final col in dayToCol.values) {
+          final s = textAt(next, col).toLowerCase();
+          if (s.isNotEmpty && dows.any((d) => s.contains(d))) return true;
+        }
+        return false;
+      }
+
+      final dataStartRow = headerRow + (hasDow() ? 2 : 1);
+
+      // Identity columns: derive strictly from first day column to avoid label/merge ambiguity
+      final minDayCol = dayToCol.values.reduce((a, b) => a < b ? a : b);
+      ({int row, int col})? anchor(String s) => findCellContaining(s);
+      final candName = anchor("learner") ?? anchor("learner's name");
+      final candNo = anchor("no.");
+      // LRN column is disabled for SF2; shift Name one column left (No at far left)
+      int colName = minDayCol - 2;
+      int colNo = colName - 1;
+      if (colName < 1) colName = 1;
+      if (colNo < 1) colNo = 1;
+      debugPrint(
+        'SF2: minDayCol=$minDayCol anchors -> name=${candName?.col}/${candName?.row} no=${candNo?.col}/${candNo?.row}',
+      );
+      debugPrint(
+        'SF2: cols (derived from day grid) -> No=$colNo Name=$colName (LRN disabled)',
+      );
+
+      // Header fills
+      String monthLabel = '${_monthName(month.month)} ${month.year}';
+      final schoolName = dotenv.env['SCHOOL_NAME'] ?? 'Oro Site High School';
+      final schoolId = dotenv.env['SCHOOL_ID'] ?? '302258';
+      final division = dotenv.env['DIVISION'] ?? '';
+      final region = dotenv.env['REGION'] ?? '';
+      final sy =
+          (_sf2OverrideSchoolYear != null &&
+              _sf2OverrideSchoolYear!.trim().isNotEmpty)
+          ? _sf2OverrideSchoolYear!.trim()
+          : _computeSchoolYear(month);
+      if (_sf2OverrideSchoolYear != null &&
+          _sf2OverrideSchoolYear!.trim().isNotEmpty) {
+        debugPrint('SF2: override School Year from dialog -> "$sy"');
+      }
+      void fillRightOf(
+        String label,
+        String value, {
+        int maxOffset = 16,
+        int minOffset = 1,
+      }) {
+        final p = findCellContaining(label);
+        debugPrint('SF2: header locate "$label" => r=${p?.row} c=${p?.col}');
+        if (p == null) return;
+        // Start at minOffset to avoid merged label cells right next to the title
+        for (int off = minOffset; off <= maxOffset; off++) {
+          final rr = p.row;
+          final cc = p.col + off;
+          final row = findRow(rr);
+          final cell = row != null ? findCell(row, cc) : null;
+          if (row != null && cell != null && isEmptyAt(rr, cc)) {
+            setTextAt(rr, cc, value);
+            debugPrint(
+              'SF2: header write "$label" -> r=$rr c=$cc (offset $off) value="$value"',
+            );
+            return;
+          }
+        }
+        debugPrint(
+          'SF2: header "$label" no existing empty cell to the right; skipped write',
+        );
+      }
+
+      bool fillHeaderByLabels(
+        String field,
+        List<String> labels,
+        String value, {
+        int maxOffset = 16,
+      }) {
+        for (final label in labels) {
+          final p = findCellContaining(label);
+          debugPrint(
+            'SF2: header scan $field candidate "$label" => r=${p?.row} c=${p?.col}',
+          );
+          if (p != null) {
+            fillRightOf(label, value, maxOffset: maxOffset);
+            debugPrint('SF2: header "$field" written using label "$label"');
+            return true;
+          }
+        }
+
+        // Not found
+        debugPrint('SF2: header "$field" not present in template; skipping');
+        return false;
+      }
+
+      // Write to the first empty cell within a fixed row/column range
+      void writeFirstEmptyInRange({
+        required String field,
+        required int row,
+        required List<int> cols,
+        required String value,
+      }) {
+        for (final c in cols) {
+          if (isEmptyAt(row, c)) {
+            setTextAt(row, c, value);
+            debugPrint(
+              'SF2: header write "$field" (fixed) -> r=$row c=$c value="$value"',
+            );
+            return;
+          }
+        }
+        debugPrint(
+          'SF2: header "$field" no empty cell found in fixed range r=$row cols=' +
+              cols.join(','),
+        );
+      }
+
+      fillRightOf('Name of School', schoolName);
+
+      fillRightOf('School ID', schoolId);
+      fillHeaderByLabels('Division', [
+        'Division',
+        'Division:',
+        'Schools Division',
+        'School Division',
+        'Division of',
+      ], division);
+      fillHeaderByLabels('Region', [
+        'Region',
+        'Region:',
+        'Region No.',
+        'Region No',
+        'Region Number',
+      ], region);
+      // Fixed-position header writes per template spec
+      // School Year -> row 6, columns K-O (11..15)
+      writeFirstEmptyInRange(
+        field: 'School Year',
+        row: 6,
+        cols: const [11, 12, 13, 14, 15],
+        value: sy,
+      );
+
+      // Report for the Month -> row 6, columns X-AC (24..29)
+      writeFirstEmptyInRange(
+        field: 'Month',
+        row: 6,
+        cols: const [24, 25, 26, 27, 28, 29],
+        value: monthLabel,
+      );
+      // Grade Level: prefer dialog override; otherwise use classroom value
+      final gradeFromDialog = (_sf2OverrideGradeLevel ?? '').trim();
+      String? gradeNumeric;
+      if (gradeFromDialog.isNotEmpty) {
+        final m = RegExp(r'\d+').firstMatch(gradeFromDialog);
+        gradeNumeric = m != null ? m.group(0) : gradeFromDialog;
+        debugPrint(
+          'SF2: override Grade Level from dialog -> "${gradeNumeric ?? ''}" (raw="$gradeFromDialog")',
+        );
+      } else {
+        final gradeLevelVal = (classroom is Map
+            ? (classroom['grade_level'] ?? classroom['gradeLevel'])
+            : classroom?.gradeLevel);
+        if (gradeLevelVal != null && gradeLevelVal.toString().isNotEmpty) {
+          final gv = gradeLevelVal.toString();
+          final match = RegExp(r'\d+').firstMatch(gv);
+          gradeNumeric = match != null ? match.group(0)! : gv;
+          debugPrint(
+            'SF2: header write Grade Level numeric="$gradeNumeric" source="$gv"',
+          );
+        }
+      }
+      if (gradeNumeric != null && gradeNumeric.isNotEmpty) {
+        // Grade Level -> row 8, columns X-Y (24..25)
+        writeFirstEmptyInRange(
+          field: 'Grade Level',
+          row: 8,
+          cols: const [24, 25],
+          value: gradeNumeric,
+        );
+      }
+
+      // Section: prefer dialog override; otherwise classroom/course title
+      final sectionOverride = (_sf2OverrideSection ?? '').trim();
+      final sectionStr = sectionOverride.isNotEmpty
+          ? sectionOverride
+          : ((classroom is Map ? classroom['title'] : classroom?.title) ??
+                (course is Map ? course['title'] : course?.title) ??
+                '');
+      if (sectionOverride.isNotEmpty) {
+        debugPrint('SF2: override Section from dialog -> "$sectionStr"');
+      }
+      // Section -> row 8, columns AC-AH (29..34) using first-empty-in-range strategy
+      if (sectionStr.trim().isNotEmpty) {
+        writeFirstEmptyInRange(
+          field: 'Section',
+          row: 8,
+          cols: const [29, 30, 31, 32, 33, 34],
+          value: sectionStr.trim(),
+        );
+      } else {
+        debugPrint('SF2: header "Section" empty; skipping');
+      }
+
+      // Populate day numbers (row 11) based on DOW labels in row 12 across columns 4..28
+      // This is idempotent and safe: we only write the numeric labels and do not change
+      // any existing structure or student data.
+      try {
+        final dowCols = <int>[];
+        final dowToks = <String>[];
+        for (int c = 4; c <= 28; c++) {
+          final s0 = textAt(12, c).trim().toUpperCase();
+          String tok = '';
+          if (s0 == 'TH' || s0.contains('TH')) {
+            tok = 'TH';
+          } else if (s0.startsWith('M')) {
+            tok = 'M';
+          } else if (s0.startsWith('T')) {
+            // Tuesday is typically just 'T' in the template
+            tok = 'T';
+          } else if (s0.startsWith('W')) {
+            tok = 'W';
+          } else if (s0.startsWith('F')) {
+            tok = 'F';
+          }
+          if (tok.isNotEmpty) {
+            dowCols.add(c);
+            dowToks.add(tok);
+          }
+        }
+        debugPrint('SF2: day-number scan DOW row=12 cols=${dowCols.length}');
+
+        String letterFor(int wd) {
+          switch (wd) {
+            case DateTime.monday:
+              return 'M';
+            case DateTime.tuesday:
+              return 'T';
+            case DateTime.wednesday:
+              return 'W';
+            case DateTime.thursday:
+              return 'TH';
+            case DateTime.friday:
+              return 'F';
+            case DateTime.saturday:
+              return 'SAT';
+            case DateTime.sunday:
+              return 'SUN';
+            default:
+              return '';
+          }
+        }
+
+        final int daysInMonth = DateTime(month.year, month.month + 1, 0).day;
+        int p = 0; // pointer into DOW sequence (row 12)
+        for (int d = 1; d <= daysInMonth; d++) {
+          final dt = DateTime(month.year, month.month, d);
+          final want = letterFor(dt.weekday);
+          if (want == 'SAT' || want == 'SUN') {
+            continue; // skip weekends entirely
+          }
+
+          while (p < dowToks.length && dowToks[p] != want) {
+            p++;
+          }
+          if (p >= dowToks.length) {
+            debugPrint('SF2: day number mapping exhausted at d=$d want=$want');
+            break;
+          }
+          final col = dowCols[p];
+          setTextAt(11, col, d.toString());
+          final y = dt.year.toString().padLeft(4, '0');
+          final mm = dt.month.toString().padLeft(2, '0');
+          final dd = dt.day.toString().padLeft(2, '0');
+          debugPrint(
+            'SF2: day number write r=11 c=$col value="${d.toString()}" (dow=$want, date=$y-$mm-$dd)',
+          );
+          p++;
+        }
+      } catch (e) {
+        debugPrint('SF2: day-number population skipped (error): $e');
+      }
+
+      // Prepare roster
+      final sorted = List<Map<String, dynamic>>.from(_students);
+
+      String normalizeSpaces(String s) =>
+          s.replaceAll(RegExp(r'\s+'), ' ').trim();
+      String sortKey(Map s) {
+        final ln = (s['last_name'] ?? s['lastName'] ?? '').toString();
+        final fn = (s['first_name'] ?? s['firstName'] ?? '').toString();
+        if (ln.isNotEmpty || fn.isNotEmpty) {
+          return '${ln.toLowerCase()},${fn.toLowerCase()}';
+        }
+        final full = (s['full_name'] ?? s['name'] ?? '').toString();
+        if (full.isNotEmpty) return normalizeSpaces(full).toLowerCase();
+        final sid = (s['student_id'] ?? s['id'] ?? '').toString();
+        return sid.toLowerCase();
+      }
+
+      sorted.sort((a, b) => sortKey(a).compareTo(sortKey(b)));
+
+      String fmtName(Map s) {
+        // Prefer explicit parts if present
+        String ln = (s['last_name'] ?? s['lastName'] ?? '').toString().trim();
+        String fn = (s['first_name'] ?? s['firstName'] ?? '').toString().trim();
+        String mn = (s['middle_name'] ?? s['middleName'] ?? '')
+            .toString()
+            .trim();
+        if (ln.isNotEmpty || fn.isNotEmpty) {
+          final midPart = mn.isNotEmpty ? ' $mn' : '';
+          return ln.isNotEmpty ? '$ln, $fn$midPart' : '$fn$midPart';
+        }
+
+        // Fall back to profile display fields
+        final display = (s['display_name'] ?? s['full_name'] ?? s['name'] ?? '')
+            .toString()
+            .trim();
+        if (display.isEmpty) return '';
+
+        // If already formatted with a comma, keep as-is
+        if (display.contains(',')) return normalizeSpaces(display);
+
+        // Reorder: Last, First Middle...
+        final toks = normalizeSpaces(display).split(' ');
+        if (toks.length == 1) return toks.first; // single name
+        ln = toks.last;
+        fn = toks.first;
+        final mids = toks.length > 2
+            ? toks.sublist(1, toks.length - 1).join(' ')
+            : '';
+        final midPart = mids.isNotEmpty ? ' $mids' : '';
+        return '$ln, $fn$midPart';
+      }
+
+      bool isWeekend(int d) {
+        final wd = DateTime(month.year, month.month, d).weekday;
+        return wd == DateTime.saturday || wd == DateTime.sunday;
+      }
+
+      // Detect TARDY total column
+      int? colTardy;
+      final tardyPos =
+          findCellContaining('TARDY') ?? findCellContaining('Tardy');
+      if (tardyPos != null) {
+        colTardy = tardyPos.col;
+        debugPrint(
+          'SF2: TARDY column detected at col=$colTardy (row=${tardyPos.row})',
+        );
+      } else {
+        debugPrint('SF2: TARDY label not found; will skip tardy counts');
+      }
+
+      // Write rows
+      int totalX = 0;
+      int rowIdx = dataStartRow;
+      for (final s in sorted) {
+        final sid = (s['student_id'] ?? s['id'] ?? '').toString();
+        if (!studentIds.contains(sid)) continue;
+        final noVal = (rowIdx - dataStartRow + 1).toString();
+        setTextAt(rowIdx, colNo, noVal);
+        debugPrint('SF2: row=$rowIdx No=$noVal at col=$colNo');
+
+        // LRN population disabled for SF2
+
+        final rawDisplay =
+            ((s['display_name'] ?? s['full_name'] ?? s['name'] ?? '')
+                .toString()
+                .trim());
+        final name = fmtName(s).trim();
+        debugPrint(
+          'SF2: row=$rowIdx raw name from DB: "$rawDisplay" formatted to: "$name"',
+        );
+        setTextAt(rowIdx, colName, name);
+        debugPrint('SF2: row=$rowIdx Name="$name" at col=$colName');
+        final map = monthMap[sid] ?? {};
+        int tardyCount = 0;
+        for (final e in dayToCol.entries) {
+          final day = e.key;
+          if (day < 1 || day > 31) {
+            final codeRaw = map[day];
+            if (codeRaw != null && codeRaw.toString().isNotEmpty) {
+              debugPrint('SF2: row=$rowIdx day=$day out-of-range; skip');
+            }
+            continue;
+          }
+          if (isWeekend(day)) {
+            final codeRaw = map[day];
+            if (codeRaw != null && codeRaw.toString().isNotEmpty) {
+              debugPrint('SF2: row=$rowIdx day=$day weekend; skip');
+            }
+            continue;
+          }
+          final code = (map[day] ?? '').toString().toUpperCase();
+          if (code == 'A') {
+            setTextAt(rowIdx, e.value, 'X');
+            debugPrint('SF2: row=$rowIdx day=$day write X at col=${e.value}');
+            totalX++;
+          } else if (code == 'L') {
+            tardyCount++;
+            debugPrint('SF2: row=$rowIdx day=$day status=L -> tardy+1');
+          } else if (code.isNotEmpty) {
+            debugPrint('SF2: row=$rowIdx day=$day status=$code -> ignored');
+          }
+        }
+        if (colTardy != null) {
+          setTextAt(
+            rowIdx,
+            colTardy,
+            tardyCount == 0 ? '' : tardyCount.toString(),
+          );
+          debugPrint(
+            'SF2: row=$rowIdx tardy=$tardyCount written at col=$colTardy',
+          );
+        }
+        rowIdx++;
+      }
+      debugPrint('SF2: total X written (XML): $totalX');
+      debugPrint('SF2: XML cell writes=$xmlWrites skips=$xmlSkips');
+
+      // Save back into zip (build a new archive to avoid modifying unmodifiable lists)
+      final updated = utf8.encode(sheetDoc.toXmlString());
+      final newArc = Archive();
+      for (final f in arc.files) {
+        if (norm(f.name) == norm(sheetFile.name)) {
+          newArc.addFile(ArchiveFile(f.name, updated.length, updated));
+        } else {
+          final c = f.content;
+          List<int> bytes;
+          if (c is List<int>) {
+            bytes = List<int>.from(c);
+          } else {
+            bytes = utf8.encode(c.toString());
+          }
+          newArc.addFile(ArchiveFile(f.name, bytes.length, bytes));
+        }
+      }
+      final outBytes = ZipEncoder().encode(newArc);
+      if (outBytes == null) throw Exception('Zip encode failed');
+
+      final sectionSanitized = sectionStr.replaceAll(' ', '');
+      final fileName =
+          'SF2_${sectionSanitized}_${_monthName(month.month)}_${month.year}_Q$_selectedQuarter.xlsx';
+      await saveExcelBytes(outBytes, fileName);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Exported (template preserved): $fileName')),
+        );
+      }
+      return true;
+    } catch (e) {
+      debugPrint('SF2: XML injection failed: $e');
+      return false;
+    }
+  }
+
+  Future<Map<String, dynamic>?> _pickSf2ParamsDialog(DateTime initial) async {
+    int year = initial.year;
+    int month = initial.month;
+    final gradeController = TextEditingController(
+      text: (_selectedClassroom?.gradeLevel)?.toString() ?? '',
+    );
+    final sectionController = TextEditingController(
+      text: (_selectedClassroom?.title ?? ''),
+    );
+    final syController = TextEditingController(
+      text: _computeSchoolYear(initial),
+    );
+
+    return showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: const Text('Export SF2'),
+            content: SizedBox(
+              width: 420,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Month'),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        IconButton(
+                          tooltip: 'Prev Year',
+                          onPressed: () => setState(() => year--),
+                          icon: const Icon(Icons.chevron_left),
+                        ),
+                        Text(
+                          '$year',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        IconButton(
+                          tooltip: 'Next Year',
+                          onPressed: () => setState(() => year++),
+                          icon: const Icon(Icons.chevron_right),
+                        ),
+                      ],
+                    ),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: List.generate(12, (i) {
+                        const names = [
+                          'Jan',
+                          'Feb',
+                          'Mar',
+                          'Apr',
+                          'May',
+                          'Jun',
+                          'Jul',
+                          'Aug',
+                          'Sep',
+                          'Oct',
+                          'Nov',
+                          'Dec',
+                        ];
+                        final m = i + 1;
+                        final selected = m == month;
+                        return ChoiceChip(
+                          label: Text(names[i]),
+                          selected: selected,
+                          onSelected: (_) => setState(() => month = m),
+                        );
+                      }),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: syController,
+                      decoration: const InputDecoration(
+                        labelText: 'School Year (e.g., 2025-2026)',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: gradeController,
+                      decoration: const InputDecoration(
+                        labelText: 'Grade Level (numeric, e.g., 10)',
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: TextInputType.number,
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: sectionController,
+                      decoration: const InputDecoration(
+                        labelText: 'Section',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(null),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop({
+                  'month': DateTime(year, month, 1),
+                  'schoolYear': syController.text.trim(),
+                  'gradeLevel': gradeController.text.trim(),
+                  'section': sectionController.text.trim(),
+                }),
+                child: const Text('Export'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _onExportSf2Pressed() async {
+    if (_selectedCourse == null || _selectedQuarter == null) return;
+    final params = await _pickSf2ParamsDialog(_visibleMonth);
+    if (params == null) return;
+    final DateTime chosen = (params['month'] as DateTime);
+    final String sy = (params['schoolYear'] as String?)?.trim() ?? '';
+    final String grade = (params['gradeLevel'] as String?)?.trim() ?? '';
+    final String section = (params['section'] as String?)?.trim() ?? '';
+    setState(() {
+      _sf2OverrideSchoolYear = sy;
+      _sf2OverrideGradeLevel = grade;
+      _sf2OverrideSection = section;
+    });
+    await _exportMonthlyAttendanceSf2TemplateBased(
+      selectedMonth: chosen,
+      overrideSchoolYear: sy,
+      overrideGradeLevel: grade,
+      overrideSection: section,
+    );
+  }
+
+  Widget _buildExportButton() {
     final enabled =
         _selectedClassroom != null &&
         _selectedCourse != null &&
         _selectedQuarter != null;
     return OutlinedButton.icon(
-      onPressed: enabled && !_isExporting ? _exportMonthlyAttendanceSf2 : null,
+      onPressed: enabled && !_isExporting ? _onExportSf2Pressed : null,
       icon: _isExporting
           ? const SizedBox(
               width: 16,
               height: 16,
               child: CircularProgressIndicator(strokeWidth: 2),
             )
-          : const Icon(Icons.download),
-      label: const Text('Download'),
+          : const Icon(Icons.file_download_outlined),
+      label: const Text('Export SF2'),
+    );
+  }
+
+  // Compact icon button to set the active quarter (with tooltip)
+  Widget _buildSetActiveQuarterIconButton() {
+    final enabled = _selectedQuarter != null && !_isSettingActiveQuarter;
+    return Tooltip(
+      message: 'Set Active Quarter',
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.deepPurple.shade100,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: IconButton(
+          tooltip: 'Set Active Quarter',
+          onPressed: enabled ? _confirmAndSetActiveQuarter : null,
+          icon: _isSettingActiveQuarter
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Icon(Icons.lock_outline, color: Colors.deepPurple.shade700),
+          visualDensity: VisualDensity.compact,
+          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+        ),
+      ),
     );
   }
 
@@ -1095,6 +2915,7 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
+
                     children: [
                       Row(
                         children: [
@@ -1490,14 +3311,28 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
           _buildWorkspaceHeader(),
           const SizedBox(height: 12),
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildCourseDropdown(courses),
-              const SizedBox(width: 8),
-              _buildQuarterChips(),
-              const Spacer(),
-              _buildDownloadButton(),
+              Expanded(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    _buildCourseDropdown(courses),
+                    _buildQuarterChips(),
+                    _buildSetActiveQuarterIconButton(),
+                  ],
+                ),
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [_buildExportButton()],
+              ),
             ],
           ),
+          const SizedBox(height: 8),
+          _buildActiveQuarterBanner(),
           const SizedBox(height: 16),
           const Divider(height: 1),
           const SizedBox(height: 16),
@@ -1529,18 +3364,19 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
   }
 
   Widget _buildCourseDropdown(List<Course> courses) {
-    return SizedBox(
-      width: 240,
-      child: InputDecorator(
-        decoration: const InputDecoration(
-          labelText: 'Course',
-          border: OutlineInputBorder(),
-          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 220),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.blue.shade50,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.blue.shade200),
         ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         child: DropdownButtonHideUnderline(
           child: _isLoadingCourses
               ? Row(
-                  mainAxisAlignment: MainAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: const [
                     SizedBox(
                       width: 16,
@@ -1548,28 +3384,32 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     ),
                     SizedBox(width: 8),
-                    Text('Loading courses...'),
+                    Text('Loading…', style: TextStyle(fontSize: 12)),
                   ],
                 )
               : DropdownButton<Course>(
-                  isExpanded: true,
+                  isExpanded: false,
                   value: _selectedCourse,
-                  hint: const Text('Select course'),
+                  hint: const Text('Course', style: TextStyle(fontSize: 12)),
+                  icon: const Icon(Icons.arrow_drop_down, size: 18),
+                  style: const TextStyle(fontSize: 12, color: Colors.black87),
                   items: courses
                       .map(
                         (c) => DropdownMenuItem<Course>(
                           value: c,
-                          child: Text(c.title),
+                          child: Text(c.title, overflow: TextOverflow.ellipsis),
                         ),
                       )
                       .toList(),
-                  onChanged: (Course? val) {
+                  onChanged: (Course? val) async {
                     setState(() {
                       _selectedCourse = val;
                       _statusByStudent.clear();
                     });
-                    _loadMarkedDatesForVisibleMonth();
-                    _loadAttendanceForSelectedDate();
+                    await _loadActiveQuarterForCurrentCourse();
+                    _setupActiveQuarterRealtime();
+                    await _loadMarkedDatesForVisibleMonth();
+                    await _loadAttendanceForSelectedDate();
                   },
                 ),
         ),
@@ -1578,15 +3418,41 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
   }
 
   Widget _buildQuarterChips() {
+    final lockSet = _activeQuarterForCourse != null;
     return Wrap(
       spacing: 6,
+      runSpacing: 6,
       children: List.generate(4, (i) {
         final q = i + 1;
         final selected = _selectedQuarter == q;
+        final isActive = _activeQuarterForCourse == q;
+        final iconColor = isActive ? Colors.green : Colors.grey;
         return ChoiceChip(
-          label: Text('Q$q'),
+          label: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (lockSet)
+                Icon(
+                  isActive ? Icons.check_circle : Icons.lock,
+                  size: 14,
+                  color: iconColor,
+                ),
+              if (lockSet) const SizedBox(width: 4),
+              Text('Q$q'),
+            ],
+          ),
           selected: selected,
           onSelected: (_) => _onQuarterSelected(q),
+          labelStyle: const TextStyle(fontSize: 12),
+          visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          shape: StadiumBorder(
+            side: BorderSide(
+              color: selected ? Colors.blue.shade300 : Colors.blue.shade200,
+            ),
+          ),
+          backgroundColor: Colors.blue.shade50,
+          selectedColor: Colors.blue.shade100,
         );
       }),
     );

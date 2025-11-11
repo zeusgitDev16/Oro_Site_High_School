@@ -57,6 +57,10 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
   final TextEditingController _teachersSearchCtrl = TextEditingController();
   String _teachersQuery = '';
 
+  // Classroom-level Active Quarter (default) state
+  int? _classroomActiveQuarter; // null when not set
+  bool _isSettingClassroomActiveQuarter = false;
+
   // Join as co-teacher input state
   final TextEditingController _joinCodeCtrl = TextEditingController();
   bool _isJoiningAsTeacher = false;
@@ -137,6 +141,116 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
     _studentsSearchCtrl.dispose();
     _joinCodeCtrl.dispose();
     super.dispose();
+  }
+
+  // Load the teacher-set active quarter (default) for the currently selected classroom
+  Future<void> _loadClassroomActiveQuarter() async {
+    final cls = _selectedClassroom;
+    if (cls == null) return;
+    final expectedId = cls.id;
+    try {
+      final row = await Supabase.instance.client
+          .from('classroom_active_quarters')
+          .select('active_quarter')
+          .eq('classroom_id', expectedId)
+          .maybeSingle();
+      final aqVal = row == null ? null : row['active_quarter'];
+      final aq = aqVal == null ? null : int.tryParse('$aqVal');
+      if (!mounted) return;
+      if (_selectedClassroom?.id != expectedId) return; // stale
+      setState(() => _classroomActiveQuarter = aq);
+    } catch (e) {
+      debugPrint('[CLASSROOM] load active quarter error: $e');
+    }
+  }
+
+  Future<void> _setClassroomActiveQuarter(int q) async {
+    final cls = _selectedClassroom;
+    final tid = _teacherId;
+    if (cls == null || tid == null) return;
+    setState(() => _isSettingClassroomActiveQuarter = true);
+    try {
+      await Supabase.instance.client.from('classroom_active_quarters').upsert({
+        'classroom_id': cls.id,
+        'active_quarter': q,
+        'set_by_teacher_id': tid,
+        'set_at': DateTime.now().toIso8601String(),
+      }, onConflict: 'classroom_id');
+      if (!mounted) return;
+      setState(() => _classroomActiveQuarter = q);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Active quarter set for classroom')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to set active quarter: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSettingClassroomActiveQuarter = false);
+      }
+    }
+  }
+
+  Future<void> _confirmAndSetClassroomActiveQuarter(int q) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Set Active Quarter'),
+          content: Text(
+            'Set Q$q as the default quarter for this classroom?\nStudents can still switch, this only changes the default.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Set'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed == true) {
+      await _setClassroomActiveQuarter(q);
+    }
+  }
+
+  Widget _buildActiveQuarterDropdown() {
+    final q = _classroomActiveQuarter;
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.blue.shade200),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<int>(
+          value: q,
+          icon: const Icon(Icons.arrow_drop_down, size: 18),
+          style: const TextStyle(fontSize: 12, color: Colors.black87),
+          hint: const Text('AQ', style: TextStyle(fontSize: 12)),
+          items: List.generate(4, (i) {
+            final v = i + 1;
+            return DropdownMenuItem<int>(
+              value: v,
+              child: Text('Q$v', style: const TextStyle(fontSize: 12)),
+            );
+          }),
+          onChanged: _isSettingClassroomActiveQuarter
+              ? null
+              : (val) {
+                  if (val == null) return;
+                  _confirmAndSetClassroomActiveQuarter(val);
+                },
+        ),
+      ),
+    );
   }
 
   Future<void> _initializeTeacher() async {
@@ -243,6 +357,7 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
         if (_classrooms.isNotEmpty && _selectedClassroom == null) {
           _selectedClassroom = _classrooms.first;
           _loadClassroomCourses(_classrooms.first.id);
+          _loadClassroomActiveQuarter();
         }
       });
     } catch (e) {
@@ -630,11 +745,24 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
           // Classroom Count
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Text(
-              _isLoading
-                  ? 'Loading...'
-                  : 'you have ${_classrooms.length} classroom${_classrooms.length != 1 ? 's' : ''}',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _isLoading
+                        ? 'Loading...'
+                        : 'you have ${_classrooms.length} classroom${_classrooms.length != 1 ? 's' : ''}',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                ),
+                if (_selectedClassroom != null) ...[
+                  const SizedBox(width: 8),
+                  Tooltip(
+                    message: 'Set default quarter for this classroom',
+                    child: _buildActiveQuarterDropdown(),
+                  ),
+                ],
+              ],
             ),
           ),
 
@@ -775,6 +903,7 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                             setState(() {
                               _selectedClassroom = classroom;
                             });
+                            _loadClassroomActiveQuarter();
                             _loadClassroomCourses(classroom.id);
                             if (_tabController.index == 1) {
                               _loadClassroomAssignments(classroom.id);

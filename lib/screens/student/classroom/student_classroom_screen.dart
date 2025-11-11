@@ -387,7 +387,7 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
     }
   }
 
-  void _onSelectClassroom(Classroom c) {
+  Future<void> _onSelectClassroom(Classroom c) async {
     setState(() {
       _selectedClassroom = c;
       _selectedCourse = null;
@@ -395,6 +395,26 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
       _moduleFiles = [];
       _assignments = [];
     });
+    // Apply teacher's active quarter (default) for this classroom on initial selection
+    try {
+      final row = await Supabase.instance.client
+          .from('classroom_active_quarters')
+          .select('active_quarter')
+          .eq('classroom_id', c.id)
+          .maybeSingle();
+      final aqVal = row == null ? null : row['active_quarter'];
+      final aq = aqVal == null ? null : int.tryParse('$aqVal');
+      if (aq != null && aq >= 1 && aq <= 4 && mounted) {
+        setState(() {
+          _selectedQuarter = aq;
+        });
+        // Reflect in quarter tab controller (assignments sub-tabs)
+        final idx = (aq - 1).clamp(0, 3);
+        if (_quarterTabController.index != idx) {
+          _quarterTabController.index = idx;
+        }
+      }
+    } catch (_) {}
     _loadClassroomCourses(c.id);
   }
 

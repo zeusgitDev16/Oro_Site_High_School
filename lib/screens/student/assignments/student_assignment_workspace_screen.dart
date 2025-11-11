@@ -319,6 +319,22 @@ class _StudentAssignmentWorkspaceScreenState
       _selectedCourseId = _kAllCourses; // reset to All when classroom changes
       _courses = [];
     });
+    // Apply teacher's active quarter default for this classroom (if any)
+    try {
+      if (_classrooms.isNotEmpty && index >= 0 && index < _classrooms.length) {
+        final cid = _classrooms[index].id;
+        final row = await _supabase
+            .from('classroom_active_quarters')
+            .select('active_quarter')
+            .eq('classroom_id', cid)
+            .maybeSingle();
+        final aqVal = row == null ? null : row['active_quarter'];
+        final aq = aqVal == null ? null : int.tryParse('$aqVal');
+        if (aq != null && aq >= 1 && aq <= 4 && mounted) {
+          setState(() => _selectedQuarter = aq);
+        }
+      }
+    } catch (_) {}
     await _loadCoursesForSelectedClassroom();
     await _loadAssignmentsForSelected();
     _setupRealtime();
@@ -375,6 +391,20 @@ class _StudentAssignmentWorkspaceScreenState
       // Preload teacher names (best-effort)
       await _preloadTeacherNames(cls.map((c) => c.teacherId).toSet());
       if (_classrooms.isNotEmpty) {
+        // Apply teacher's active quarter default for first classroom (if any)
+        try {
+          final cid = _classrooms[0].id;
+          final row = await _supabase
+              .from('classroom_active_quarters')
+              .select('active_quarter')
+              .eq('classroom_id', cid)
+              .maybeSingle();
+          final aqVal = row == null ? null : row['active_quarter'];
+          final aq = aqVal == null ? null : int.tryParse('$aqVal');
+          if (aq != null && aq >= 1 && aq <= 4 && mounted) {
+            setState(() => _selectedQuarter = aq);
+          }
+        } catch (_) {}
         setState(() => _isLoadingAssignments = true);
         await _loadCoursesForSelectedClassroom();
         await _loadAssignmentsForSelected();

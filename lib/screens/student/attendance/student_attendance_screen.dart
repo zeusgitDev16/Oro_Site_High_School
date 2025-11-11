@@ -6,6 +6,8 @@ import 'package:oro_site_high_school/screens/student/dashboard/student_dashboard
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
+import 'package:oro_site_high_school/services/teacher_service.dart';
+import 'package:oro_site_high_school/services/profile_service.dart';
 
 /// Student Attendance Overview Screen
 /// Displays attendance records and statistics - UI only
@@ -20,6 +22,12 @@ class StudentAttendanceScreen extends StatefulWidget {
 class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
   final ClassroomService _classroomService = ClassroomService();
   final _supabase = Supabase.instance.client;
+  // Teacher info services (for showing course owner on Today)
+  final TeacherService _teacherService = TeacherService();
+  final ProfileService _profileService = ProfileService();
+  final Map<String, String> _teacherNameCache = {};
+  String? _teacherName;
+  bool _isLoadingTeacherName = false;
 
   String? _studentId;
 
@@ -45,6 +53,9 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
   bool _isLoadingMonth = false;
 
   RealtimeChannel? _rtAttendance;
+  // Active quarter lock (teacher-controlled)
+  RealtimeChannel? _rtActiveQuarter;
+  int? _activeQuarterForCourse;
 
   @override
   void initState() {
@@ -62,6 +73,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
   @override
   void dispose() {
     _teardownRealtime();
+    _teardownActiveQuarterRealtime();
     super.dispose();
   }
 
@@ -73,8 +85,6 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
           _buildLeftPanel(),
           const VerticalDivider(width: 1),
           Expanded(child: _buildWorkspace()),
-          const VerticalDivider(width: 1),
-          _buildRightSidebar(),
         ],
       ),
     );
@@ -135,15 +145,45 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                   )
                 : ListView.builder(
                     itemCount: _classrooms.length,
-                    itemBuilder: (context, i) {
-                      final room = _classrooms[i];
-                      final selected = _selectedClassroom?.id == room.id;
-                      return ListTile(
-                        selected: selected,
-                        selectedTileColor: Colors.green.shade50,
-                        title: Text(room.title),
-                        subtitle: Text('Grade ${room.gradeLevel}'),
-                        onTap: () => _onSelectClassroom(room),
+                    itemBuilder: (context, index) {
+                      final classroom = _classrooms[index];
+                      final isSelected = _selectedClassroom?.id == classroom.id;
+                      return Container(
+                        margin: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? Colors.blue.shade50
+                              : Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isSelected
+                                ? Colors.blue
+                                : Colors.grey.shade300,
+                            width: isSelected ? 2 : 1,
+                          ),
+                        ),
+                        child: ListTile(
+                          title: Text(
+                            classroom.title,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: isSelected
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
+                            ),
+                          ),
+                          subtitle: Text(
+                            'Grade ${classroom.gradeLevel}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                          onTap: () => _onSelectClassroom(classroom),
+                        ),
                       );
                     },
                   ),
@@ -196,8 +236,11 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
         _courses = courses;
         _selectedCourse = courses.isNotEmpty ? courses.first : null;
       });
+      await _loadActiveQuarterForCurrentCourse();
+      _setupActiveQuarterRealtime();
       await _loadAttendanceForVisibleMonth();
       _setupRealtime();
+      await _maybeLoadTeacherNameForToday();
     } catch (_) {
       // ignore for UI
     } finally {
@@ -209,51 +252,141 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
   String _dateKey(DateTime d) =>
       DateFormat('yyyy-MM-dd').format(_normalizeDate(d));
 
+  bool _isSameDate(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  Future<void> _maybeLoadTeacherNameForToday() async {
+    final DateTime? sel = _selectedDate;
+    final today = _normalizeDate(DateTime.now());
+    if (sel == null || !_isSameDate(sel, today)) {
+      if (mounted) setState(() => _teacherName = null);
+      return;
+    }
+    final tid = _selectedCourse?.teacherId;
+    if (tid == null || tid.isEmpty) {
+      if (mounted) setState(() => _teacherName = null);
+      return;
+    }
+    final cached = _teacherNameCache[tid];
+    if (cached != null) {
+      if (mounted) setState(() => _teacherName = cached);
+      return;
+    }
+    if (mounted) setState(() => _isLoadingTeacherName = true);
+    try {
+      final t = await _teacherService.getTeacherById(tid);
+      String? name = t?.fullName ?? t?.displayName;
+      if (name == null || name.trim().isEmpty) {
+        final prof = await _profileService.getProfile(tid);
+        name = prof?.fullName;
+      }
+      if (mounted) {
+        setState(() {
+          _teacherName = (name != null && name.trim().isNotEmpty) ? name : null;
+          if (_teacherName != null) {
+            _teacherNameCache[tid] = _teacherName!;
+          }
+        });
+      }
+    } catch (_) {
+      // ignore fetch errors
+    } finally {
+      if (mounted) setState(() => _isLoadingTeacherName = false);
+    }
+  }
+
   int _currentQuarterForMonth(int month) => ((month - 1) ~/ 3) + 1; // 1..4
+
+  String _quarterPrefKeyFor(String studentId) =>
+      'attendance_selected_quarter_student_$studentId';
 
   Future<void> _restoreQuarter() async {
     final prefs = await SharedPreferences.getInstance();
-    final q =
-        prefs.getInt('student_attendance_quarter') ??
-        _currentQuarterForMonth(DateTime.now().month);
-    setState(() => _selectedQuarter = q);
+    final sid = _studentId ?? _supabase.auth.currentUser?.id;
+    if (sid != null) {
+      final q = prefs.getInt(_quarterPrefKeyFor(sid));
+      if (q != null && q >= 1 && q <= 4) {
+        if (mounted) {
+          setState(() => _selectedQuarter = q);
+        } else {
+          _selectedQuarter = q;
+        }
+        return;
+      }
+    }
+    if (mounted) {
+      setState(
+        () => _selectedQuarter = _currentQuarterForMonth(DateTime.now().month),
+      );
+    } else {
+      _selectedQuarter = _currentQuarterForMonth(DateTime.now().month);
+    }
   }
 
   Future<void> _persistQuarter(int q) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('student_attendance_quarter', q);
+    final sid = _studentId ?? _supabase.auth.currentUser?.id;
+    if (sid == null) return;
+    await prefs.setInt(_quarterPrefKeyFor(sid), q);
   }
 
   void _setupRealtime() {
     _teardownRealtime();
     if (_studentId == null ||
         _selectedCourse == null ||
-        _selectedQuarter == null)
+        _selectedQuarter == null) {
+      // ignore: avoid_print
+      print(
+        '[STU_ATT][RT] SKIP setup: studentId=${_studentId} course=${_selectedCourse?.id} quarter=${_selectedQuarter}',
+      );
       return;
+    }
     final cid = int.tryParse(_selectedCourse!.id);
-    if (cid == null) return;
+    if (cid == null) {
+      // ignore: avoid_print
+      print(
+        '[STU_ATT][RT] SKIP setup invalid course id: ${_selectedCourse!.id}',
+      );
+      return;
+    }
+    final chName =
+        'student_att_${_studentId}_${_selectedCourse!.id}_${_selectedQuarter}';
+    // ignore: avoid_print
+    print('[STU_ATT][RT] setup channel=$chName');
     _rtAttendance = _supabase
-        .channel(
-          'student_att_${_studentId}_${_selectedCourse!.id}_${_selectedQuarter}',
-        )
+        .channel(chName)
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'attendance',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'student_id',
+            value: _studentId!,
+          ),
           callback: (payload) {
             final data = payload.newRecord.isNotEmpty
                 ? payload.newRecord
                 : payload.oldRecord;
+            final sid = data['student_id']?.toString();
             final courseIdStr = data['course_id']?.toString();
-            if (courseIdStr != cid.toString()) return;
             final q = int.tryParse(data['quarter']?.toString() ?? '');
-            if (q != _selectedQuarter) return;
             final dStr = data['date']?.toString();
-            final dt = dStr != null ? DateTime.tryParse(dStr) : null;
-            if (dt == null) return;
-            if (dt.year != _visibleMonth.year ||
-                dt.month != _visibleMonth.month)
+            // ignore: avoid_print
+            print(
+              '[STU_ATT][RT] evt=${payload.eventType.name} sid=$sid course=$courseIdStr q=$q date=$dStr',
+            );
+            if (sid != _studentId) return;
+            if (courseIdStr != cid.toString()) return;
+            if (q != _selectedQuarter) return;
+            final dt = dStr != null ? DateTime.tryParse(dStr)?.toLocal() : null;
+            if (dt == null) {
               return;
+            }
+            if (dt.year != _visibleMonth.year ||
+                dt.month != _visibleMonth.month) {
+              return;
+            }
             final key = _dateKey(dt);
             final status = (data['status'] ?? '').toString();
             setState(() {
@@ -272,6 +405,10 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                 _markedDateKeys.add(key);
               }
             });
+            // ignore: avoid_print
+            print(
+              '[STU_ATT][RT] updated key=$key status=$status totalDays=${_statusByDate.length}',
+            );
           },
         )
         .subscribe();
@@ -279,15 +416,137 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
 
   void _teardownRealtime() {
     if (_rtAttendance != null) {
+      // ignore: avoid_print
+      print('[STU_ATT][RT] teardown');
       _supabase.removeChannel(_rtAttendance!);
       _rtAttendance = null;
     }
   }
 
+  void _teardownActiveQuarterRealtime() {
+    if (_rtActiveQuarter != null) {
+      _supabase.removeChannel(_rtActiveQuarter!);
+      _rtActiveQuarter = null;
+    }
+  }
+
+  Future<void> _loadActiveQuarterForCurrentCourse() async {
+    if (_selectedCourse == null) return;
+    final cid = int.tryParse(_selectedCourse!.id);
+    if (cid == null) return;
+    try {
+      final row = await _supabase
+          .from('course_active_quarters')
+          .select('active_quarter')
+          .eq('course_id', cid)
+          .maybeSingle();
+      final aq = row == null ? null : int.tryParse('${row['active_quarter']}');
+      // ignore: avoid_print
+      print('[STU_ATT] activeQuarter load course=$cid -> $aq');
+      if (!mounted) return;
+      setState(() => _activeQuarterForCourse = aq);
+      if (aq != null && _selectedQuarter != aq) {
+        setState(() => _selectedQuarter = aq);
+        await _persistQuarter(aq);
+        await _loadAttendanceForVisibleMonth();
+        _setupRealtime();
+        await _maybeLoadTeacherNameForToday();
+      }
+    } catch (e) {
+      // ignore: avoid_print
+      print('[STU_ATT] activeQuarter load error: $e');
+    }
+  }
+
+  void _setupActiveQuarterRealtime() {
+    _teardownActiveQuarterRealtime();
+    if (_selectedCourse == null) return;
+    final cid = int.tryParse(_selectedCourse!.id);
+    if (cid == null) return;
+    _rtActiveQuarter = _supabase
+        .channel('course_active_quarter_${_selectedCourse!.id}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'course_active_quarters',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'course_id',
+            value: cid,
+          ),
+          callback: (payload) async {
+            final data = payload.newRecord.isNotEmpty
+                ? payload.newRecord
+                : payload.oldRecord;
+            final courseIdStr = data['course_id']?.toString();
+            if (courseIdStr != cid.toString()) return;
+            final aq = int.tryParse('${data['active_quarter']}');
+            // ignore: avoid_print
+            print('[STU_ATT][RT] activeQuarter changed -> $aq for course=$cid');
+            if (!mounted) return;
+            setState(() => _activeQuarterForCourse = aq);
+            if (aq != null && _selectedQuarter != aq) {
+              setState(() => _selectedQuarter = aq);
+              await _persistQuarter(aq);
+              await _loadAttendanceForVisibleMonth();
+              _setupRealtime();
+              await _maybeLoadTeacherNameForToday();
+            }
+          },
+        )
+        .subscribe();
+  }
+
+  Widget _buildActiveQuarterBanner() {
+    if (_activeQuarterForCourse == null) return const SizedBox.shrink();
+    final isActive = _selectedQuarter == _activeQuarterForCourse;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: isActive ? Colors.green.shade50 : Colors.amber.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isActive ? Colors.green.shade300 : Colors.amber.shade300,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              isActive ? Icons.check_circle : Icons.lock,
+              size: 16,
+              color: isActive ? Colors.green : Colors.amber.shade700,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                isActive
+                    ? 'Active Quarter (Q${_activeQuarterForCourse}) set by your teacher'
+                    : 'Viewing Q${_selectedQuarter ?? '-'} (Read-only) — Q${_activeQuarterForCourse} is the active quarter set by your teacher',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: isActive
+                      ? Colors.green.shade800
+                      : Colors.amber.shade800,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _loadAttendanceForVisibleMonth() async {
+    // Early guards with explicit debug output
     if (_studentId == null ||
         _selectedCourse == null ||
         _selectedQuarter == null) {
+      // ignore: avoid_print
+      print(
+        '[STU_ATT] SKIP loadMonth because: studentId=${_studentId}, course=${_selectedCourse?.id}, quarter=${_selectedQuarter}',
+      );
       setState(() {
         _statusByDate.clear();
         _markedDateKeys.clear();
@@ -295,26 +554,181 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
       });
       return;
     }
+
     setState(() => _isLoadingMonth = true);
     try {
       final start = DateTime(_visibleMonth.year, _visibleMonth.month, 1);
       final end = DateTime(_visibleMonth.year, _visibleMonth.month + 1, 0);
       final cid = int.tryParse(_selectedCourse!.id);
-      if (cid == null) return;
-      final resp = await _supabase
+      if (cid == null) {
+        // ignore: avoid_print
+        print(
+          '[STU_ATT] SKIP loadMonth invalid course id: ${_selectedCourse!.id}',
+        );
+        return;
+      }
+
+      final startStr = DateFormat('yyyy-MM-dd').format(start);
+      final endStr = DateFormat('yyyy-MM-dd').format(end);
+      final startIso = start.toIso8601String();
+      final endIso = end.toIso8601String();
+
+      // Debug: query params
+      // ignore: avoid_print
+      print(
+        '[STU_ATT] loadMonth params student=$_studentId course=$cid q=$_selectedQuarter range(date-only)=$startStr..$endStr range(iso)=$startIso..$endIso',
+      );
+
+      // Main query (date-only range)
+      final respMain = await _supabase
           .from('attendance')
-          .select('date,status,time_in,time_out,remarks,quarter,course_id')
+          .select('student_id,course_id,quarter,date,status')
           .eq('student_id', _studentId!)
           .eq('course_id', cid)
           .eq('quarter', _selectedQuarter!)
-          .gte('date', start.toIso8601String())
-          .lte('date', end.toIso8601String());
+          .gte('date', startStr)
+          .lte('date', endStr);
+
+      List respUsed = (respMain as List);
+      // ignore: avoid_print
+      print(
+        '[STU_ATT] loadMonth main rows=${respUsed.length} sample=${respUsed.isNotEmpty ? respUsed.first : {}}',
+      );
+
+      // Fallback diagnostics if main returned 0 rows
+      if (respUsed.isEmpty) {
+        // Alt A: ISO range
+        final respIso = await _supabase
+            .from('attendance')
+            .select('student_id,course_id,quarter,date,status')
+            .eq('student_id', _studentId!)
+            .eq('course_id', cid)
+            .eq('quarter', _selectedQuarter!)
+            .gte('date', startIso)
+            .lte('date', endIso);
+        final listIso = (respIso as List);
+        // ignore: avoid_print
+        print(
+          '[STU_ATT][DBG] altA iso-range rows=${listIso.length} sample=${listIso.isNotEmpty ? listIso.first : {}}',
+        );
+        if (listIso.isNotEmpty) {
+          // ignore: avoid_print
+          print('[STU_ATT][DBG] Using ISO-range fallback for mapping');
+          respUsed = listIso;
+        } else {
+          // Alt B: Drop quarter filter
+          final respNoQ = await _supabase
+              .from('attendance')
+              .select('student_id,course_id,quarter,date,status')
+              .eq('student_id', _studentId!)
+              .eq('course_id', cid)
+              .gte('date', startStr)
+              .lte('date', endStr);
+          final listNoQ = (respNoQ as List);
+          // ignore: avoid_print
+          print(
+            '[STU_ATT][DBG] altB no-quarter rows=${listNoQ.length} sample=${listNoQ.isNotEmpty ? listNoQ.first : {}}',
+          );
+          if (listNoQ.isNotEmpty) {
+            // ignore: avoid_print
+            print('[STU_ATT][DBG] no-quarter shows rows: ${listNoQ.length}');
+            // Try filtering to the selected quarter client-side in case of type mismatch
+            final filtered = listNoQ.where((r) {
+              final rq = int.tryParse(r['quarter']?.toString() ?? '');
+              return rq == _selectedQuarter;
+            }).toList();
+            // ignore: avoid_print
+            print(
+              '[STU_ATT][DBG] no-quarter filtered to q=$_selectedQuarter -> ${filtered.length}',
+            );
+            if (filtered.isNotEmpty) {
+              // ignore: avoid_print
+              print(
+                '[STU_ATT][DBG] Using no-quarter FILTERED fallback for mapping (type-mismatch suspected)',
+              );
+              respUsed = filtered;
+            }
+          } else {
+            // Alt C: Drop course filter
+            final respNoCourse = await _supabase
+                .from('attendance')
+                .select('student_id,course_id,quarter,date,status')
+                .eq('student_id', _studentId!)
+                .gte('date', startStr)
+                .lte('date', endStr);
+            final listNoCourse = (respNoCourse as List);
+            // ignore: avoid_print
+            print(
+              '[STU_ATT][DBG] altC no-course rows=${listNoCourse.length} sample=${listNoCourse.isNotEmpty ? listNoCourse.first : {}}',
+            );
+
+            // Alt D: Probe a specific day (10th) with both eq-date formats
+            try {
+              final probeDay = DateTime(
+                _visibleMonth.year,
+                _visibleMonth.month,
+                10,
+              );
+              final probeIso = probeDay.toIso8601String();
+              final probeStr = DateFormat('yyyy-MM-dd').format(probeDay);
+              final onDayIso = await _supabase
+                  .from('attendance')
+                  .select('student_id,course_id,quarter,date,status')
+                  .eq('student_id', _studentId!)
+                  .eq('course_id', cid)
+                  .eq('date', probeIso);
+              final onDayStr = await _supabase
+                  .from('attendance')
+                  .select('student_id,course_id,quarter,date,status')
+                  .eq('student_id', _studentId!)
+                  .eq('course_id', cid)
+                  .eq('date', probeStr);
+              // ignore: avoid_print
+              print(
+                '[STU_ATT][DBG] altD probe 10th iso=${(onDayIso as List).length} str=${(onDayStr as List).length}',
+              );
+            } catch (_) {}
+
+            if (listNoCourse.isNotEmpty) {
+              // ignore: avoid_print
+              print(
+                '[STU_ATT][DBG] no-course shows rows: ${listNoCourse.length}',
+              );
+              // Try filtering for course and quarter client-side in case of type mismatch
+              final filtered = listNoCourse.where((r) {
+                final rcid = r['course_id']?.toString();
+                final rq = int.tryParse(r['quarter']?.toString() ?? '');
+                return rcid == cid.toString() && rq == _selectedQuarter;
+              }).toList();
+              // ignore: avoid_print
+              print(
+                '[STU_ATT][DBG] no-course filtered by course=$cid & q=$_selectedQuarter -> ${filtered.length}',
+              );
+              if (filtered.isNotEmpty) {
+                // ignore: avoid_print
+                print(
+                  '[STU_ATT][DBG] Using no-course FILTERED fallback for mapping (type-mismatch suspected)',
+                );
+                respUsed = filtered;
+              }
+            }
+          }
+        }
+      }
+
       final Map<String, String> status = {};
       final Map<String, Map<String, dynamic>> details = {};
       final Set<String> keys = {};
-      for (final row in (resp as List)) {
+
+      int i = 0;
+      for (final row in respUsed) {
         final dStr = row['date']?.toString();
-        final dt = dStr != null ? DateTime.tryParse(dStr) : null;
+        final dt = dStr != null ? DateTime.tryParse(dStr)?.toLocal() : null;
+        if (i < 10) {
+          // ignore: avoid_print
+          print('[STU_ATT] row[$i] rawDate=$dStr parsedLocal=$dt');
+          i++;
+        }
         if (dt == null) continue;
         final key = _dateKey(dt);
         final st = (row['status'] ?? '').toString();
@@ -327,6 +741,13 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
         };
         keys.add(key);
       }
+
+      // Debug: processed maps
+      // ignore: avoid_print
+      print(
+        '[STU_ATT] mapped keys=${keys.length} e.g. ${keys.isNotEmpty ? keys.first : '-'} statuses=${status.toString()}',
+      );
+
       if (mounted) {
         setState(() {
           _statusByDate
@@ -339,9 +760,14 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
             ..clear()
             ..addAll(keys);
         });
+        // ignore: avoid_print
+        print(
+          '[STU_ATT] state set: statusByDate=${_statusByDate.length} marked=${_markedDateKeys.length}',
+        );
       }
-    } catch (_) {
-      // ignore
+    } catch (e, st) {
+      // ignore: avoid_print
+      print('[STU_ATT] loadMonth ERROR: $e\n$st');
     } finally {
       if (mounted) setState(() => _isLoadingMonth = false);
     }
@@ -362,37 +788,53 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
       );
     }
 
+    final bool isTodaySelected =
+        _selectedDate != null &&
+        _isSameDate(_selectedDate!, _normalizeDate(DateTime.now()));
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Toolbar: classroom title
+        // Pearl 10 style classroom title pill
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             children: [
-              Expanded(
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
                 child: Text(
                   _selectedClassroom?.title ?? '',
                   style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
                   ),
                 ),
               ),
+              const Spacer(),
             ],
           ),
         ),
         const Divider(height: 1),
-        // Filters row: course + quarter
+        // Filters row: course + quarter + month navigation
         Padding(
           padding: const EdgeInsets.all(12.0),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               SizedBox(
                 width: 260,
                 child: DropdownButtonFormField<Course>(
                   isExpanded: true,
-                  value: _selectedCourse,
+                  initialValue: _selectedCourse,
                   items: _courses
                       .map(
                         (c) => DropdownMenuItem<Course>(
@@ -403,8 +845,11 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                       .toList(),
                   onChanged: (val) async {
                     setState(() => _selectedCourse = val);
+                    await _loadActiveQuarterForCurrentCourse();
+                    _setupActiveQuarterRealtime();
                     await _loadAttendanceForVisibleMonth();
                     _setupRealtime();
+                    await _maybeLoadTeacherNameForToday();
                   },
                   decoration: InputDecoration(
                     labelText: 'Course',
@@ -423,8 +868,24 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                 spacing: 8,
                 children: List.generate(4, (i) => i + 1).map((q) {
                   final selected = _selectedQuarter == q;
+                  final lockSet = _activeQuarterForCourse != null;
+                  final isActive = _activeQuarterForCourse == q;
                   return ChoiceChip(
-                    label: Text('Q$q'),
+                    label: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (lockSet)
+                          Icon(
+                            isActive ? Icons.check_circle : Icons.lock,
+                            size: 14,
+                            color: isActive ? Colors.green : Colors.grey,
+                          ),
+                        if (lockSet) const SizedBox(width: 4),
+                        Text(
+                          'Q$q${!isActive && lockSet ? ' (Read-only)' : ''}',
+                        ),
+                      ],
+                    ),
                     selected: selected,
                     onSelected: (v) async {
                       if (!v) return;
@@ -437,13 +898,55 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
                 }).toList(),
               ),
               const Spacer(),
+              IconButton(
+                tooltip: 'Previous month',
+                icon: const Icon(Icons.chevron_left),
+                onPressed: () async => _onMonthNavigate(-1),
+              ),
               Text(
                 _monthYearLabel(_visibleMonth),
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
+              IconButton(
+                tooltip: 'Next month',
+                icon: const Icon(Icons.chevron_right),
+                onPressed: () async => _onMonthNavigate(1),
+              ),
             ],
           ),
         ),
+        // Teacher name row when viewing today (shows loader while fetching)
+        if (isTodaySelected && _isLoadingTeacherName)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12.0),
+            child: Row(
+              children: [
+                Icon(Icons.person, size: 16, color: Colors.grey.shade700),
+                const SizedBox(width: 6),
+                SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ],
+            ),
+          )
+        else if (isTodaySelected && _teacherName != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12.0),
+            child: Row(
+              children: [
+                Icon(Icons.person, size: 16, color: Colors.grey.shade700),
+                const SizedBox(width: 6),
+                Text(
+                  'Teacher: ${_teacherName!}',
+                  style: TextStyle(color: Colors.grey.shade800),
+                ),
+              ],
+            ),
+          ),
+        _buildActiveQuarterBanner(),
+
         // Summary row
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12.0),
@@ -451,21 +954,12 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
         ),
         const SizedBox(height: 8),
         const Divider(height: 1),
-        // Records list
+        // Calendar workspace
+        _buildWeekdayHeader(),
         Expanded(
           child: _isLoadingMonth
               ? const Center(child: CircularProgressIndicator())
-              : _statusByDate.isEmpty
-              ? Center(
-                  child: Text(
-                    'No records for this month.',
-                    style: TextStyle(color: Colors.grey.shade600),
-                  ),
-                )
-              : ListView(
-                  padding: const EdgeInsets.all(12),
-                  children: _buildRecordList(),
-                ),
+              : _buildMonthGridWorkspace(),
         ),
       ],
     );
@@ -518,7 +1012,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
         const SizedBox(width: 8),
         box('A', '$a', Colors.red),
         const SizedBox(width: 8),
-        box('L', '$l', Colors.orange),
+        box('L', '$l', Colors.grey),
         const SizedBox(width: 8),
         box('E', '$e', Colors.blue),
         const Spacer(),
@@ -541,73 +1035,6 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
     return count;
   }
 
-  List<Widget> _buildRecordList() {
-    final keys = _statusByDate.keys.toList()..sort();
-    return keys
-        .map((k) => _recordTile(k, _statusByDate[k] ?? '', _detailsByDate[k]))
-        .toList();
-  }
-
-  Widget _recordTile(
-    String dateKey,
-    String status,
-    Map<String, dynamic>? details,
-  ) {
-    final dt = DateTime.tryParse(dateKey);
-    final color = _statusColor(status);
-    final label = _statusLabel(status);
-    final timeIn = details?['time_in'];
-    final timeOut = details?['time_out'];
-    final remarks = details?['remarks'];
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        onTap: dt != null ? () => _onDateSelected(dt) : null,
-        leading: Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        title: Text(
-          dt != null ? DateFormat('EEE, MMM d, yyyy').format(dt) : dateKey,
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 4),
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.12),
-                    border: Border.all(color: color.withValues(alpha: 0.3)),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    label,
-                    style: TextStyle(color: color, fontWeight: FontWeight.w600),
-                  ),
-                ),
-                if (timeIn != null || timeOut != null)
-                  Text('Time: ${timeIn ?? '--'} - ${timeOut ?? '--'}'),
-                if (remarks != null && (remarks as String).trim().isNotEmpty)
-                  Text('Remarks: $remarks'),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Color _statusColor(String status) {
     switch (status.toLowerCase()) {
       case 'present':
@@ -615,7 +1042,7 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
       case 'absent':
         return Colors.red;
       case 'late':
-        return Colors.orange;
+        return Colors.grey; // Match teacher screen color for Late
       case 'excused':
         return Colors.blue;
       default:
@@ -630,45 +1057,6 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
     if (s == 'late') return 'Late';
     if (s == 'excused') return 'Excused';
     return '\u2014';
-  }
-
-  Widget _buildRightSidebar() {
-    return Container(
-      width: 300,
-      color: Colors.grey.shade50,
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              children: [
-                IconButton(
-                  tooltip: 'Previous month',
-                  icon: const Icon(Icons.chevron_left),
-                  onPressed: () => _onMonthNavigate(-1),
-                ),
-                Expanded(
-                  child: Center(
-                    child: Text(
-                      _monthYearLabel(_visibleMonth),
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Next month',
-                  icon: const Icon(Icons.chevron_right),
-                  onPressed: () => _onMonthNavigate(1),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          _buildWeekdayHeader(),
-          Expanded(child: _buildMonthGrid()),
-        ],
-      ),
-    );
   }
 
   Widget _buildWeekdayHeader() {
@@ -696,64 +1084,152 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
     );
   }
 
-  Widget _buildMonthGrid() {
+  // Calendar grid for the main workspace (teacher-style day cells with status)
+  Widget _buildMonthGridWorkspace() {
     final first = DateTime(_visibleMonth.year, _visibleMonth.month, 1);
-    final firstWeekday = first.weekday; // Mon=1..Sun=7
     final daysInMonth = DateTime(
       _visibleMonth.year,
       _visibleMonth.month + 1,
       0,
     ).day;
-    final total = (firstWeekday - 1) + daysInMonth;
-    final rows = ((total + 6) ~/ 7);
-    final gridCount = rows * 7;
+    final int leading = first.weekday - 1; // Monday-based grid
+    final int totalCells = leading + daysInMonth;
+    final int trailing = totalCells % 7 == 0 ? 0 : 7 - (totalCells % 7);
+    final int itemCount = totalCells + trailing;
+
+    final today = _normalizeDate(DateTime.now());
+    final DateTime? selected = _selectedDate != null
+        ? _normalizeDate(_selectedDate!)
+        : null;
 
     return GridView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 7,
         mainAxisSpacing: 6,
         crossAxisSpacing: 6,
+        childAspectRatio: 1.05,
       ),
-      itemCount: gridCount,
+      itemCount: itemCount,
       itemBuilder: (context, index) {
-        final dayNum = index - (firstWeekday - 1) + 1;
-        if (dayNum < 1 || dayNum > daysInMonth) {
+        if (index < leading || index >= leading + daysInMonth) {
           return const SizedBox.shrink();
         }
-        final date = DateTime(_visibleMonth.year, _visibleMonth.month, dayNum);
+        final int day = index - leading + 1;
+        final date = DateTime(_visibleMonth.year, _visibleMonth.month, day);
+        final bool isToday = _isSameDate(date, today);
+        final bool isSelected = selected != null && _isSameDate(date, selected);
+        final bool isWeekend =
+            date.weekday == DateTime.saturday ||
+            date.weekday == DateTime.sunday;
+
+        final bool isFuture = date.isAfter(today);
+
         final key = _dateKey(date);
         final st = _statusByDate[key];
-        final isSelected =
-            _selectedDate != null &&
-            _selectedDate!.year == date.year &&
-            _selectedDate!.month == date.month &&
-            _selectedDate!.day == date.day;
-
-        final bg = st != null
-            ? _statusColor(st).withValues(alpha: 0.12)
-            : Colors.white;
-        final borderColor = isSelected
-            ? Theme.of(context).colorScheme.primary
-            : (st != null ? _statusColor(st) : Colors.grey.shade300);
+        final Color accent = st != null
+            ? _statusColor(st)
+            : Colors.grey.shade300;
+        final Color dayText = (isSelected)
+            ? Colors.deepOrange
+            : (isToday
+                  ? Colors.blueAccent
+                  : (isWeekend ? Colors.redAccent : Colors.black87));
 
         return InkWell(
-          onTap: () => _onDateSelected(date),
+          borderRadius: BorderRadius.circular(8),
+          onTap: () async {
+            _onDateSelected(date);
+          },
           child: Container(
             decoration: BoxDecoration(
-              color: bg,
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: borderColor),
-            ),
-            child: Center(
-              child: Text(
-                '$dayNum',
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  color: st != null ? _statusColor(st) : Colors.grey.shade700,
-                ),
+              border: Border.all(
+                color: isSelected ? Colors.deepOrange : accent,
+                width: isSelected ? 2 : 1,
               ),
+              color: st != null ? accent.withValues(alpha: 0.06) : Colors.white,
+            ),
+            padding: const EdgeInsets.all(8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: isToday ? Colors.blueAccent : Colors.transparent,
+                      ),
+                      child: Center(
+                        child: Text(
+                          '$day',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: isToday ? Colors.white : dayText,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+                    if (_markedDateKeys.contains(key))
+                      Container(
+                        width: 7,
+                        height: 7,
+                        decoration: const BoxDecoration(
+                          color: Colors.redAccent,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                if (st != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: accent.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: accent.withValues(alpha: 0.3)),
+                    ),
+                    child: Text(
+                      _statusLabel(st),
+                      style: TextStyle(
+                        color: accent,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                    ),
+                  )
+                else if (!isFuture)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade400.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: Colors.grey.shade400.withValues(alpha: 0.25),
+                      ),
+                    ),
+                    child: const Text(
+                      'No record',
+                      style: TextStyle(
+                        color: Colors.grey,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         );
@@ -772,7 +1248,8 @@ class _StudentAttendanceScreenState extends State<StudentAttendanceScreen> {
     await _loadAttendanceForVisibleMonth();
   }
 
-  void _onDateSelected(DateTime date) {
+  void _onDateSelected(DateTime date) async {
     setState(() => _selectedDate = _normalizeDate(date));
+    await _maybeLoadTeacherNameForToday();
   }
 }
