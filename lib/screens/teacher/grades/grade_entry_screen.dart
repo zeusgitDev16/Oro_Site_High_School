@@ -7,6 +7,8 @@ import 'package:oro_site_high_school/models/course.dart';
 import 'package:oro_site_high_school/services/deped_grade_service.dart';
 import 'package:oro_site_high_school/screens/teacher/assignments/submission_detail_screen.dart';
 
+import 'package:oro_site_high_school/screens/teacher/grades/f2f_grading_screen.dart';
+
 /// Grades Management (Template)
 /// 3-layer layout mirroring Assignment Management, with placeholders.
 class GradeEntryScreen extends StatefulWidget {
@@ -128,7 +130,7 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
               children: [
                 const Icon(Icons.people, size: 20),
                 const SizedBox(width: 8),
-                Expanded(child: Text('${_selectedClassroom!.title}')),
+                Expanded(child: Text(_selectedClassroom!.title)),
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,
@@ -162,7 +164,7 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
                     )
                   : ListView.separated(
                       itemCount: students.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      separatorBuilder: (_, _) => const Divider(height: 1),
                       itemBuilder: (context, index) {
                         final s = students[index];
                         final name = (s['full_name'] ?? 'Student').toString();
@@ -289,14 +291,33 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
       final assignQuery = supabase
           .from('assignments')
           .select(
-            'id, title, assignment_type, total_points, quarter_no, course_id',
+            'id, title, assignment_type, component, content, total_points, quarter_no, course_id',
           )
           .inFilter('id', ids)
           .eq('course_id', course.id);
-      final assigns = await (_selectedQuarter != null
-          ? assignQuery.eq('quarter_no', _selectedQuarter!)
-          : assignQuery);
-      final aMap = {for (final a in (assigns as List)) (a['id'].toString()): a};
+      List assigns;
+      try {
+        assigns =
+            await (_selectedQuarter != null
+                    ? assignQuery.eq('quarter_no', _selectedQuarter!)
+                    : assignQuery)
+                as List;
+      } catch (_) {
+        // Fallback for environments where the 'component' column is not yet available
+        final fallbackQuery = supabase
+            .from('assignments')
+            .select(
+              'id, title, assignment_type, content, total_points, quarter_no, course_id',
+            )
+            .inFilter('id', ids)
+            .eq('course_id', course.id);
+        assigns =
+            await (_selectedQuarter != null
+                    ? fallbackQuery.eq('quarter_no', _selectedQuarter!)
+                    : fallbackQuery)
+                as List;
+      }
+      final aMap = {for (final a in assigns) (a['id'].toString()): a};
       // Filter submissions to the selected quarter by keeping only assignments that matched
       final validIds = aMap.keys.toSet();
       final filteredSubs = list
@@ -305,10 +326,32 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
 
       final combined = filteredSubs.map((s) {
         final a = aMap[(s['assignment_id']).toString()];
+        final type = (a?['assignment_type'] ?? 'unknown').toString();
+        String? comp;
+        try {
+          comp = (a?['component'] as String?);
+        } catch (_) {}
+        if (comp == null) {
+          try {
+            final c = (a?['content'] as Map?);
+            final m = c?['meta'] as Map?;
+            comp = m?['component'] as String?;
+          } catch (_) {}
+        }
+        comp ??= (type == 'essay' || type == 'file_upload')
+            ? 'performance_task'
+            : (type == 'quiz' ||
+                  type == 'multiple_choice' ||
+                  type == 'identification' ||
+                  type == 'matching_type')
+            ? 'written_works'
+            : null;
+
         return {
           'assignment_id': s['assignment_id'],
           'title': a?['title'] ?? 'Untitled',
-          'type': a?['assignment_type'] ?? 'unknown',
+          'type': type,
+          'component': comp,
           'total_points': a?['total_points'] ?? s['max_score'] ?? 0,
           'status': s['status'],
           'score': s['score'],
@@ -564,20 +607,44 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
               ),
               color: Colors.white,
             ),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _selectedClassroom == null
-                    ? null
-                    : _showViewStudentsPopup,
-                icon: const Icon(Icons.people_alt),
-                label: const Text('view students'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: _selectedClassroom == null
+                      ? null
+                      : _showViewStudentsPopup,
+                  icon: const Icon(Icons.people_alt),
+                  label: const Text('view students'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
                 ),
-              ),
+                const SizedBox(height: 12),
+                ElevatedButton.icon(
+                  onPressed: _selectedClassroom == null
+                      ? null
+                      : () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => F2FGradingScreen(
+                                classroom: _selectedClassroom!,
+                                initialQuarter: _selectedQuarter,
+                              ),
+                            ),
+                          );
+                        },
+                  icon: const Icon(Icons.edit_note),
+                  label: const Text('F2F Grading'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -684,8 +751,9 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
         _selectedStudent == null ||
         _selectedCourse == null ||
         _selectedQuarter == null ||
-        _computed == null)
+        _computed == null) {
       return;
+    }
     try {
       await _depEd.saveOrUpdateStudentQuarterGrade(
         studentId: _selectedStudent!['id'].toString(),
@@ -994,7 +1062,7 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
     }
     if (_studentGraded.isEmpty) {
       return _smallEmpty(
-        'No assignments for Quarter ${_selectedQuarter}',
+        'No assignments for Quarter $_selectedQuarter',
         icon: Icons.history,
       );
     }
@@ -1002,7 +1070,7 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
     return ListView.separated(
       padding: const EdgeInsets.all(12),
       itemCount: _studentGraded.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
+      separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: (context, index) {
         final item = _studentGraded[index];
         return ListTile(
@@ -1074,7 +1142,7 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
     }
     if (_studentPending.isEmpty) {
       return _smallEmpty(
-        'No assignments for Quarter ${_selectedQuarter}',
+        'No assignments for Quarter $_selectedQuarter',
         icon: Icons.inbox,
       );
     }
@@ -1082,7 +1150,7 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
     return ListView.separated(
       padding: const EdgeInsets.all(12),
       itemCount: _studentPending.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
+      separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: (context, index) {
         final item = _studentPending[index];
         return ListTile(
@@ -1180,15 +1248,18 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
   }
 
   Widget _buildStudentComputeTab() {
-    if (_selectedStudent == null)
+    if (_selectedStudent == null) {
       return _smallEmpty(
         'Select a student to compute grades',
         icon: Icons.person,
       );
-    if (_loadingStudentData)
+    }
+    if (_loadingStudentData) {
       return const Center(child: LinearProgressIndicator());
-    if (_studentScores.isEmpty)
+    }
+    if (_studentScores.isEmpty) {
       return _smallEmpty('No graded scores to compute', icon: Icons.calculate);
+    }
 
     // DepEd-style weights (auto; from compute service when available)
     double wwWeight = 0.40; // Written Works
@@ -1213,11 +1284,13 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
     final pt = <Map<String, dynamic>>[];
 
     for (final e in _studentScores) {
+      final comp = (e['component'] ?? '').toString();
       final t = (e['type'] ?? '').toString();
-      if (isWW(t))
+      if (comp == 'written_works' || (comp.isEmpty && isWW(t))) {
         ww.add(e);
-      else if (isPT(t))
+      } else if (comp == 'performance_task' || (comp.isEmpty && isPT(t))) {
         pt.add(e);
+      }
     }
 
     double sumScore(List<Map<String, dynamic>> xs) =>
@@ -1361,9 +1434,17 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
         cell((weightPct * 100).toStringAsFixed(0), w: 110),
       ];
       return [
-        Row(children: header),
-        Row(children: scoreRowCells),
-        Row(children: rowMax),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: header),
+              Row(children: scoreRowCells),
+              Row(children: rowMax),
+            ],
+          ),
+        ),
       ];
     }
 
@@ -1384,85 +1465,82 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(12),
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        ...buildSection(
-                          'written works',
-                          wwWeight,
-                          ww,
-                          wwScore,
-                          wwMax,
-                          wwPS,
-                          wwWS,
-                          'ww',
-                        ),
-                        const SizedBox(height: 12),
-                        ...buildSection(
-                          'performance task',
-                          ptWeight,
-                          pt,
-                          ptScore,
-                          ptMax,
-                          ptPS,
-                          ptWS,
-                          'pt',
-                        ),
-                        const SizedBox(height: 12),
-                        ...buildSection(
-                          'quarterly exam',
-                          qaWeight,
-                          qaItems,
-                          qaScore,
-                          qaMax,
-                          qaPS,
-                          qaWS,
-                          'qa',
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            cell(
-                              'Initial Grade',
-                              bold: true,
-                              bg: Colors.blue.shade50,
-                              w: 220,
-                              align: Alignment.centerLeft,
-                            ),
-                            cell(
-                              initialGrade.toStringAsFixed(2),
-                              bold: true,
-                              bg: Colors.blue.shade50,
-                              w: 110,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            cell(
-                              'Final Grade (transmuted)',
-                              bold: true,
-                              bg: Colors.green.shade50,
-                              w: 220,
-                              align: Alignment.centerLeft,
-                            ),
-                            cell(
-                              _computed != null
-                                  ? ((_computed!['transmuted_grade'] as num)
-                                            .toDouble())
-                                        .toStringAsFixed(0)
-                                  : '—',
-                              bold: true,
-                              bg: Colors.green.shade50,
-                              w: 110,
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ...buildSection(
+                        'written works',
+                        wwWeight,
+                        ww,
+                        wwScore,
+                        wwMax,
+                        wwPS,
+                        wwWS,
+                        'ww',
+                      ),
+                      const SizedBox(height: 12),
+                      ...buildSection(
+                        'performance task',
+                        ptWeight,
+                        pt,
+                        ptScore,
+                        ptMax,
+                        ptPS,
+                        ptWS,
+                        'pt',
+                      ),
+                      const SizedBox(height: 12),
+                      ...buildSection(
+                        'quarterly exam',
+                        qaWeight,
+                        qaItems,
+                        qaScore,
+                        qaMax,
+                        qaPS,
+                        qaWS,
+                        'qa',
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          cell(
+                            'Initial Grade',
+                            bold: true,
+                            bg: Colors.blue.shade50,
+                            w: 220,
+                            align: Alignment.centerLeft,
+                          ),
+                          cell(
+                            initialGrade.toStringAsFixed(2),
+                            bold: true,
+                            bg: Colors.blue.shade50,
+                            w: 110,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          cell(
+                            'Final Grade (transmuted)',
+                            bold: true,
+                            bg: Colors.green.shade50,
+                            w: 220,
+                            align: Alignment.centerLeft,
+                          ),
+                          cell(
+                            _computed != null
+                                ? ((_computed!['transmuted_grade'] as num)
+                                          .toDouble())
+                                      .toStringAsFixed(0)
+                                : '—',
+                            bold: true,
+                            bg: Colors.green.shade50,
+                            w: 110,
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -1480,205 +1558,242 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
               ),
               child: Padding(
                 padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.tune, size: 18, color: Colors.blue),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Adjustments',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: Colors.grey.shade900,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Plus Points',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade700,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    TextField(
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        hintText: 'e.g., 2',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
-                      onChanged: (v) {
-                        setState(() {
-                          _plusPoints = double.tryParse(v) ?? 0.0;
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Extra-Curricular',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade700,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    TextField(
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        hintText: 'e.g., 1.5',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
-                      onChanged: (v) {
-                        setState(() {
-                          _extraPoints = double.tryParse(v) ?? 0.0;
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Quarterly Exam (manual)',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade700,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                            decoration: const InputDecoration(
-                              labelText: 'Score',
-                              border: OutlineInputBorder(),
-                              isDense: true,
-                            ),
-                            onChanged: (v) {
-                              setState(() {
-                                _qaScore = double.tryParse(v) ?? 0.0;
-                              });
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: TextField(
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                            decoration: const InputDecoration(
-                              labelText: 'Max',
-                              border: OutlineInputBorder(),
-                              isDense: true,
-                            ),
-                            onChanged: (v) {
-                              setState(() {
-                                _qaMax = double.tryParse(v) ?? 0.0;
-                              });
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade50,
-                        border: Border.all(color: Colors.grey.shade300),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         children: [
+                          const Icon(Icons.tune, size: 18, color: Colors.blue),
+                          const SizedBox(width: 8),
                           Text(
-                            'Preview',
+                            'Adjustments',
                             style: TextStyle(
                               fontWeight: FontWeight.w700,
                               color: Colors.grey.shade900,
                             ),
                           ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Initial: ${((wwWS + ptWS + qaWS)).toStringAsFixed(2)}',
-                          ),
-                          Text(
-                            'Plus: ${_plusPoints.toStringAsFixed(2)}  •  Extra: ${_extraPoints.toStringAsFixed(2)}',
-                          ),
-                          Text('Adjusted: ${initialGrade.toStringAsFixed(2)}'),
                         ],
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Remarks',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade700,
+                      const SizedBox(height: 8),
+                      Text(
+                        'Plus Points',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade700,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: _remarksCtrl,
-                      maxLines: 2,
-                      decoration: const InputDecoration(
-                        hintText: 'Optional notes (visible to co-teachers)',
-                        border: OutlineInputBorder(),
-                        isDense: true,
+                      const SizedBox(height: 4),
+                      TextField(
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        style: const TextStyle(fontSize: 13),
+                        decoration: const InputDecoration(
+                          hintText: 'e.g., 2',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(
+                            vertical: 8,
+                            horizontal: 10,
+                          ),
+                        ),
+                        onChanged: (v) {
+                          setState(() {
+                            _plusPoints = double.tryParse(v) ?? 0.0;
+                          });
+                        },
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    if (_savedGrade != null)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            const Icon(
-                              Icons.check_circle,
-                              size: 14,
-                              color: Colors.green,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Saved: ${((_savedGrade!['transmuted_grade'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.green.shade800,
-                                fontWeight: FontWeight.w600,
+                      const SizedBox(height: 8),
+                      Text(
+                        'Extra-Curricular',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      TextField(
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        style: const TextStyle(fontSize: 13),
+                        decoration: const InputDecoration(
+                          hintText: 'e.g., 1.5',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(
+                            vertical: 8,
+                            horizontal: 10,
+                          ),
+                        ),
+                        onChanged: (v) {
+                          setState(() {
+                            _extraPoints = double.tryParse(v) ?? 0.0;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Quarterly Exam (manual)',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              style: const TextStyle(fontSize: 13),
+                              decoration: const InputDecoration(
+                                labelText: 'Score',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                                contentPadding: EdgeInsets.symmetric(
+                                  vertical: 8,
+                                  horizontal: 10,
+                                ),
                               ),
+                              onChanged: (v) {
+                                setState(() {
+                                  _qaScore = double.tryParse(v) ?? 0.0;
+                                });
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: TextField(
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              style: const TextStyle(fontSize: 13),
+                              decoration: const InputDecoration(
+                                labelText: 'Max',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                                contentPadding: EdgeInsets.symmetric(
+                                  vertical: 8,
+                                  horizontal: 10,
+                                ),
+                              ),
+                              onChanged: (v) {
+                                setState(() {
+                                  _qaMax = double.tryParse(v) ?? 0.0;
+                                });
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade50,
+                          border: Border.all(color: Colors.grey.shade300),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Preview',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.grey.shade900,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Initial: ${((wwWS + ptWS + qaWS)).toStringAsFixed(2)}',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                            Text(
+                              'Plus: ${_plusPoints.toStringAsFixed(2)}  •  Extra: ${_extraPoints.toStringAsFixed(2)}',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                            Text(
+                              'Adjusted: ${initialGrade.toStringAsFixed(2)}',
+                              style: TextStyle(fontSize: 12),
                             ),
                           ],
                         ),
                       ),
-
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: (_computed == null || _computing)
-                            ? null
-                            : _saveComputedGrade,
-                        icon: const Icon(Icons.save, size: 16),
-                        label: const Text('Save grade'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
+                      const SizedBox(height: 8),
+                      Text(
+                        'Remarks',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade700,
                         ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 4),
+                      TextField(
+                        controller: _remarksCtrl,
+                        maxLines: 2,
+                        style: const TextStyle(fontSize: 13),
+                        decoration: const InputDecoration(
+                          hintText: 'Optional notes (visible to co-teachers)',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(
+                            vertical: 8,
+                            horizontal: 10,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      if (_savedGrade != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              const Icon(
+                                Icons.check_circle,
+                                size: 14,
+                                color: Colors.green,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Saved: ${((_savedGrade!['transmuted_grade'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.green.shade800,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: (_computed == null || _computing)
+                              ? null
+                              : _saveComputedGrade,
+                          icon: const Icon(Icons.save, size: 16),
+                          label: const Text('Save grade'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                            padding: EdgeInsets.symmetric(vertical: 10),
+                            textStyle: TextStyle(fontSize: 13),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

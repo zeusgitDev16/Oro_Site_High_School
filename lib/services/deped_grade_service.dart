@@ -352,9 +352,19 @@ extension DepEdGradePersistence on DepEdGradeService {
         await supa.from('student_grades').insert(payload);
       }
     } on PostgrestException catch (e) {
-      // Re-throw with a helpful message so UI can show actionable hint
+      // Provide a precise, actionable error message for common type/RLS issues
+      final code = e.code;
+      final message = e.message;
+      if (code == '22P02' &&
+          (message.contains('uuid') || message.contains('UUID'))) {
+        // Likely: student_grades.course_id is UUID while a numeric courseId (e.g., "11") was provided
+        // Ask user to run the alignment migration we added to the repo
+        throw Exception(
+          'Type mismatch (code=22P02): student_grades.course_id expects UUID but received "$courseId". Run database/migrations/FIX_STUDENT_GRADES_COURSE_ID_TYPE.sql to align student_grades.course_id with courses.id.',
+        );
+      }
       throw Exception(
-        'student_grades table missing or RLS blocked: ${e.message}',
+        'student_grades insert/update failed (code=${code ?? 'unknown'}): $message',
       );
     } catch (e) {
       rethrow;
