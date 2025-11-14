@@ -311,12 +311,18 @@ extension DepEdGradePersistence on DepEdGradeService {
     double plusPoints = 0.0,
     double extraPoints = 0.0,
     String? remarks,
+    double? qaScoreOverride,
+    double? qaMaxOverride,
+    // New: optional custom weight overrides (percent values, e.g., 40 for 40%)
+    double? wwWeightPctOverride,
+    double? ptWeightPctOverride,
+    double? qaWeightPctOverride,
   }) async {
     final supa = Supabase.instance.client;
     final nowIso = DateTime.now().toIso8601String();
     final computedBy = supa.currentUserId();
 
-    try {
+    Future<void> writeOp({required bool includeOptional}) async {
       final existing = await supa
           .from('student_grades')
           .select()
@@ -342,6 +348,27 @@ extension DepEdGradePersistence on DepEdGradeService {
         'updated_at': nowIso,
       };
 
+      if (includeOptional) {
+        // QA manual override only saved when a positive max is specified
+        if ((qaMaxOverride ?? 0) > 0) {
+          payload['qa_score_override'] = (qaScoreOverride ?? 0).toDouble();
+          payload['qa_max_override'] = (qaMaxOverride ?? 0).toDouble();
+        }
+        // Persist custom weight overrides as FRACTIONS (0.0 - 1.0); set null to clear
+        payload['ww_weight_override'] = (wwWeightPctOverride == null)
+            ? null
+            : (wwWeightPctOverride.clamp(0, 100).toDouble() / 100.0);
+        payload['pt_weight_override'] = (ptWeightPctOverride == null)
+            ? null
+            : (ptWeightPctOverride.clamp(0, 100).toDouble() / 100.0);
+        payload['qa_weight_override'] = (qaWeightPctOverride == null)
+            ? null
+            : (qaWeightPctOverride.clamp(0, 100).toDouble() / 100.0);
+        // Debug: log the weights being written (in dev)
+        // ignore: avoid_print
+        // print('[saveOrUpdateStudentQuarterGrade] includeOptional=$includeOptional ww=${payload['ww_weight_override']} pt=${payload['pt_weight_override']} qa=${payload['qa_weight_override']}');
+      }
+
       if (existing != null) {
         await supa
             .from('student_grades')
@@ -351,10 +378,24 @@ extension DepEdGradePersistence on DepEdGradeService {
         payload['created_at'] = nowIso;
         await supa.from('student_grades').insert(payload);
       }
+    }
+
+    try {
+      // First attempt: include optional columns (QA + weight overrides)
+      await writeOp(includeOptional: true);
     } on PostgrestException catch (e) {
       // Provide a precise, actionable error message for common type/RLS issues
       final code = e.code;
       final message = e.message;
+      if (code == '42703' ||
+          message.contains('qa_score_override') ||
+          message.contains('weight_override')) {
+        // Some optional columns do not exist yet; retry without them
+        // ignore: avoid_print
+        // print('[DepEdGradeService] Optional columns missing, retrying without overrides. err=$code msg=$message');
+        await writeOp(includeOptional: false);
+        return;
+      }
       if (code == '22P02' &&
           (message.contains('uuid') || message.contains('UUID'))) {
         // Likely: student_grades.course_id is UUID while a numeric courseId (e.g., "11") was provided
@@ -386,19 +427,26 @@ extension DepEdGradeCompute on DepEdGradeService {
     double qaMaxOverride = 0.0,
     double plusPoints = 0.0,
     double extraPoints = 0.0,
+    // Optional: custom weight overrides as FRACTIONS (0.0 - 1.0)
+    double? wwWeightOverride,
+    double? ptWeightOverride,
+    double? qaWeightOverride,
   }) async {
     final supa = Supabase.instance.client;
 
     // 1) Load assignments for this class/course/quarter
+    //    Include both published and unpublished so the breakdown matches
+    //    the teacher's computed grade. Only require is_active=true.
     final assignments = List<Map<String, dynamic>>.from(
       await supa
           .from('assignments')
           .select('id, component, assignment_type, total_points')
           .eq('classroom_id', classroomId)
           .eq('course_id', courseId)
-          .eq('quarter_no', quarter)
           .eq('is_active', true)
-          .eq('is_published', true),
+          .or(
+            'quarter_no.eq.$quarter,content->meta->>quarter.eq.$quarter,content->meta->>quarter_no.eq.$quarter',
+          ),
     );
     final ids = assignments.map((a) => (a['id']).toString()).toList();
 
@@ -408,13 +456,15 @@ extension DepEdGradeCompute on DepEdGradeService {
         : List<Map<String, dynamic>>.from(
             await supa
                 .from('assignment_submissions')
-                .select('assignment_id, score, max_score')
+                .select('assignment_id, score, max_score, status')
                 .eq('student_id', studentId)
                 .eq('classroom_id', classroomId)
                 .inFilter('assignment_id', ids),
           );
+    // Consider only graded or scored submissions; ignore missing/ungraded
+    final gradedSubs = submissions.where((s) => s['score'] != null).toList();
     final subMap = {
-      for (final s in submissions) (s['assignment_id']).toString(): s,
+      for (final s in gradedSubs) (s['assignment_id']).toString(): s,
     };
 
     // 3) Aggregate by component
@@ -424,11 +474,97 @@ extension DepEdGradeCompute on DepEdGradeService {
 
     for (final a in assignments) {
       final id = (a['id']).toString();
-      final comp = (a['component'] ?? '').toString();
+      // Determine component robustly
+      String comp = ((a['component'] ?? a['component_type'] ?? '') as String)
+          .toString()
+          .toLowerCase();
+      final String? aType = (a['assignment_type'] as String?)?.toLowerCase();
+      // Normalize component variants (e.g., "Performance Task", "performance-task", "PT")
+      if (comp.isNotEmpty) {
+        var norm = comp.replaceAll(RegExp(r'[^a-z]'), '_');
+        if (norm == 'performance_tasks') norm = 'performance_task';
+        if (norm == 'written_work') norm = 'written_works';
+        if (norm == 'quarterly_assessment' || norm == 'quarterly_assessments') {
+          norm = 'quarterly_assessment';
+        }
+        if (norm != 'written_works' &&
+            norm != 'performance_task' &&
+            norm != 'quarterly_assessment') {
+          if (norm.contains('perform')) {
+            norm = 'performance_task';
+          } else if (norm.contains('assess') ||
+              norm.contains('quarter') ||
+              norm.contains('exam')) {
+            norm = 'quarterly_assessment';
+          } else if (norm.contains('written') ||
+              norm.contains('work') ||
+              norm.contains('quiz')) {
+            norm = 'written_works';
+          }
+        }
+        comp = norm;
+      }
+
+      if (comp.isEmpty) {
+        // infer from assignment_type
+        switch (aType) {
+          case 'quiz':
+          case 'seatwork':
+          case 'worksheet':
+          case 'short_answer':
+          case 'multiple_choice':
+          case 'identification':
+          case 'true_false':
+          case 'written_work':
+          case 'written_works':
+            comp = 'written_works';
+            break;
+          case 'performance_task':
+          case 'project':
+          case 'presentation':
+          case 'essay':
+          case 'file_upload':
+          case 'performance':
+            comp = 'performance_task';
+            break;
+          case 'exam':
+          case 'quarterly_assessment':
+          case 'qa':
+            comp = 'quarterly_assessment';
+            break;
+          default:
+            if (aType != null) {
+              if (aType.contains('perform') ||
+                  aType.contains('project') ||
+                  aType.contains('present')) {
+                comp = 'performance_task';
+              } else if (aType.contains('exam') || aType.contains('quarter')) {
+                comp = 'quarterly_assessment';
+              } else if (aType.contains('quiz') ||
+                  aType.contains('written') ||
+                  aType.contains('work')) {
+                comp = 'written_works';
+              }
+            }
+        }
+      }
+      if (comp == 'ww') comp = 'written_works';
+      if (comp == 'pt') comp = 'performance_task';
+      if (comp == 'qa') comp = 'quarterly_assessment';
+
+      // print('[DepEdGradeService.computeQuarterlyBreakdown] id=' + id + ' comp_raw=' + (a['component']?.toString() ?? '') + ' type=' + (aType ?? '') + ' -> comp=' + comp);
+
       final total = ((a['total_points'] as num?)?.toDouble() ?? 0.0);
       final s = subMap[id];
-      final score = ((s?['score'] as num?)?.toDouble() ?? 0.0);
-      final max = ((s?['max_score'] as num?)?.toDouble() ?? total);
+
+      // Skip assignments without a graded/scored submission so we don't
+      // penalize missing items that were not included in the teacher's compute
+      if (s == null) {
+        continue;
+      }
+
+      final score = ((s['score'] as num?)?.toDouble() ?? 0.0);
+      final max = ((s['max_score'] as num?)?.toDouble() ?? total);
 
       if (comp == 'written_works') {
         wwScore += score;
@@ -454,13 +590,17 @@ extension DepEdGradeCompute on DepEdGradeService {
     final ptPS = ps(ptScore, ptMax);
     final qaPS = ps(qaScore, qaMax);
 
-    final weights = getWeights(
+    final baseWeights = getWeights(
       profile: weightProfile,
       courseTitle: courseTitle,
     );
-    final wwWS = wwPS * weights[0];
-    final ptWS = ptPS * weights[1];
-    final qaWS = qaPS * weights[2];
+    // Apply overrides if provided (fractions 0.0-1.0)
+    final w0 = (wwWeightOverride ?? baseWeights[0]).clampDouble(0, 1);
+    final w1 = (ptWeightOverride ?? baseWeights[1]).clampDouble(0, 1);
+    final w2 = (qaWeightOverride ?? baseWeights[2]).clampDouble(0, 1);
+    final wwWS = wwPS * w0;
+    final ptWS = ptPS * w1;
+    final qaWS = qaPS * w2;
 
     var initial = (wwWS + ptWS + qaWS) + plusPoints + extraPoints;
     initial = initial.clampDouble(0, 100);
@@ -481,7 +621,7 @@ extension DepEdGradeCompute on DepEdGradeService {
       'qa_ws': qaWS,
       'initial_grade': initial,
       'transmuted_grade': finalTransmuted,
-      'weights': {'ww': weights[0], 'pt': weights[1], 'qa': weights[2]},
+      'weights': {'ww': w0, 'pt': w1, 'qa': w2},
     };
   }
 }

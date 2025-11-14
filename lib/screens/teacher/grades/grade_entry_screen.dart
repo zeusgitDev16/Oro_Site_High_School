@@ -46,6 +46,14 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
   double _qaScore = 0.0;
   double _qaMax = 0.0;
 
+  // Optional component weight overrides (percent values, e.g., 40 for 40%)
+  double? _wwPctOverride;
+  double? _ptPctOverride;
+  double? _qaPctOverride;
+  final TextEditingController _wwPctCtrl = TextEditingController();
+  final TextEditingController _ptPctCtrl = TextEditingController();
+  final TextEditingController _qaPctCtrl = TextEditingController();
+
   // Optional remarks when saving computed grade
   final TextEditingController _remarksCtrl = TextEditingController();
 
@@ -68,6 +76,9 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
     _teardownRealtime();
     _tabController.dispose();
     _remarksCtrl.dispose();
+    _wwPctCtrl.dispose();
+    _ptPctCtrl.dispose();
+    _qaPctCtrl.dispose();
     super.dispose();
   }
 
@@ -712,6 +723,32 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
       _computed = null;
     });
     try {
+      // If teacher provided weights (via fields or overrides), use them for compute too
+      double? wwOv;
+      double? ptOv;
+      double? qaOv;
+      final wwText = _wwPctCtrl.text.trim();
+      final ptText = _ptPctCtrl.text.trim();
+      final qaText = _qaPctCtrl.text.trim();
+      final wwFromField = double.tryParse(wwText);
+      final ptFromField = double.tryParse(ptText);
+      final qaFromField = double.tryParse(qaText);
+      wwOv = wwFromField != null
+          ? wwFromField.clamp(0, 100).toDouble() / 100.0
+          : (_wwPctOverride != null
+                ? _wwPctOverride!.clamp(0, 100).toDouble() / 100.0
+                : null);
+      ptOv = ptFromField != null
+          ? ptFromField.clamp(0, 100).toDouble() / 100.0
+          : (_ptPctOverride != null
+                ? _ptPctOverride!.clamp(0, 100).toDouble() / 100.0
+                : null);
+      qaOv = qaFromField != null
+          ? qaFromField.clamp(0, 100).toDouble() / 100.0
+          : (_qaPctOverride != null
+                ? _qaPctOverride!.clamp(0, 100).toDouble() / 100.0
+                : null);
+
       final result = await _depEd.computeQuarterlyBreakdown(
         classroomId: _selectedClassroom!.id,
         courseId: _selectedCourse!.id,
@@ -722,10 +759,21 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
         qaMaxOverride: _qaMax,
         plusPoints: _plusPoints,
         extraPoints: _extraPoints,
+        wwWeightOverride: wwOv,
+        ptWeightOverride: ptOv,
+        qaWeightOverride: qaOv,
       );
       if (mounted) {
         setState(() {
           _computed = result;
+          // Sync the visible weight fields with the computed/used weights
+          final w = Map<String, dynamic>.from(result['weights'] as Map);
+          final ww = ((w['ww'] as num?)?.toDouble() ?? 0.4);
+          final pt = ((w['pt'] as num?)?.toDouble() ?? 0.4);
+          final qa = ((w['qa'] as num?)?.toDouble() ?? 0.2);
+          _wwPctCtrl.text = (ww * 100).toStringAsFixed(0);
+          _ptPctCtrl.text = (pt * 100).toStringAsFixed(0);
+          _qaPctCtrl.text = (qa * 100).toStringAsFixed(0);
         });
       }
     } catch (e) {
@@ -755,18 +803,70 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
       return;
     }
     try {
+      // Determine weights from (in priority order): visible text fields → overrides → computed auto
+      double wwWeight = 0.40, ptWeight = 0.40, qaWeight = 0.20;
+      if (_computed != null && _computed!['weights'] != null) {
+        final w = Map<String, dynamic>.from(_computed!['weights'] as Map);
+        wwWeight = ((w['ww'] as num?)?.toDouble() ?? wwWeight);
+        ptWeight = ((w['pt'] as num?)?.toDouble() ?? ptWeight);
+        qaWeight = ((w['qa'] as num?)?.toDouble() ?? qaWeight);
+      }
+      // If teacher sees values in the fields, use those even if they didn't type again
+      final double? wwFromField = double.tryParse(_wwPctCtrl.text.trim());
+      final double? ptFromField = double.tryParse(_ptPctCtrl.text.trim());
+      final double? qaFromField = double.tryParse(_qaPctCtrl.text.trim());
+      if (wwFromField != null) {
+        wwWeight = wwFromField.clamp(0, 100).toDouble() / 100.0;
+      } else if (_wwPctOverride != null) {
+        wwWeight = (_wwPctOverride!.clamp(0, 100)).toDouble() / 100.0;
+      }
+      if (ptFromField != null) {
+        ptWeight = ptFromField.clamp(0, 100).toDouble() / 100.0;
+      } else if (_ptPctOverride != null) {
+        ptWeight = (_ptPctOverride!.clamp(0, 100)).toDouble() / 100.0;
+      }
+      if (qaFromField != null) {
+        qaWeight = qaFromField.clamp(0, 100).toDouble() / 100.0;
+      } else if (_qaPctOverride != null) {
+        qaWeight = (_qaPctOverride!.clamp(0, 100)).toDouble() / 100.0;
+      }
+
+      // Use canonical PS values from compute result
+      final wwPS = ((_computed!['ww_ps'] as num?)?.toDouble() ?? 0.0);
+      final ptPS = ((_computed!['pt_ps'] as num?)?.toDouble() ?? 0.0);
+      final qaPS = ((_computed!['qa_ps'] as num?)?.toDouble() ?? 0.0);
+
+      double initial =
+          (wwPS * wwWeight) + (ptPS * ptWeight) + (qaPS * qaWeight);
+      initial = (initial + _plusPoints + _extraPoints).clamp(0.0, 100.0);
+      final transmuted = _depEd.transmute(initial);
+
+      // Persist the EFFECTIVE weights used (as percent values)
+      final double wwPctToSave = (wwWeight * 100.0);
+      final double ptPctToSave = (ptWeight * 100.0);
+      final double qaPctToSave = (qaWeight * 100.0);
+
+      // Debug
+      // debugPrint('[TeacherSave] Effective weights -> ww=${(wwWeight*100).toStringAsFixed(0)}% pt=${(ptWeight*100).toStringAsFixed(0)}% qa=${(qaWeight*100).toStringAsFixed(0)}%');
+
       await _depEd.saveOrUpdateStudentQuarterGrade(
         studentId: _selectedStudent!['id'].toString(),
         classroomId: _selectedClassroom!.id,
         courseId: _selectedCourse!.id,
         quarter: _selectedQuarter!,
-        initialGrade: (_computed!['initial_grade'] as num).toDouble(),
-        transmutedGrade: (_computed!['transmuted_grade'] as num).toDouble(),
+        initialGrade: initial,
+        transmutedGrade: transmuted,
         plusPoints: _plusPoints,
         extraPoints: _extraPoints,
         remarks: _remarksCtrl.text.trim().isEmpty
             ? null
             : _remarksCtrl.text.trim(),
+        qaScoreOverride: _qaScore,
+        qaMaxOverride: _qaMax,
+        // Persist the effective weights (percent values)
+        wwWeightPctOverride: wwPctToSave,
+        ptWeightPctOverride: ptPctToSave,
+        qaWeightPctOverride: qaPctToSave,
       );
       await _loadExistingQuarterGrade();
 
@@ -1272,6 +1372,28 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
       qaWeight = ((w['qa'] as num?)?.toDouble() ?? qaWeight);
     }
 
+    // Apply teacher overrides (percent -> fraction) if provided
+    if (_wwPctOverride != null) {
+      wwWeight = (_wwPctOverride!.clamp(0, 100)).toDouble() / 100.0;
+    }
+    if (_ptPctOverride != null) {
+      ptWeight = (_ptPctOverride!.clamp(0, 100)).toDouble() / 100.0;
+    }
+    if (_qaPctOverride != null) {
+      qaWeight = (_qaPctOverride!.clamp(0, 100)).toDouble() / 100.0;
+    }
+
+    // Initialize weight text fields once with current weights
+    if (_wwPctCtrl.text.isEmpty && _wwPctOverride == null) {
+      _wwPctCtrl.text = (wwWeight * 100).toStringAsFixed(0);
+    }
+    if (_ptPctCtrl.text.isEmpty && _ptPctOverride == null) {
+      _ptPctCtrl.text = (ptWeight * 100).toStringAsFixed(0);
+    }
+    if (_qaPctCtrl.text.isEmpty && _qaPctOverride == null) {
+      _qaPctCtrl.text = (qaWeight * 100).toStringAsFixed(0);
+    }
+
     // Partition items by type (no QA assignments; QA will be manual input)
     bool isWW(String t) =>
         t == 'quiz' ||
@@ -1324,18 +1446,20 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
       wwScore = ((_computed!['ww_score'] as num?)?.toDouble() ?? wwScore);
       wwMax = ((_computed!['ww_max'] as num?)?.toDouble() ?? wwMax);
       wwPS = ((_computed!['ww_ps'] as num?)?.toDouble() ?? wwPS);
-      wwWS = ((_computed!['ww_ws'] as num?)?.toDouble() ?? wwWS);
 
       ptScore = ((_computed!['pt_score'] as num?)?.toDouble() ?? ptScore);
       ptMax = ((_computed!['pt_max'] as num?)?.toDouble() ?? ptMax);
       ptPS = ((_computed!['pt_ps'] as num?)?.toDouble() ?? ptPS);
-      ptWS = ((_computed!['pt_ws'] as num?)?.toDouble() ?? ptWS);
 
       qaScore = ((_computed!['qa_score'] as num?)?.toDouble() ?? qaScore);
       qaMax = ((_computed!['qa_max'] as num?)?.toDouble() ?? qaMax);
       qaPS = ((_computed!['qa_ps'] as num?)?.toDouble() ?? qaPS);
-      qaWS = ((_computed!['qa_ws'] as num?)?.toDouble() ?? qaWS);
     }
+
+    // Recompute weighted scores using current weights (auto or teacher overrides)
+    wwWS = wwPS * wwWeight;
+    ptWS = ptPS * ptWeight;
+    qaWS = qaPS * qaWeight;
 
     double initialGrade = (wwWS + ptWS + qaWS); // already on 0-100 scale
     initialGrade = (initialGrade + _plusPoints + _extraPoints).clamp(
@@ -1530,8 +1654,8 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
                           ),
                           cell(
                             _computed != null
-                                ? ((_computed!['transmuted_grade'] as num)
-                                          .toDouble())
+                                ? _depEd
+                                      .transmute(initialGrade)
                                       .toStringAsFixed(0)
                                 : '—',
                             bold: true,
@@ -1631,6 +1755,127 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
                           setState(() {
                             _extraPoints = double.tryParse(v) ?? 0.0;
                           });
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Component Weights (%)',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _wwPctCtrl,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              style: const TextStyle(fontSize: 13),
+                              decoration: const InputDecoration(
+                                labelText: 'WW %',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                                contentPadding: EdgeInsets.symmetric(
+                                  vertical: 8,
+                                  horizontal: 10,
+                                ),
+                              ),
+                              onChanged: (v) {
+                                setState(() {
+                                  _wwPctOverride = double.tryParse(v);
+                                });
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: TextField(
+                              controller: _ptPctCtrl,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              style: const TextStyle(fontSize: 13),
+                              decoration: const InputDecoration(
+                                labelText: 'PT %',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                                contentPadding: EdgeInsets.symmetric(
+                                  vertical: 8,
+                                  horizontal: 10,
+                                ),
+                              ),
+                              onChanged: (v) {
+                                setState(() {
+                                  _ptPctOverride = double.tryParse(v);
+                                });
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: TextField(
+                              controller: _qaPctCtrl,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              style: const TextStyle(fontSize: 13),
+                              decoration: const InputDecoration(
+                                labelText: 'QA %',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                                contentPadding: EdgeInsets.symmetric(
+                                  vertical: 8,
+                                  horizontal: 10,
+                                ),
+                              ),
+                              onChanged: (v) {
+                                setState(() {
+                                  _qaPctOverride = double.tryParse(v);
+                                });
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Builder(
+                        builder: (_) {
+                          final sumPct =
+                              ((wwWeight + ptWeight + qaWeight) * 100.0);
+                          final ok = (sumPct - 100.0).abs() < 0.01;
+                          return Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Sum: ${sumPct.toStringAsFixed(0)}%',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: ok ? Colors.green : Colors.red,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: () {
+                                  setState(() {
+                                    _wwPctOverride = null;
+                                    _ptPctOverride = null;
+                                    _qaPctOverride = null;
+                                    _wwPctCtrl.clear();
+                                    _ptPctCtrl.clear();
+                                    _qaPctCtrl.clear();
+                                  });
+                                },
+                                child: const Text('Reset to default'),
+                              ),
+                            ],
+                          );
                         },
                       ),
                       const SizedBox(height: 8),
