@@ -706,6 +706,22 @@ class _StudentGradeViewerScreenState extends State<StudentGradeViewerScreen> {
       }
       final assigns = byId.values.toList();
 
+      // DEBUG: Log fetched assignments to diagnose PT issue
+      debugPrint(
+        '[StudentExplain] Fetched ${assigns.length} total assignments',
+      );
+      debugPrint(
+        '[StudentExplain] Published: ${published.length}, Graded: ${gradedAssigns.length}',
+      );
+      for (final a in assigns) {
+        debugPrint(
+          '[StudentExplain] Assignment ${a['id']}: '
+          'title="${a['title']}", '
+          'component="${a['component']}", '
+          'assignment_type="${a['assignment_type']}"',
+        );
+      }
+
       // Load submissions for the combined set so the UI can show score/max/missing
       final ids = assigns.map((a) => (a['id']).toString()).toList();
       final subs = ids.isEmpty
@@ -813,6 +829,12 @@ class _StudentGradeViewerScreenState extends State<StudentGradeViewerScreen> {
         if (comp == 'ww') comp = 'written_works';
         if (comp == 'pt') comp = 'performance_task';
         if (comp == 'qa') comp = 'quarterly_assessment';
+
+        // DEBUG: Log final component classification
+        debugPrint(
+          '[StudentExplain] Assignment $id "${a['title']}" -> component: "$comp"',
+        );
+
         final s = subMap[id];
         final hasScore = s != null && s['score'] != null;
         final sc = hasScore ? ((s['score'] as num).toDouble()) : 0.0;
@@ -832,17 +854,27 @@ class _StudentGradeViewerScreenState extends State<StudentGradeViewerScreen> {
         switch (comp) {
           case 'written_works':
             ww.add(item);
+            debugPrint('[StudentExplain] -> Added to WW list');
             break;
           case 'performance_task':
             pt.add(item);
+            debugPrint('[StudentExplain] -> Added to PT list');
             break;
           case 'quarterly_assessment':
             qa.add(item);
+            debugPrint('[StudentExplain] -> Added to QA list');
             break;
           default:
+            debugPrint('[StudentExplain] -> NOT CATEGORIZED (comp="$comp")');
             break;
         }
       }
+
+      // DEBUG: Log final categorization summary
+      debugPrint('[StudentExplain] Categorization complete:');
+      debugPrint('[StudentExplain]   WW: ${ww.length} items');
+      debugPrint('[StudentExplain]   PT: ${pt.length} items');
+      debugPrint('[StudentExplain]   QA: ${qa.length} items');
 
       final plus =
           ((_quarterGrades[q]?['plus_points'] as num?)?.toDouble() ?? 0.0);
