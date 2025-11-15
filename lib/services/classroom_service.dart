@@ -27,11 +27,32 @@ class ClassroomService {
     String? description,
     required int gradeLevel,
     required int maxStudents,
+    required String schoolLevel,
   }) async {
     try {
       // Validate grade level
       if (gradeLevel < 7 || gradeLevel > 12) {
         throw Exception('Grade level must be between 7 and 12');
+      }
+
+      // Validate school level
+      if (schoolLevel != Classroom.schoolLevelJhs &&
+          schoolLevel != Classroom.schoolLevelShs) {
+        throw Exception('School level must be JHS or SHS');
+      }
+
+      // Cross-validate grade level and school level
+      if (schoolLevel == Classroom.schoolLevelJhs &&
+          (gradeLevel < 7 || gradeLevel > 10)) {
+        throw Exception(
+          'Junior High School classrooms must use grade levels 7 to 10.',
+        );
+      }
+      if (schoolLevel == Classroom.schoolLevelShs &&
+          (gradeLevel < 11 || gradeLevel > 12)) {
+        throw Exception(
+          'Senior High School classrooms must use grade levels 11 to 12.',
+        );
       }
 
       // Validate max students
@@ -48,6 +69,7 @@ class ClassroomService {
             'title': title,
             'description': description,
             'grade_level': gradeLevel,
+            'school_level': schoolLevel,
             'max_students': maxStudents,
             'current_students': 0,
             'is_active': true,
@@ -131,6 +153,7 @@ class ClassroomService {
     int? gradeLevel,
     int? maxStudents,
     bool? isActive,
+    String? schoolLevel,
   }) async {
     try {
       final updates = <String, dynamic>{};
@@ -150,6 +173,39 @@ class ClassroomService {
         updates['max_students'] = maxStudents;
       }
       if (isActive != null) updates['is_active'] = isActive;
+      if (schoolLevel != null) {
+        if (schoolLevel != Classroom.schoolLevelJhs &&
+            schoolLevel != Classroom.schoolLevelShs) {
+          throw Exception('School level must be JHS or SHS');
+        }
+        updates['school_level'] = schoolLevel;
+      }
+
+      // Cross-field validation if both gradeLevel and schoolLevel are involved
+      if (updates.containsKey('grade_level') ||
+          updates.containsKey('school_level')) {
+        // Fetch existing classroom to determine effective values
+        final existing = await getClassroomById(classroomId);
+        if (existing != null) {
+          final effectiveGradeLevel =
+              (updates['grade_level'] as int?) ?? existing.gradeLevel;
+          final effectiveSchoolLevel =
+              (updates['school_level'] as String?) ?? existing.schoolLevel;
+
+          if (effectiveSchoolLevel == Classroom.schoolLevelJhs &&
+              (effectiveGradeLevel < 7 || effectiveGradeLevel > 10)) {
+            throw Exception(
+              'Junior High School classrooms must use grade levels 7 to 10.',
+            );
+          }
+          if (effectiveSchoolLevel == Classroom.schoolLevelShs &&
+              (effectiveGradeLevel < 11 || effectiveGradeLevel > 12)) {
+            throw Exception(
+              'Senior High School classrooms must use grade levels 11 to 12.',
+            );
+          }
+        }
+      }
 
       final response = await _supabase
           .from('classrooms')

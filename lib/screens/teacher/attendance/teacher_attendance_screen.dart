@@ -356,6 +356,13 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
       final end = DateTime(_visibleMonth.year, _visibleMonth.month + 1, 0);
       final courseId = int.tryParse(_selectedCourse!.id);
       if (courseId == null) return;
+      // Classroom-scoped / course-scoped query:
+      // - Fetches all attendance rows for this course and quarter to mark
+      //   the calendar.
+      // - Visibility and write access are enforced by the
+      //   "Teachers can manage course attendance" RLS policy on public.attendance.
+      // - There is intentionally no teacher_id filter so co-teachers share
+      //   the same attendance records.
       final resp = await Supabase.instance.client
           .from('attendance')
           .select('date')
@@ -415,6 +422,11 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
           .toList();
       if (ids.isEmpty) return;
 
+      // Classroom-scoped / course-scoped query:
+      // - Loads each student's status for the selected date in this course.
+      // - All teachers for the course see the same statuses, enforced by the
+      //   "Teachers can manage course attendance" RLS policy on public.attendance.
+      // - No teacher_id filter by design; do not add one here.
       final resp = await Supabase.instance.client
           .from('attendance')
           .select('student_id,status')
@@ -475,6 +487,11 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
     setState(() => _isSaving = true);
     try {
       final client = Supabase.instance.client;
+      // Classroom-scoped / course-scoped write:
+      // - Deletes then re-inserts attendance for this course, quarter, date,
+      //   and the affected student ids.
+      // - RLS policy "Teachers can manage course attendance" controls which
+      //   teachers can perform this operation.
       await client
           .from('attendance')
           .delete()
@@ -718,7 +735,13 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
         throw Exception('Invalid course id');
       }
 
-      // Fetch month attendance (student_id, date, status)
+      // Fetch month attendance (student_id, date, status).
+      // Classroom-scoped / course-scoped data:
+      // - This loads all attendance rows for the selected course, quarter, and
+      //   month for the given studentIds.
+      // - All teachers for the course share the same dataset, enforced by the
+      //   "Teachers can manage course attendance" RLS policy on public.attendance.
+      // - There is intentionally no teacher_id filter here.
       final resp = await Supabase.instance.client
           .from('attendance')
           .select('student_id,date,status')
@@ -1568,7 +1591,13 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
         throw Exception('Invalid course id');
       }
 
-      // Fetch month attendance (student_id, date, status)
+      // Fetch month attendance (student_id, date, status).
+      // Classroom-scoped / course-scoped data:
+      // - This loads all attendance rows for the selected course, quarter, and
+      //   month for the given studentIds.
+      // - All teachers for the course share the same dataset, enforced by the
+      //   "Teachers can manage course attendance" RLS policy on public.attendance.
+      // - There is intentionally no teacher_id filter here.
       final resp = await Supabase.instance.client
           .from('attendance')
           .select('student_id,date,status')

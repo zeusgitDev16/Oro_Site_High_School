@@ -1,11 +1,15 @@
 /// Classroom Model
 /// Represents a classroom created by a teacher
 class Classroom {
+  static const String schoolLevelJhs = 'JHS';
+  static const String schoolLevelShs = 'SHS';
+
   final String id;
   final String teacherId;
   final String title;
   final String? description;
   final int gradeLevel;
+  final String schoolLevel;
   final int maxStudents;
   final int currentStudents;
   final bool isActive;
@@ -19,6 +23,7 @@ class Classroom {
     required this.title,
     this.description,
     required this.gradeLevel,
+    required this.schoolLevel,
     required this.maxStudents,
     this.currentStudents = 0,
     this.isActive = true,
@@ -29,12 +34,18 @@ class Classroom {
 
   /// Create Classroom from JSON
   factory Classroom.fromJson(Map<String, dynamic> json) {
+    final gradeLevel = json['grade_level'] as int;
+    final rawSchoolLevel = json['school_level'] as String?;
+    final schoolLevel =
+        rawSchoolLevel ?? _deriveSchoolLevelFromGradeLevel(gradeLevel);
+
     return Classroom(
       id: json['id'] as String,
       teacherId: json['teacher_id'] as String,
       title: json['title'] as String,
       description: json['description'] as String?,
-      gradeLevel: json['grade_level'] as int,
+      gradeLevel: gradeLevel,
+      schoolLevel: schoolLevel,
       maxStudents: json['max_students'] as int,
       currentStudents: json['current_students'] as int? ?? 0,
       isActive: json['is_active'] as bool? ?? true,
@@ -52,6 +63,7 @@ class Classroom {
       'title': title,
       'description': description,
       'grade_level': gradeLevel,
+      'school_level': schoolLevel,
       'max_students': maxStudents,
       'current_students': currentStudents,
       'is_active': isActive,
@@ -68,8 +80,19 @@ class Classroom {
   int get availableSlots => maxStudents - currentStudents;
 
   /// Get occupancy percentage
-  double get occupancyPercentage => 
+  double get occupancyPercentage =>
       maxStudents > 0 ? (currentStudents / maxStudents) * 100 : 0;
+
+  static String _deriveSchoolLevelFromGradeLevel(int gradeLevel) {
+    if (gradeLevel >= 7 && gradeLevel <= 10) {
+      return schoolLevelJhs;
+    } else if (gradeLevel == 11 || gradeLevel == 12) {
+      return schoolLevelShs;
+    } else {
+      // Fallback: default to JHS for out-of-range values
+      return schoolLevelJhs;
+    }
+  }
 
   /// Copy with method for updates
   Classroom copyWith({
@@ -78,6 +101,7 @@ class Classroom {
     String? title,
     String? description,
     int? gradeLevel,
+    String? schoolLevel,
     int? maxStudents,
     int? currentStudents,
     bool? isActive,
@@ -91,6 +115,7 @@ class Classroom {
       title: title ?? this.title,
       description: description ?? this.description,
       gradeLevel: gradeLevel ?? this.gradeLevel,
+      schoolLevel: schoolLevel ?? this.schoolLevel,
       maxStudents: maxStudents ?? this.maxStudents,
       currentStudents: currentStudents ?? this.currentStudents,
       isActive: isActive ?? this.isActive,

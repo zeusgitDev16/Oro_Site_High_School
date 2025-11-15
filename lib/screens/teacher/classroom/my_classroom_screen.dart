@@ -3741,6 +3741,7 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
     final descriptionController = TextEditingController();
     final maxStudentsController = TextEditingController(text: '35');
     int? selectedGradeLevel;
+    String? selectedSchoolLevel;
     bool isCreating = false;
 
     showDialog(
@@ -3787,6 +3788,45 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                         : (value) {
                             setDialogState(() {
                               selectedGradeLevel = value;
+
+                              // Auto-select school level based on grade level
+                              if (value != null) {
+                                if (value >= 7 && value <= 10) {
+                                  selectedSchoolLevel =
+                                      Classroom.schoolLevelJhs;
+                                } else if (value == 11 || value == 12) {
+                                  selectedSchoolLevel =
+                                      Classroom.schoolLevelShs;
+                                }
+                              }
+                            });
+                          },
+                  ),
+                  const SizedBox(height: 16),
+
+                  // School Level Dropdown
+                  DropdownButtonFormField<String>(
+                    value: selectedSchoolLevel,
+                    decoration: const InputDecoration(
+                      labelText: 'School Level',
+                      border: OutlineInputBorder(),
+                    ),
+                    hint: const Text('Select school level'),
+                    items: const [
+                      DropdownMenuItem(
+                        value: Classroom.schoolLevelJhs,
+                        child: Text('Junior High School (JHS)'),
+                      ),
+                      DropdownMenuItem(
+                        value: Classroom.schoolLevelShs,
+                        child: Text('Senior High School (SHS)'),
+                      ),
+                    ],
+                    onChanged: isCreating
+                        ? null
+                        : (value) {
+                            setDialogState(() {
+                              selectedSchoolLevel = value;
                             });
                           },
                   ),
@@ -3862,6 +3902,43 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                         return;
                       }
 
+                      if (selectedSchoolLevel == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Please select a school level'),
+                            backgroundColor: Colors.orange,
+                          ),
+                        );
+                        return;
+                      }
+
+                      final gradeLevel = selectedGradeLevel!;
+                      final schoolLevel = selectedSchoolLevel!;
+                      if (schoolLevel == Classroom.schoolLevelJhs &&
+                          (gradeLevel < 7 || gradeLevel > 10)) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Junior High School classrooms must use grade levels 7 to 10.',
+                            ),
+                            backgroundColor: Colors.orange,
+                          ),
+                        );
+                        return;
+                      }
+                      if (schoolLevel == Classroom.schoolLevelShs &&
+                          (gradeLevel < 11 || gradeLevel > 12)) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Senior High School classrooms must use grade levels 11 to 12.',
+                            ),
+                            backgroundColor: Colors.orange,
+                          ),
+                        );
+                        return;
+                      }
+
                       final maxStudents = int.tryParse(
                         maxStudentsController.text.trim(),
                       );
@@ -3902,6 +3979,7 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                               : descriptionController.text.trim(),
                           gradeLevel: selectedGradeLevel!,
                           maxStudents: maxStudents,
+                          schoolLevel: selectedSchoolLevel!,
                         );
 
                         Navigator.pop(context);
@@ -3953,6 +4031,7 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
       text: classroom.maxStudents.toString(),
     );
     int? selectedGradeLevel = classroom.gradeLevel;
+    String? selectedSchoolLevel = classroom.schoolLevel;
     bool isUpdating = false;
 
     showDialog(
@@ -3998,6 +4077,44 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                         : (value) {
                             setDialogState(() {
                               selectedGradeLevel = value;
+
+                              // Auto-select school level based on grade level
+                              if (value != null) {
+                                if (value >= 7 && value <= 10) {
+                                  selectedSchoolLevel =
+                                      Classroom.schoolLevelJhs;
+                                } else if (value == 11 || value == 12) {
+                                  selectedSchoolLevel =
+                                      Classroom.schoolLevelShs;
+                                }
+                              }
+                            });
+                          },
+                  ),
+                  const SizedBox(height: 16),
+
+                  // School Level Dropdown
+                  DropdownButtonFormField<String>(
+                    value: selectedSchoolLevel,
+                    decoration: const InputDecoration(
+                      labelText: 'School Level',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: Classroom.schoolLevelJhs,
+                        child: Text('Junior High School (JHS)'),
+                      ),
+                      DropdownMenuItem(
+                        value: Classroom.schoolLevelShs,
+                        child: Text('Senior High School (SHS)'),
+                      ),
+                    ],
+                    onChanged: isUpdating
+                        ? null
+                        : (value) {
+                            setDialogState(() {
+                              selectedSchoolLevel = value;
                             });
                           },
                   ),
@@ -4085,6 +4202,43 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                         return;
                       }
 
+                      if (selectedSchoolLevel == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Please select a school level'),
+                            backgroundColor: Colors.orange,
+                          ),
+                        );
+                        return;
+                      }
+
+                      final gradeLevel = selectedGradeLevel!;
+                      final schoolLevel = selectedSchoolLevel!;
+                      if (schoolLevel == Classroom.schoolLevelJhs &&
+                          (gradeLevel < 7 || gradeLevel > 10)) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Junior High School classrooms must use grade levels 7 to 10.',
+                            ),
+                            backgroundColor: Colors.orange,
+                          ),
+                        );
+                        return;
+                      }
+                      if (schoolLevel == Classroom.schoolLevelShs &&
+                          (gradeLevel < 11 || gradeLevel > 12)) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Senior High School classrooms must use grade levels 11 to 12.',
+                            ),
+                            backgroundColor: Colors.orange,
+                          ),
+                        );
+                        return;
+                      }
+
                       final maxStudents = int.tryParse(
                         maxStudentsController.text.trim(),
                       );
@@ -4131,6 +4285,7 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                                   : descriptionController.text.trim(),
                               gradeLevel: selectedGradeLevel,
                               maxStudents: maxStudents,
+                              schoolLevel: selectedSchoolLevel,
                             );
 
                         Navigator.pop(context);

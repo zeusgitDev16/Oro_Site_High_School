@@ -651,8 +651,18 @@ class _StudentGradeViewerScreenState extends State<StudentGradeViewerScreen> {
       final quarterOr =
           'quarter_no.eq.$q,content->meta->>quarter.eq.$q,content->meta->>quarter_no.eq.$q';
 
-      // A) Published assignments (regular assignments students can access)
-      final published = List<Map<String, dynamic>>.from(
+      // Log the exact filters used for assignment loading so we can
+      // cross-check them against the database.
+      debugPrint(
+        '[StudentExplain] Filters: classroom_id=${c.id}, '
+        'course_id=${course.id}, quarter=$q, quarterOr="$quarterOr"',
+      );
+
+      // Load all assignments for this classroom/course/quarter.
+      // We intentionally mirror DepEdGradeService.computeQuarterlyBreakdown so
+      // the student breakdown sees the same WW/PT/QA items that the grade
+      // computation uses, including Performance Tasks.
+      final assigns = List<Map<String, dynamic>>.from(
         await supa
             .from('assignments')
             .select(
@@ -661,66 +671,34 @@ class _StudentGradeViewerScreenState extends State<StudentGradeViewerScreen> {
             .eq('classroom_id', c.id)
             .eq('course_id', course.id)
             .eq('is_active', true)
-            .eq('is_published', true)
             .or(quarterOr),
       );
 
-      // B) Assignments for which the student has a graded submission
-      final gradedSubs = List<Map<String, dynamic>>.from(
-        await supa
-            .from('assignment_submissions')
-            .select(
-              'assignment_id, score, max_score, status, submitted_at, graded_at',
-            )
-            .eq('student_id', uid)
-            .eq('classroom_id', c.id)
-            .not('score', 'is', null),
-      );
-      final gradedIds = gradedSubs
-          .map((s) => (s['assignment_id']).toString())
-          .toSet()
-          .toList();
-
-      final gradedAssigns = gradedIds.isEmpty
-          ? <Map<String, dynamic>>[]
-          : List<Map<String, dynamic>>.from(
-              await supa
-                  .from('assignments')
-                  .select(
-                    'id, title, assignment_type, component, content, total_points',
-                  )
-                  .eq('classroom_id', c.id)
-                  .eq('course_id', course.id)
-                  .eq('is_active', true)
-                  .inFilter('id', gradedIds)
-                  .or(quarterOr),
-            );
-
-      // Merge and dedupe by assignment id
-      final byId = <String, Map<String, dynamic>>{};
-      for (final a in published) {
-        byId[(a['id']).toString()] = a;
-      }
-      for (final a in gradedAssigns) {
-        byId[(a['id']).toString()] = a;
-      }
-      final assigns = byId.values.toList();
+      int rawPtCount = 0;
+      int rawWwCount = 0;
 
       // DEBUG: Log fetched assignments to diagnose PT issue
       debugPrint(
         '[StudentExplain] Fetched ${assigns.length} total assignments',
       );
-      debugPrint(
-        '[StudentExplain] Published: ${published.length}, Graded: ${gradedAssigns.length}',
-      );
       for (final a in assigns) {
+        final rawCompDynamic = a['component'];
+        final rawComp = rawCompDynamic?.toString() ?? '';
+        final rawTrim = rawComp.trim().toLowerCase();
+        if (rawTrim == 'performance_task') rawPtCount++;
+        if (rawTrim == 'written_works') rawWwCount++;
         debugPrint(
           '[StudentExplain] Assignment ${a['id']}: '
           'title="${a['title']}", '
-          'component="${a['component']}", '
+          'component_raw="$rawComp" (len=${rawComp.length}), '
+          'component_trimmed="$rawTrim", '
+          'component_type=${rawCompDynamic?.runtimeType}, '
           'assignment_type="${a['assignment_type']}"',
         );
       }
+      debugPrint(
+        '[StudentExplain] Raw component stats: WW=$rawWwCount, PT=$rawPtCount',
+      );
 
       // Load submissions for the combined set so the UI can show score/max/missing
       final ids = assigns.map((a) => (a['id']).toString()).toList();

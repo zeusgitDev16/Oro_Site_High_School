@@ -39,6 +39,7 @@ class _F2FGradingScreenState extends State<F2FGradingScreen> {
   String _activityDesc = '';
   int _maxPoints = 10;
   String _courseName = '';
+  String? _activityCourseId; // underlying course id for the activity
 
   // Real students fetched for the classroom
   List<Map<String, dynamic>> _students = [];
@@ -51,6 +52,7 @@ class _F2FGradingScreenState extends State<F2FGradingScreen> {
   String? _activityId; // saved assignment id
   bool _savingActivity = false;
   bool _savingScores = false;
+  bool _editingExistingActivity = false;
 
   // Quarter selection (optional prefill from Grade Entry)
   int? _selectedQuarter; // 1-4
@@ -138,12 +140,24 @@ class _F2FGradingScreenState extends State<F2FGradingScreen> {
     setState(() => _loadingRecent = true);
     try {
       final supabase = Supabase.instance.client;
+      final uid = supabase.auth.currentUser?.id;
+
+      if (uid == null) {
+        if (!mounted) return;
+        setState(() {
+          _recentActivities = [];
+          _loadingRecent = false;
+        });
+        return;
+      }
+
       final rows = await supabase
           .from('assignments')
           .select(
             'id, title, course_id, total_points, component, quarter_no, created_at, content, description',
           )
           .eq('classroom_id', widget.classroom.id)
+          .eq('teacher_id', uid)
           .eq('assignment_type', 'quiz')
           .order('created_at', ascending: false)
           .limit(15);
@@ -195,10 +209,72 @@ class _F2FGradingScreenState extends State<F2FGradingScreen> {
       _courseName = courseTitle;
       _activityComponent = comp;
       _activityQuarter = q;
+      _activityCourseId = courseId;
       _created = true;
       _loadingStudents = true;
+      _editingExistingActivity = false;
     });
     await _loadStudents();
+  }
+
+  Future<void> _confirmDeleteActivity(Map<String, dynamic> a) async {
+    final id = a['id']?.toString();
+    if (id == null || id.isEmpty) return;
+
+    final title = (a['title'] ?? 'this activity').toString();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete F2F Activity'),
+        content: Text(
+          'Delete "$title"? This will remove the activity and all associated student scores. This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await _assignmentService.deleteAssignment(id);
+      if (!mounted) return;
+      setState(() {
+        _recentActivities.removeWhere((r) => r['id']?.toString() == id);
+        if (_activityId == id) {
+          _activityId = null;
+          _activityTitle = '';
+          _activityDesc = '';
+          _maxPoints = 10;
+          _courseName = '';
+          _activityComponent = null;
+          _activityQuarter = null;
+          _activityCourseId = null;
+          _created = false;
+          _editingExistingActivity = false;
+        }
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Activity "$title" deleted')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to delete activity: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Widget _buildRecentActivitiesCard() {
@@ -233,83 +309,103 @@ class _F2FGradingScreenState extends State<F2FGradingScreen> {
                 style: TextStyle(color: Colors.grey.shade600),
               )
             else
-              ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: _recentActivities.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 6),
-                itemBuilder: (context, i) {
-                  final a = _recentActivities[i];
-                  final title = (a['title'] ?? 'Untitled').toString();
-                  final comp =
-                      (a['component'] ?? (a['content']?['meta']?['component']))
-                          ?.toString();
-                  final q =
-                      a['quarter_no'] ?? a['content']?['meta']?['quarter'];
-                  final points = a['total_points'];
-                  final courseId = (a['course_id'] ?? '').toString();
-                  String courseTitle = 'Course';
-                  for (final c in _courses) {
-                    if (c.id == courseId) {
-                      courseTitle = c.title;
-                      break;
+              SizedBox(
+                height: 260,
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  itemCount: _recentActivities.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 6),
+                  itemBuilder: (context, i) {
+                    final a = _recentActivities[i];
+                    final title = (a['title'] ?? 'Untitled').toString();
+                    final comp =
+                        (a['component'] ??
+                                (a['content']?['meta']?['component']))
+                            ?.toString();
+                    final q =
+                        a['quarter_no'] ?? a['content']?['meta']?['quarter'];
+                    final points = a['total_points'];
+                    final courseId = (a['course_id'] ?? '').toString();
+                    String courseTitle = 'Course';
+                    for (final c in _courses) {
+                      if (c.id == courseId) {
+                        courseTitle = c.title;
+                        break;
+                      }
                     }
-                  }
-                  final createdAt = (a['created_at'] ?? '').toString();
-                  final createdShort = createdAt
-                      .replaceFirst('T', ' ')
-                      .split('.')
-                      .first;
+                    final createdAt = (a['created_at'] ?? '').toString();
+                    final createdShort = createdAt
+                        .replaceFirst('T', ' ')
+                        .split('.')
+                        .first;
 
-                  String meta = courseTitle;
-                  if (comp != null && comp.toString().isNotEmpty) {
-                    meta += ' • ${_componentDisplay(comp.toString())}';
-                  }
-                  if (q != null) meta += ' • Q$q';
-                  if (points != null) meta += ' • Max: $points';
-                  meta += ' • $createdShort';
+                    String meta = courseTitle;
+                    if (comp != null && comp.toString().isNotEmpty) {
+                      meta += ' • ${_componentDisplay(comp.toString())}';
+                    }
+                    if (q != null) meta += ' • Q$q';
+                    if (points != null) meta += ' • Max: $points';
+                    meta += ' • $createdShort';
 
-                  return Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border.all(color: Colors.grey.shade300),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    padding: const EdgeInsets.all(10),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                title,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        border: Border.all(color: Colors.grey.shade300),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      padding: const EdgeInsets.all(10),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  title,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                meta,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey.shade600,
+                                const SizedBox(height: 2),
+                                Text(
+                                  meta,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
                                 ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
+                                const SizedBox(height: 2),
+                                Text(
+                                  widget.classroom.title,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.blueGrey,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        OutlinedButton.icon(
-                          onPressed: () => _openExistingActivity(a),
-                          icon: const Icon(Icons.edit, size: 16),
-                          label: const Text('Edit Scores'),
-                        ),
-                      ],
-                    ),
-                  );
-                },
+                          const SizedBox(width: 4),
+                          IconButton(
+                            tooltip: 'Edit scores',
+                            icon: const Icon(Icons.edit_note),
+                            onPressed: () => _openExistingActivity(a),
+                          ),
+                          IconButton(
+                            tooltip: 'Delete activity',
+                            icon: const Icon(Icons.delete_outline),
+                            color: Colors.red,
+                            onPressed: () => _confirmDeleteActivity(a),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
               ),
           ],
         ),
@@ -334,10 +430,7 @@ class _F2FGradingScreenState extends State<F2FGradingScreen> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(
-          width: 280,
-          child: SingleChildScrollView(child: _buildRecentActivitiesCard()),
-        ),
+        SizedBox(width: 280, child: _buildRecentActivitiesCard()),
         const SizedBox(width: 16),
         Expanded(
           child: Card(
@@ -494,7 +587,11 @@ class _F2FGradingScreenState extends State<F2FGradingScreen> {
                             : _saveActivityAndProceed,
                         icon: const Icon(Icons.playlist_add_check),
                         label: Text(
-                          _savingActivity ? 'Saving…' : 'Create Activity',
+                          _savingActivity
+                              ? 'Saving…'
+                              : (_editingExistingActivity
+                                    ? 'Save Changes'
+                                    : 'Create Activity'),
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.blue,
@@ -610,46 +707,90 @@ class _F2FGradingScreenState extends State<F2FGradingScreen> {
       return;
     }
 
+    final isEditingExisting = _editingExistingActivity && _activityId != null;
+
     setState(() => _savingActivity = true);
     try {
-      final created = await _assignmentService.createAssignment(
-        classroomId: widget.classroom.id,
-        teacherId: uid,
-        title: title,
-        description: desc.isEmpty ? null : desc,
-        assignmentType: 'quiz',
-        totalPoints: max,
-        dueDate: null,
-        content: {
-          'meta': {
-            'created_via': 'f2f_grading',
-            'component': comp,
-            'quarter': q,
+      if (isEditingExisting) {
+        await _assignmentService.updateAssignment(
+          assignmentId: _activityId!,
+          title: title,
+          description: desc.isEmpty ? null : desc,
+          assignmentType: 'quiz',
+          totalPoints: max,
+          dueDate: null,
+          isPublished: true,
+          content: {
+            'meta': {
+              'created_via': 'f2f_grading',
+              'component': comp,
+              'quarter': q,
+            },
           },
-        },
-        courseId: course.id,
-        component: comp,
-        quarterNo: q,
-      );
-      final id = created['id']?.toString();
-      if (!mounted) return;
-      setState(() {
-        _activityId = id;
-        _activityTitle = title;
-        _activityDesc = desc;
-        _maxPoints = max;
-        _courseName = course.title;
-        _activityComponent = comp;
-        _activityQuarter = q;
-        _created = true;
-        _loadingStudents = true;
-      });
-      await _loadStudents();
+          courseId: course.id,
+          component: comp,
+          quarterNo: q,
+        );
+        if (!mounted) return;
+        setState(() {
+          _activityTitle = title;
+          _activityDesc = desc;
+          _maxPoints = max;
+          _courseName = course.title;
+          _activityComponent = comp;
+          _activityQuarter = q;
+          _activityCourseId = course.id;
+          _created = true;
+          _editingExistingActivity = false;
+        });
+        await _loadRecentActivities();
+      } else {
+        final created = await _assignmentService.createAssignment(
+          classroomId: widget.classroom.id,
+          teacherId: uid,
+          title: title,
+          description: desc.isEmpty ? null : desc,
+          assignmentType: 'quiz',
+          totalPoints: max,
+          dueDate: null,
+          isPublished: true,
+          content: {
+            'meta': {
+              'created_via': 'f2f_grading',
+              'component': comp,
+              'quarter': q,
+            },
+          },
+          courseId: course.id,
+          component: comp,
+          quarterNo: q,
+        );
+        final id = created['id']?.toString();
+        if (!mounted) return;
+        setState(() {
+          _activityId = id;
+          _activityTitle = title;
+          _activityDesc = desc;
+          _maxPoints = max;
+          _courseName = course.title;
+          _activityComponent = comp;
+          _activityQuarter = q;
+          _activityCourseId = course.id;
+          _created = true;
+          _loadingStudents = true;
+        });
+        await _loadStudents();
+        await _loadRecentActivities();
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to create activity: $e'),
+          content: Text(
+            isEditingExisting
+                ? 'Failed to update activity: $e'
+                : 'Failed to create activity: $e',
+          ),
           backgroundColor: Colors.red,
         ),
       );
@@ -757,7 +898,27 @@ class _F2FGradingScreenState extends State<F2FGradingScreen> {
                     ),
                     const Spacer(),
                     TextButton.icon(
-                      onPressed: () => setState(() => _created = false),
+                      onPressed: () {
+                        Course? selected = _selectedCourse;
+                        if (_activityCourseId != null) {
+                          for (final c in _courses) {
+                            if (c.id == _activityCourseId) {
+                              selected = c;
+                              break;
+                            }
+                          }
+                        }
+                        setState(() {
+                          _editingExistingActivity = true;
+                          _created = false;
+                          _titleCtrl.text = _activityTitle;
+                          _descCtrl.text = _activityDesc;
+                          _maxCtrl.text = '$_maxPoints';
+                          _selectedComponent = _activityComponent;
+                          _selectedQuarter = _activityQuarter;
+                          _selectedCourse = selected;
+                        });
+                      },
                       icon: const Icon(Icons.edit, size: 16),
                       label: const Text('Edit'),
                     ),

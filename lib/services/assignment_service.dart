@@ -6,7 +6,18 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class AssignmentService {
   final _supabase = Supabase.instance.client;
 
-  /// Get all assignments for a specific classroom
+  /// Get all assignments for a specific classroom.
+  ///
+  /// Classroom-scoped / classroom-shared data:
+  /// - Returns all assignments in the classroom, regardless of which teacher
+  ///   created them.
+  /// - Visibility is enforced by the "Teachers can view their classroom
+  ///   assignments" RLS policy on public.assignments.
+  ///
+  /// IMPORTANT: This is classroom-scoped by design. If you need personal
+  /// teacher data (for example, a "My assignments" view), add a
+  /// .eq('teacher_id', auth.uid()) filter in the caller instead of changing this
+  /// method.
   Future<List<Map<String, dynamic>>> getClassroomAssignments(
     String classroomId,
   ) async {
@@ -39,7 +50,18 @@ class AssignmentService {
     }
   }
 
-  /// Get unpublished (draft) assignments for a classroom (management pool)
+  /// Get unpublished (draft) assignments for a classroom (management pool).
+  ///
+  /// Classroom-scoped / classroom-shared data:
+  /// - Returns all unpublished assignments in the classroom, not just those
+  ///   authored by the current teacher.
+  /// - Visibility is enforced by the "Teachers can view their classroom
+  ///   assignments" RLS policy on public.assignments.
+  ///
+  /// IMPORTANT: This is classroom-scoped by design. If you need personal
+  /// teacher data (for example, a teacher's own drafts), add a
+  /// .eq('teacher_id', auth.uid()) filter in the caller instead of changing
+  /// this method.
   Future<List<Map<String, dynamic>>> getUnpublishedAssignmentsByClassroom(
     String classroomId,
   ) async {

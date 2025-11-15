@@ -8,6 +8,7 @@ import 'package:oro_site_high_school/services/deped_grade_service.dart';
 import 'package:oro_site_high_school/screens/teacher/assignments/submission_detail_screen.dart';
 
 import 'package:oro_site_high_school/screens/teacher/grades/f2f_grading_screen.dart';
+import 'package:oro_site_high_school/screens/teacher/grades/teacher_report_card_screen.dart';
 
 /// Grades Management (Template)
 /// 3-layer layout mirroring Assignment Management, with placeholders.
@@ -929,6 +930,9 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
   }
 
   Widget _buildRightPanel() {
+    final classroom = _selectedClassroom;
+    final teacherId = _teacherId;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -954,6 +958,29 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
                       ),
                     ),
                     const SizedBox(height: 2),
+                    if (classroom != null && teacherId != null)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            classroom.teacherId == teacherId
+                                ? Icons.person
+                                : Icons.people,
+                            size: 14,
+                            color: Colors.grey.shade700,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            classroom.teacherId == teacherId
+                                ? 'Personal classroom'
+                                : 'Shared classroom',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade700,
+                            ),
+                          ),
+                        ],
+                      ),
                     if (_selectedStudent == null)
                       Text(
                         'Select a classroom • View students • Choose a student',
@@ -1075,17 +1102,22 @@ class _GradeEntryScreenState extends State<GradeEntryScreen>
               ),
               const SizedBox(width: 12),
               ElevatedButton.icon(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Final grades • Coming soon'),
-                      backgroundColor: Colors.blue,
-                      duration: Duration(seconds: 1),
-                    ),
-                  );
-                },
+                onPressed:
+                    _selectedClassroom == null || _selectedStudent == null
+                    ? null
+                    : () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => TeacherReportCardScreen(
+                              classroom: _selectedClassroom!,
+                              student: _selectedStudent!,
+                              initialQuarter: _selectedQuarter,
+                            ),
+                          ),
+                        );
+                      },
                 icon: const Icon(Icons.summarize, size: 18),
-                label: const Text('final grades'),
+                label: const Text('Report Card'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.blue,
                   foregroundColor: Colors.white,

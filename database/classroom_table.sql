@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS classrooms (
   title TEXT NOT NULL,
   description TEXT,
   grade_level INTEGER NOT NULL CHECK (grade_level >= 7 AND grade_level <= 12),
+  school_level TEXT NOT NULL DEFAULT 'JHS' CHECK (school_level IN ('JHS', 'SHS')),
   max_students INTEGER NOT NULL CHECK (max_students >= 1 AND max_students <= 100),
   current_students INTEGER DEFAULT 0,
   is_active BOOLEAN DEFAULT true,

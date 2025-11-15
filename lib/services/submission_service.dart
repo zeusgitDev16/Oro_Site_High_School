@@ -142,10 +142,22 @@ class SubmissionService {
         .eq('student_id', studentId);
   }
 
-  /// Get all submissions for a given assignment (teacher view)
+  /// Get all submissions for a given assignment (teacher view).
+  ///
+  /// Classroom-scoped / classroom-shared data:
+  /// - Intended for grading workflows where teachers need to see all student
+  ///   submissions for an assignment in a classroom.
+  /// - Visibility is enforced by the "Teachers can view classroom submissions"
+  ///   RLS policy on public.assignment_submissions.
+  ///
+  /// IMPORTANT: This method is classroom-scoped via RLS. Do not add
+  /// teacher-specific filters here. For personal teacher dashboards, filter
+  /// assignments by teacher_id in the caller before invoking this method.
   Future<List<Map<String, dynamic>>> getSubmissionsForAssignment(
     String assignmentId,
   ) async {
+    // Classroom-scoped query: fetch all submissions for this assignment.
+    // RLS ensures only teachers for the classroom/assignment can see these rows.
     final rows = await _supabase
         .from('assignment_submissions')
         .select(

@@ -83,81 +83,87 @@ class MyClassroomSidebar extends StatelessWidget {
             child: isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : classrooms.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Text(
-                            'start creating classrooms!',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade500,
-                            ),
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        'start creating classrooms!',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade500,
+                        ),
+                      ),
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: classrooms.length,
+                    itemBuilder: (context, index) {
+                      final classroom = classrooms[index];
+                      final isSelected = selectedClassroom?.id == classroom.id;
+
+                      return Container(
+                        margin: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? Colors.blue.shade50
+                              : Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: isSelected
+                                ? Colors.blue
+                                : Colors.grey.shade300,
+                            width: isSelected ? 2 : 1,
                           ),
                         ),
-                      )
-                    : ListView.builder(
-                        itemCount: classrooms.length,
-                        itemBuilder: (context, index) {
-                          final classroom = classrooms[index];
-                          final isSelected = selectedClassroom?.id == classroom.id;
-
-                          return Container(
-                            margin: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
+                        child: ListTile(
+                          title: Text(
+                            classroom.title,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: isSelected
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
                             ),
-                            decoration: BoxDecoration(
-                              color: isSelected ? Colors.blue.shade50 : Colors.white,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: isSelected ? Colors.blue : Colors.grey.shade300,
-                                width: isSelected ? 2 : 1,
-                              ),
+                          ),
+                          subtitle: Text(
+                            '${classroom.schoolLevel} • Grade ${classroom.gradeLevel} • ${(enrollmentCounts[classroom.id] ?? classroom.currentStudents)}/${classroom.maxStudents} students',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
                             ),
-                            child: ListTile(
-                              title: Text(
-                                classroom.title,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: Icon(
+                                  Icons.settings_outlined,
+                                  size: 20,
+                                  color: Colors.blue.shade600,
                                 ),
+                                onPressed: () => onEditClassroom(classroom),
+                                tooltip: 'Edit classroom',
                               ),
-                              subtitle: Text(
-                                'Grade ${classroom.gradeLevel} • ${(enrollmentCounts[classroom.id] ?? classroom.currentStudents)}/${classroom.maxStudents} students',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey.shade600,
+                              IconButton(
+                                icon: Icon(
+                                  Icons.delete_outline,
+                                  size: 20,
+                                  color: Colors.red.shade400,
                                 ),
+                                onPressed: () => onDeleteClassroom(classroom),
+                                tooltip: 'Delete classroom',
                               ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    icon: Icon(
-                                      Icons.settings_outlined,
-                                      size: 20,
-                                      color: Colors.blue.shade600,
-                                    ),
-                                    onPressed: () => onEditClassroom(classroom),
-                                    tooltip: 'Edit classroom',
-                                  ),
-                                  IconButton(
-                                    icon: Icon(
-                                      Icons.delete_outline,
-                                      size: 20,
-                                      color: Colors.red.shade400,
-                                    ),
-                                    onPressed: () => onDeleteClassroom(classroom),
-                                    tooltip: 'Delete classroom',
-                                  ),
-                                ],
-                              ),
-                              onTap: () => onSelectClassroom(classroom),
-                            ),
-                          );
-                        },
-                      ),
+                            ],
+                          ),
+                          onTap: () => onSelectClassroom(classroom),
+                        ),
+                      );
+                    },
+                  ),
           ),
 
           // Create Class Button (Always visible at bottom)
