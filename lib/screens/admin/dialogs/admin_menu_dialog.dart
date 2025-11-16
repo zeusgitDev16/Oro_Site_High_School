@@ -1,8 +1,8 @@
-
 import 'package:flutter/material.dart';
 import 'package:oro_site_high_school/screens/admin/settings/system_settings_screen.dart';
 import 'package:oro_site_high_school/screens/admin/requests/teacher_requests_screen.dart';
 import 'package:oro_site_high_school/screens/admin/permissions/permission_management_screen.dart';
+import 'package:oro_site_high_school/screens/admin/student_transfer_records_screen.dart';
 
 void showAdminMenuDialog(BuildContext context) {
   showDialog(
@@ -23,7 +23,9 @@ void showAdminMenuDialog(BuildContext context) {
                   Navigator.of(context).pop();
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => const TeacherRequestsScreen()),
+                    MaterialPageRoute(
+                      builder: (_) => const TeacherRequestsScreen(),
+                    ),
                   );
                 },
               ),
@@ -36,7 +38,9 @@ void showAdminMenuDialog(BuildContext context) {
                   Navigator.of(context).pop();
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => const PermissionManagementScreen()),
+                    MaterialPageRoute(
+                      builder: (_) => const PermissionManagementScreen(),
+                    ),
                   );
                 },
               ),
@@ -47,13 +51,39 @@ void showAdminMenuDialog(BuildContext context) {
                   Navigator.of(context).pop();
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => const SystemSettingsScreen()),
+                    MaterialPageRoute(
+                      builder: (_) => const SystemSettingsScreen(),
+                    ),
                   );
                 },
               ),
-              const ListTile(leading: Icon(Icons.people), title: Text('User Management')),
-              const ListTile(leading: Icon(Icons.school), title: Text('Course Management')),
-              const ListTile(leading: Icon(Icons.bar_chart), title: Text('Reporting Tools')),
+              ListTile(
+                leading: const Icon(Icons.transfer_within_a_station),
+                title: const Text('Student Transfer Records'),
+                subtitle: const Text('Manage admission and transfer records'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const StudentTransferRecordsScreen(),
+                    ),
+                  );
+                },
+              ),
+              const Divider(),
+              const ListTile(
+                leading: Icon(Icons.people),
+                title: Text('User Management'),
+              ),
+              const ListTile(
+                leading: Icon(Icons.school),
+                title: Text('Course Management'),
+              ),
+              const ListTile(
+                leading: Icon(Icons.bar_chart),
+                title: Text('Reporting Tools'),
+              ),
             ],
           ),
         ),

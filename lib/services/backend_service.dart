@@ -1,6 +1,6 @@
-/// Backend Service
-/// Centralized service for all backend operations
-/// Replaces mock data with real Supabase connections
+// Backend Service
+// Centralized service for all backend operations
+// Replaces mock data with real Supabase connections
 
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -11,11 +11,11 @@ class BackendService {
   BackendService._internal();
 
   final _supabase = Supabase.instance.client;
-  
+
   // Connection status
   bool _isConnected = false;
   bool _useMockData = false; // Fallback flag
-  
+
   bool get isConnected => _isConnected;
   bool get useMockData => _useMockData;
 
@@ -23,17 +23,18 @@ class BackendService {
   Future<void> initialize() async {
     try {
       // Test connection
-      final response = await _supabase
-          .from('profiles')
-          .select('id')
-          .limit(1);
-      
+      await _supabase.from('profiles').select('id').limit(1);
+
       _isConnected = true;
       _useMockData = false;
-      
-      print('✅ Backend connected successfully');
+
+      if (kDebugMode) {
+        debugPrint('✅ Backend connected successfully');
+      }
     } catch (e) {
-      print('⚠️ Backend connection failed, using mock data: $e');
+      if (kDebugMode) {
+        debugPrint('⚠️ Backend connection failed, using mock data: $e');
+      }
       _isConnected = false;
       _useMockData = true;
     }
@@ -48,11 +49,13 @@ class BackendService {
     if (forceMock || _useMockData) {
       return mockData();
     }
-    
+
     try {
       return await realQuery();
     } catch (e) {
-      print('Query failed, falling back to mock: $e');
+      if (kDebugMode) {
+        debugPrint('Query failed, falling back to mock: $e');
+      }
       return mockData();
     }
   }
@@ -60,10 +63,7 @@ class BackendService {
   /// Check if table exists and has data
   Future<bool> tableExists(String tableName) async {
     try {
-      final response = await _supabase
-          .from(tableName)
-          .select('id')
-          .limit(1);
+      await _supabase.from(tableName).select('id').limit(1);
       return true;
     } catch (e) {
       return false;
@@ -75,16 +75,18 @@ class BackendService {
     try {
       final userId = _supabase.auth.currentUser?.id;
       if (userId == null) return null;
-      
+
       final response = await _supabase
           .from('profiles')
           .select()
           .eq('id', userId)
           .single();
-      
+
       return response;
     } catch (e) {
-      print('Error fetching user profile: $e');
+      if (kDebugMode) {
+        debugPrint('Error fetching user profile: $e');
+      }
       return null;
     }
   }
@@ -97,10 +99,12 @@ class BackendService {
           .select('role_id')
           .eq('id', userId)
           .single();
-      
+
       return response['role_id'];
     } catch (e) {
-      print('Error fetching user role: $e');
+      if (kDebugMode) {
+        debugPrint('Error fetching user role: $e');
+      }
       return null;
     }
   }
@@ -116,11 +120,11 @@ class BackendService {
     return query(
       realQuery: () async {
         var query = _supabase.from('students').select();
-        
+
         if (gradeLevel != null) query = query.eq('grade_level', gradeLevel);
         if (section != null) query = query.eq('section', section);
         if (isActive != null) query = query.eq('is_active', isActive);
-        
+
         return await query;
       },
       mockData: () => _getMockStudents(gradeLevel, section),
@@ -155,6 +159,53 @@ class BackendService {
     );
   }
 
+  /// Get the current authenticated student's record
+  Future<Map<String, dynamic>?> getCurrentStudent() async {
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+      if (userId == null) return null;
+      return await getStudent(userId);
+    } catch (e) {
+      if (kDebugMode) {
+        // Keep logging minimal to avoid noise in production builds
+        debugPrint('Error fetching current student: $e');
+      }
+      return null;
+    }
+  }
+
+  /// Update student profile fields for a single student.
+  ///
+  /// [updates] should use database column names (snake_case), e.g.
+  /// 'lrn', 'birth_date', 'gender', 'address', 'guardian_name',
+  /// 'guardian_contact'.
+  Future<bool> updateStudentProfile(
+    String studentId,
+    Map<String, dynamic> updates,
+  ) async {
+    try {
+      if (_useMockData) {
+        // In mock mode, just pretend the update succeeded.
+        return true;
+      }
+
+      if (updates.isEmpty) {
+        return true;
+      }
+
+      updates['updated_at'] = DateTime.now().toIso8601String();
+
+      await _supabase.from('students').update(updates).eq('id', studentId);
+
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error updating student profile: $e');
+      }
+      return false;
+    }
+  }
+
   // ==================== TEACHER OPERATIONS ====================
 
   /// Get teacher courses
@@ -172,22 +223,24 @@ class BackendService {
   }
 
   /// Get teacher students
-  Future<List<Map<String, dynamic>>> getTeacherStudents(String teacherId) async {
+  Future<List<Map<String, dynamic>>> getTeacherStudents(
+    String teacherId,
+  ) async {
     return query(
       realQuery: () async {
         // Get courses taught by teacher
         final courses = await getTeacherCourses(teacherId);
         final courseIds = courses.map((c) => c['course_id']).toList();
-        
+
         if (courseIds.isEmpty) return [];
-        
+
         // Get enrollments for those courses
         final enrollments = await _supabase
             .from('enrollments')
             .select('*, students(*)')
             .inFilter('course_id', courseIds)
             .eq('status', 'active');
-        
+
         return enrollments;
       },
       mockData: () => _getMockTeacherStudents(teacherId),
@@ -224,10 +277,10 @@ class BackendService {
             .from('grades')
             .select('*, courses(*)')
             .eq('student_id', studentId);
-        
+
         if (courseId != null) query = query.eq('course_id', courseId);
         if (quarter != null) query = query.eq('quarter', quarter);
-        
+
         return await query;
       },
       mockData: () => _getMockStudentGrades(studentId),
@@ -241,11 +294,13 @@ class BackendService {
         // In mock mode, just return success
         return true;
       }
-      
+
       await _supabase.from('grades').upsert(gradeData);
       return true;
     } catch (e) {
-      print('Error saving grade: $e');
+      if (kDebugMode) {
+        debugPrint('Error saving grade: $e');
+      }
       return false;
     }
   }
@@ -262,7 +317,7 @@ class BackendService {
     return query(
       realQuery: () async {
         var query = _supabase.from('attendance').select();
-        
+
         if (studentId != null) query = query.eq('student_id', studentId);
         if (courseId != null) query = query.eq('course_id', courseId);
         if (startDate != null) {
@@ -271,7 +326,7 @@ class BackendService {
         if (endDate != null) {
           query = query.lte('date', endDate.toIso8601String());
         }
-        
+
         return await query;
       },
       mockData: () => _getMockAttendanceRecords(studentId),
@@ -284,11 +339,13 @@ class BackendService {
       if (_useMockData) {
         return true;
       }
-      
+
       await _supabase.from('attendance').insert(attendanceData);
       return true;
     } catch (e) {
-      print('Error recording attendance: $e');
+      if (kDebugMode) {
+        debugPrint('Error recording attendance: $e');
+      }
       return false;
     }
   }
@@ -306,14 +363,14 @@ class BackendService {
             .from('announcements')
             .select()
             .eq('is_published', true);
-        
+
         if (targetRole != null) {
           query = query.contains('target_roles', [targetRole]);
         }
         if (gradeLevel != null) {
           query = query.eq('grade_level', gradeLevel);
         }
-        
+
         return await query.order('created_at', ascending: false);
       },
       mockData: () => _getMockAnnouncements(),
@@ -342,26 +399,34 @@ class BackendService {
       if (_useMockData) {
         return true;
       }
-      
+
       await _supabase
           .from('notifications')
-          .update({'is_read': true, 'read_at': DateTime.now().toIso8601String()})
+          .update({
+            'is_read': true,
+            'read_at': DateTime.now().toIso8601String(),
+          })
           .eq('id', notificationId);
-      
+
       return true;
     } catch (e) {
-      print('Error marking notification as read: $e');
+      if (kDebugMode) {
+        debugPrint('Error marking notification as read: $e');
+      }
       return false;
     }
   }
 
   // ==================== MOCK DATA GENERATORS ====================
 
-  List<Map<String, dynamic>> _getMockStudents(int? gradeLevel, String? section) {
+  List<Map<String, dynamic>> _getMockStudents(
+    int? gradeLevel,
+    String? section,
+  ) {
     final students = <Map<String, dynamic>>[];
     final targetGrade = gradeLevel ?? 7;
     final targetSection = section ?? 'A';
-    
+
     for (int i = 1; i <= 35; i++) {
       students.add({
         'id': 'student-$targetGrade-$targetSection-$i',
@@ -376,7 +441,7 @@ class BackendService {
         'created_at': DateTime.now().toIso8601String(),
       });
     }
-    
+
     return students;
   }
 
@@ -438,7 +503,7 @@ class BackendService {
 
   List<Map<String, dynamic>> _getMockTeacherStudents(String teacherId) {
     final students = <Map<String, dynamic>>[];
-    
+
     for (int i = 1; i <= 35; i++) {
       students.add({
         'enrollment_id': 'enroll-$i',
@@ -455,7 +520,7 @@ class BackendService {
         },
       });
     }
-    
+
     return students;
   }
 
@@ -502,10 +567,7 @@ class BackendService {
         'course_id': 1,
         'quarter': 'Q1',
         'grade': 85.5,
-        'courses': {
-          'name': 'Mathematics 7',
-          'code': 'MATH7',
-        },
+        'courses': {'name': 'Mathematics 7', 'code': 'MATH7'},
       },
       {
         'id': 2,
@@ -513,10 +575,7 @@ class BackendService {
         'course_id': 2,
         'quarter': 'Q1',
         'grade': 88.0,
-        'courses': {
-          'name': 'Science 7',
-          'code': 'SCI7',
-        },
+        'courses': {'name': 'Science 7', 'code': 'SCI7'},
       },
     ];
   }
@@ -524,7 +583,7 @@ class BackendService {
   List<Map<String, dynamic>> _getMockAttendanceRecords(String? studentId) {
     final records = <Map<String, dynamic>>[];
     final now = DateTime.now();
-    
+
     for (int i = 0; i < 20; i++) {
       final date = now.subtract(Duration(days: i));
       records.add({
@@ -536,7 +595,7 @@ class BackendService {
         'time_in': date.add(Duration(hours: 7, minutes: 30)).toIso8601String(),
       });
     }
-    
+
     return records;
   }
 
@@ -548,7 +607,9 @@ class BackendService {
         'message': 'Welcome to the new school year!',
         'priority': 'high',
         'target_roles': ['student', 'parent', 'teacher'],
-        'created_at': DateTime.now().subtract(Duration(days: 1)).toIso8601String(),
+        'created_at': DateTime.now()
+            .subtract(Duration(days: 1))
+            .toIso8601String(),
       },
       {
         'id': 'announce-2',
@@ -556,7 +617,9 @@ class BackendService {
         'message': 'Scheduled for next Friday',
         'priority': 'normal',
         'target_roles': ['parent', 'teacher'],
-        'created_at': DateTime.now().subtract(Duration(days: 2)).toIso8601String(),
+        'created_at': DateTime.now()
+            .subtract(Duration(days: 2))
+            .toIso8601String(),
       },
     ];
   }
@@ -570,7 +633,9 @@ class BackendService {
         'message': 'Your Math 7 Q1 grade has been posted',
         'type': 'grade',
         'is_read': false,
-        'created_at': DateTime.now().subtract(Duration(hours: 2)).toIso8601String(),
+        'created_at': DateTime.now()
+            .subtract(Duration(hours: 2))
+            .toIso8601String(),
       },
       {
         'id': 'notif-2',
@@ -579,7 +644,9 @@ class BackendService {
         'message': 'Your attendance for today has been recorded',
         'type': 'attendance',
         'is_read': false,
-        'created_at': DateTime.now().subtract(Duration(hours: 4)).toIso8601String(),
+        'created_at': DateTime.now()
+            .subtract(Duration(hours: 4))
+            .toIso8601String(),
       },
     ];
   }

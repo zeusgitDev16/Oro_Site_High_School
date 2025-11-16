@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:oro_site_high_school/flow/parent/parent_attendance_logic.dart';
 import 'package:oro_site_high_school/screens/parent/widgets/attendance_calendar_widget.dart';
-import 'package:oro_site_high_school/screens/parent/dialogs/report_export_dialog.dart';
 
 /// Parent Attendance Screen - View children's attendance records
 /// UI only - interactive logic in ParentAttendanceLogic
@@ -34,23 +33,13 @@ class _ParentAttendanceScreenState extends State<ParentAttendanceScreen> {
         title: const Text('Attendance'),
         backgroundColor: Colors.orange,
         foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.download),
-            onPressed: _showExportDialog,
-            tooltip: 'Export Attendance',
-          ),
-          const SizedBox(width: 8),
-        ],
       ),
       body: ListenableBuilder(
         listenable: _logic,
         builder: (context, _) {
           if (_logic.isLoading) {
             return const Center(
-              child: CircularProgressIndicator(
-                color: Colors.orange,
-              ),
+              child: CircularProgressIndicator(color: Colors.orange),
             );
           }
 
@@ -82,18 +71,12 @@ class _ParentAttendanceScreenState extends State<ParentAttendanceScreen> {
             children: [
               const Text(
                 'Attendance Records',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 4),
               Text(
                 'Juan Dela Cruz - Grade 7 Diamond',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey.shade600,
-                ),
+                style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
               ),
             ],
           ),
@@ -118,10 +101,7 @@ class _ParentAttendanceScreenState extends State<ParentAttendanceScreen> {
           ),
           Text(
             _getMonthYear(_logic.selectedMonth),
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           IconButton(
             icon: const Icon(Icons.chevron_right),
@@ -138,8 +118,18 @@ class _ParentAttendanceScreenState extends State<ParentAttendanceScreen> {
 
   String _getMonthYear(DateTime date) {
     const months = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
     ];
     return '${months[date.month - 1]} ${date.year}';
   }
@@ -147,7 +137,7 @@ class _ParentAttendanceScreenState extends State<ParentAttendanceScreen> {
   Widget _buildAttendanceSummaryCard() {
     final summary = _logic.getAttendanceSummary();
     final percentage = _logic.calculateAttendancePercentage();
-    
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
       child: Card(
@@ -204,11 +194,7 @@ class _ParentAttendanceScreenState extends State<ParentAttendanceScreen> {
                       ),
                     ],
                   ),
-                  Container(
-                    width: 2,
-                    height: 50,
-                    color: Colors.green.shade200,
-                  ),
+                  Container(width: 2, height: 50, color: Colors.green.shade200),
                   Column(
                     children: [
                       Text(
@@ -237,7 +223,12 @@ class _ParentAttendanceScreenState extends State<ParentAttendanceScreen> {
     );
   }
 
-  Widget _buildSummaryItem(String label, String value, Color color, IconData icon) {
+  Widget _buildSummaryItem(
+    String label,
+    String value,
+    Color color,
+    IconData icon,
+  ) {
     return Column(
       children: [
         Icon(icon, color: color, size: 32),
@@ -252,10 +243,7 @@ class _ParentAttendanceScreenState extends State<ParentAttendanceScreen> {
         ),
         Text(
           label,
-          style: TextStyle(
-            fontSize: 13,
-            color: Colors.grey.shade600,
-          ),
+          style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
         ),
       ],
     );
@@ -274,14 +262,15 @@ class _ParentAttendanceScreenState extends State<ParentAttendanceScreen> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.calendar_month, color: Colors.orange.shade700, size: 24),
+                  Icon(
+                    Icons.calendar_month,
+                    color: Colors.orange.shade700,
+                    size: 24,
+                  ),
                   const SizedBox(width: 8),
                   const Text(
                     'Monthly Calendar',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                 ],
               ),
@@ -302,7 +291,7 @@ class _ParentAttendanceScreenState extends State<ParentAttendanceScreen> {
 
   Widget _buildTimeRecordsSection() {
     final records = _logic.attendanceRecords;
-    
+
     return Container(
       margin: const EdgeInsets.fromLTRB(24.0, 0, 24.0, 24.0),
       child: Card(
@@ -315,14 +304,15 @@ class _ParentAttendanceScreenState extends State<ParentAttendanceScreen> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.access_time, color: Colors.blue.shade700, size: 24),
+                  Icon(
+                    Icons.access_time,
+                    color: Colors.blue.shade700,
+                    size: 24,
+                  ),
                   const SizedBox(width: 8),
                   const Text(
                     'Time In/Out Records',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                 ],
               ),
@@ -348,18 +338,37 @@ class _ParentAttendanceScreenState extends State<ParentAttendanceScreen> {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: DataTable(
-        headingRowColor: MaterialStateProperty.all(Colors.grey.shade100),
+        headingRowColor: WidgetStateProperty.all(Colors.grey.shade100),
         columns: const [
-          DataColumn(label: Text('Date', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('Time In', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('Time Out', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('Notes', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(
+            label: Text('Date', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          DataColumn(
+            label: Text(
+              'Time In',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+          DataColumn(
+            label: Text(
+              'Time Out',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+          DataColumn(
+            label: Text(
+              'Status',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+          DataColumn(
+            label: Text('Notes', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
         ],
         rows: records.map((record) {
           final status = record['status'] as String;
           final color = _logic.getStatusColor(status);
-          
+
           return DataRow(
             cells: [
               DataCell(Text(record['date'])),
@@ -367,15 +376,22 @@ class _ParentAttendanceScreenState extends State<ParentAttendanceScreen> {
               DataCell(Text(record['timeOut'] ?? '-')),
               DataCell(
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
+                    color: color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(_logic.getStatusIcon(status), size: 16, color: color),
+                      Icon(
+                        _logic.getStatusIcon(status),
+                        size: 16,
+                        color: color,
+                      ),
                       const SizedBox(width: 4),
                       Text(
                         status.toUpperCase(),
@@ -399,7 +415,7 @@ class _ParentAttendanceScreenState extends State<ParentAttendanceScreen> {
 
   void _showDateDetail(DateTime date) {
     final record = _logic.getAttendanceRecord(date);
-    
+
     if (record == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -413,15 +429,15 @@ class _ParentAttendanceScreenState extends State<ParentAttendanceScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(
-          record['date'],
-          style: const TextStyle(fontSize: 18),
-        ),
+        title: Text(record['date'], style: const TextStyle(fontSize: 18)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildDetailRow('Status', record['status'].toString().toUpperCase()),
+            _buildDetailRow(
+              'Status',
+              record['status'].toString().toUpperCase(),
+            ),
             const SizedBox(height: 12),
             _buildDetailRow('Time In', record['timeIn'] ?? 'N/A'),
             const SizedBox(height: 12),
@@ -448,38 +464,13 @@ class _ParentAttendanceScreenState extends State<ParentAttendanceScreen> {
       children: [
         Text(
           label,
-          style: TextStyle(
-            fontSize: 14,
-            color: Colors.grey.shade600,
-          ),
+          style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
         ),
         Text(
           value,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-          ),
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
         ),
       ],
-    );
-  }
-
-  void _showExportDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => ReportExportDialog(
-        reportType: 'Attendance Report',
-        onExport: (format, options) {
-          _logic.exportAttendanceReport().then((_) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Exporting attendance as $format...'),
-                backgroundColor: Colors.green,
-              ),
-            );
-          });
-        },
-      ),
     );
   }
 }

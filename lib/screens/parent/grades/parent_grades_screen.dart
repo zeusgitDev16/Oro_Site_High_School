@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:oro_site_high_school/flow/parent/parent_grades_logic.dart';
 import 'package:oro_site_high_school/screens/parent/widgets/grade_summary_widget.dart';
-import 'package:oro_site_high_school/screens/parent/dialogs/report_export_dialog.dart';
 
 /// Parent Grades Screen - View children's grades
 /// UI only - interactive logic in ParentGradesLogic
@@ -38,23 +37,13 @@ class _ParentGradesScreenState extends State<ParentGradesScreen>
         title: const Text('Grades'),
         backgroundColor: Colors.orange,
         foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.download),
-            onPressed: _showExportDialog,
-            tooltip: 'Export Grades',
-          ),
-          const SizedBox(width: 8),
-        ],
       ),
       body: ListenableBuilder(
         listenable: _logic,
         builder: (context, _) {
           if (_logic.isLoading) {
             return const Center(
-              child: CircularProgressIndicator(
-                color: Colors.orange,
-              ),
+              child: CircularProgressIndicator(color: Colors.orange),
             );
           }
 
@@ -63,9 +52,7 @@ class _ParentGradesScreenState extends State<ParentGradesScreen>
               _buildHeader(),
               _buildQuarterSelector(),
               _buildOverallGradeCard(),
-              Expanded(
-                child: _buildSubjectTabs(),
-              ),
+              Expanded(child: _buildSubjectTabs()),
             ],
           );
         },
@@ -85,18 +72,12 @@ class _ParentGradesScreenState extends State<ParentGradesScreen>
             children: [
               const Text(
                 'Academic Performance',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 4),
               Text(
                 'Juan Dela Cruz - Grade 7 Diamond',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey.shade600,
-                ),
+                style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
               ),
             ],
           ),
@@ -112,10 +93,7 @@ class _ParentGradesScreenState extends State<ParentGradesScreen>
         children: [
           const Text(
             'Quarter:',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-            ),
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -141,7 +119,7 @@ class _ParentGradesScreenState extends State<ParentGradesScreen>
 
   Widget _buildQuarterChip(String quarter) {
     final isSelected = _logic.selectedQuarter == quarter;
-    
+
     return FilterChip(
       label: Text(quarter),
       selected: isSelected,
@@ -163,7 +141,7 @@ class _ParentGradesScreenState extends State<ParentGradesScreen>
   Widget _buildOverallGradeCard() {
     final overallGrade = _logic.calculateOverallGrade();
     final letterGrade = _logic.getLetterGrade(overallGrade);
-    
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
       child: Card(
@@ -187,18 +165,11 @@ class _ParentGradesScreenState extends State<ParentGradesScreen>
                   ),
                   Text(
                     'Overall Grade',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade700,
-                    ),
+                    style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
                   ),
                 ],
               ),
-              Container(
-                width: 2,
-                height: 60,
-                color: Colors.orange.shade200,
-              ),
+              Container(width: 2, height: 60, color: Colors.orange.shade200),
               Column(
                 children: [
                   Text(
@@ -211,10 +182,7 @@ class _ParentGradesScreenState extends State<ParentGradesScreen>
                   ),
                   Text(
                     'Letter Grade',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade700,
-                    ),
+                    style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
                   ),
                 ],
               ),
@@ -227,11 +195,9 @@ class _ParentGradesScreenState extends State<ParentGradesScreen>
 
   Widget _buildSubjectTabs() {
     final grades = _logic.grades;
-    
+
     if (grades.isEmpty) {
-      return const Center(
-        child: Text('No grades available for this quarter'),
-      );
+      return const Center(child: Text('No grades available for this quarter'));
     }
 
     return DefaultTabController(
@@ -250,10 +216,7 @@ class _ParentGradesScreenState extends State<ParentGradesScreen>
                 return Tab(
                   child: Row(
                     children: [
-                      Icon(
-                        _getSubjectIcon(grade['subject']),
-                        size: 18,
-                      ),
+                      Icon(_getSubjectIcon(grade['subject']), size: 18),
                       const SizedBox(width: 8),
                       Text(grade['subject']),
                     ],
@@ -279,7 +242,7 @@ class _ParentGradesScreenState extends State<ParentGradesScreen>
     final assignments = subjectGrade['assignments'] as List;
     final quarterGrade = subjectGrade['quarterGrade'];
     final letterGrade = subjectGrade['letterGrade'];
-    
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24.0),
       child: Column(
@@ -293,10 +256,7 @@ class _ParentGradesScreenState extends State<ParentGradesScreen>
               const SizedBox(width: 8),
               const Text(
                 'Assignments & Assessments',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -314,7 +274,7 @@ class _ParentGradesScreenState extends State<ParentGradesScreen>
     final color = percentage >= 90
         ? Colors.green
         : (percentage >= 75 ? Colors.orange : Colors.red);
-    
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 1,
@@ -337,9 +297,12 @@ class _ParentGradesScreenState extends State<ParentGradesScreen>
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
+                    color: color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
@@ -359,7 +322,11 @@ class _ParentGradesScreenState extends State<ParentGradesScreen>
               children: [
                 Row(
                   children: [
-                    Icon(Icons.calendar_today, size: 14, color: Colors.grey.shade600),
+                    Icon(
+                      Icons.calendar_today,
+                      size: 14,
+                      color: Colors.grey.shade600,
+                    ),
                     const SizedBox(width: 4),
                     Text(
                       assignment['date'],
@@ -409,10 +376,7 @@ class _ParentGradesScreenState extends State<ParentGradesScreen>
                 const SizedBox(width: 8),
                 const Text(
                   'Quarter Summary',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
@@ -439,11 +403,7 @@ class _ParentGradesScreenState extends State<ParentGradesScreen>
                     ),
                   ],
                 ),
-                Container(
-                  width: 2,
-                  height: 50,
-                  color: Colors.blue.shade200,
-                ),
+                Container(width: 2, height: 50, color: Colors.blue.shade200),
                 Column(
                   children: [
                     Text(
@@ -477,24 +437,5 @@ class _ParentGradesScreenState extends State<ParentGradesScreen>
     if (subject.contains('English')) return Icons.menu_book;
     if (subject.contains('Filipino')) return Icons.language;
     return Icons.school;
-  }
-
-  void _showExportDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => ReportExportDialog(
-        reportType: 'Grades Report',
-        onExport: (format, options) {
-          _logic.exportGradesAsPdf().then((_) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Exporting grades as $format...'),
-                backgroundColor: Colors.green,
-              ),
-            );
-          });
-        },
-      ),
-    );
   }
 }

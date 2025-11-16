@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:oro_site_high_school/flow/parent/parent_progress_logic.dart';
 import 'package:oro_site_high_school/screens/parent/widgets/progress_chart_widget.dart';
-import 'package:oro_site_high_school/screens/parent/dialogs/report_export_dialog.dart';
 
 /// Parent Progress Screen - View children's progress reports and analytics
 /// UI only - interactive logic in ParentProgressLogic
@@ -34,23 +33,13 @@ class _ParentProgressScreenState extends State<ParentProgressScreen> {
         title: const Text('Progress Reports'),
         backgroundColor: Colors.orange,
         foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.download),
-            onPressed: _showExportDialog,
-            tooltip: 'Export Full Report',
-          ),
-          const SizedBox(width: 8),
-        ],
       ),
       body: ListenableBuilder(
         listenable: _logic,
         builder: (context, _) {
           if (_logic.isLoading) {
             return const Center(
-              child: CircularProgressIndicator(
-                color: Colors.orange,
-              ),
+              child: CircularProgressIndicator(color: Colors.orange),
             );
           }
 
@@ -83,18 +72,12 @@ class _ParentProgressScreenState extends State<ParentProgressScreen> {
             children: [
               const Text(
                 'Progress Analytics',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 4),
               Text(
                 'Juan Dela Cruz - Grade 7 Diamond',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey.shade600,
-                ),
+                style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
               ),
             ],
           ),
@@ -107,13 +90,15 @@ class _ParentProgressScreenState extends State<ParentProgressScreen> {
     final comparison = _logic.getComparisonData();
     final isImproving = comparison['trend'] == 'improving';
     final isStable = comparison['trend'] == 'stable';
-    
+
     return Container(
       margin: const EdgeInsets.all(24.0),
       child: Card(
         elevation: 3,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        color: isImproving ? Colors.green.shade50 : (isStable ? Colors.blue.shade50 : Colors.orange.shade50),
+        color: isImproving
+            ? Colors.green.shade50
+            : (isStable ? Colors.blue.shade50 : Colors.orange.shade50),
         child: Padding(
           padding: const EdgeInsets.all(24.0),
           child: Column(
@@ -121,8 +106,16 @@ class _ParentProgressScreenState extends State<ParentProgressScreen> {
               Row(
                 children: [
                   Icon(
-                    isImproving ? Icons.trending_up : (isStable ? Icons.trending_flat : Icons.trending_down),
-                    color: isImproving ? Colors.green.shade700 : (isStable ? Colors.blue.shade700 : Colors.orange.shade700),
+                    isImproving
+                        ? Icons.trending_up
+                        : (isStable
+                              ? Icons.trending_flat
+                              : Icons.trending_down),
+                    color: isImproving
+                        ? Colors.green.shade700
+                        : (isStable
+                              ? Colors.blue.shade700
+                              : Colors.orange.shade700),
                     size: 32,
                   ),
                   const SizedBox(width: 12),
@@ -131,11 +124,19 @@ class _ParentProgressScreenState extends State<ParentProgressScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          isImproving ? 'Performance Improving!' : (isStable ? 'Performance Stable' : 'Needs Attention'),
+                          isImproving
+                              ? 'Performance Improving!'
+                              : (isStable
+                                    ? 'Performance Stable'
+                                    : 'Needs Attention'),
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
-                            color: isImproving ? Colors.green.shade700 : (isStable ? Colors.blue.shade700 : Colors.orange.shade700),
+                            color: isImproving
+                                ? Colors.green.shade700
+                                : (isStable
+                                      ? Colors.blue.shade700
+                                      : Colors.orange.shade700),
                           ),
                         ),
                         Text(
@@ -170,9 +171,14 @@ class _ParentProgressScreenState extends State<ParentProgressScreen> {
                     Colors.grey,
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
-                      color: isImproving ? Colors.green : (isStable ? Colors.blue : Colors.orange),
+                      color: isImproving
+                          ? Colors.green
+                          : (isStable ? Colors.blue : Colors.orange),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
@@ -206,10 +212,7 @@ class _ParentProgressScreenState extends State<ParentProgressScreen> {
         ),
         Text(
           label,
-          style: TextStyle(
-            fontSize: 13,
-            color: Colors.grey.shade600,
-          ),
+          style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
         ),
       ],
     );
@@ -217,7 +220,7 @@ class _ParentProgressScreenState extends State<ParentProgressScreen> {
 
   Widget _buildGradeTrendSection() {
     final gradeTrends = _logic.getGradeTrends();
-    
+
     return Container(
       margin: const EdgeInsets.fromLTRB(24.0, 0, 24.0, 16.0),
       child: Card(
@@ -234,10 +237,7 @@ class _ParentProgressScreenState extends State<ParentProgressScreen> {
                   const SizedBox(width: 8),
                   const Text(
                     'Grade Trend',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                 ],
               ),
@@ -260,8 +260,10 @@ class _ParentProgressScreenState extends State<ParentProgressScreen> {
     return Column(
       children: trends.map((trend) {
         final grade = trend['grade'] as double;
-        final color = grade >= 90 ? Colors.green : (grade >= 75 ? Colors.orange : Colors.red);
-        
+        final color = grade >= 90
+            ? Colors.green
+            : (grade >= 75 ? Colors.orange : Colors.red);
+
         return Padding(
           padding: const EdgeInsets.only(bottom: 12.0),
           child: Row(
@@ -310,7 +312,7 @@ class _ParentProgressScreenState extends State<ParentProgressScreen> {
 
   Widget _buildAttendanceTrendSection() {
     final attendanceTrends = _logic.getAttendanceTrends();
-    
+
     return Container(
       margin: const EdgeInsets.fromLTRB(24.0, 0, 24.0, 16.0),
       child: Card(
@@ -323,14 +325,15 @@ class _ParentProgressScreenState extends State<ParentProgressScreen> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.calendar_today, color: Colors.green.shade700, size: 24),
+                  Icon(
+                    Icons.calendar_today,
+                    color: Colors.green.shade700,
+                    size: 24,
+                  ),
                   const SizedBox(width: 8),
                   const Text(
                     'Attendance Trend',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                 ],
               ),
@@ -353,8 +356,10 @@ class _ParentProgressScreenState extends State<ParentProgressScreen> {
     return Column(
       children: trends.map((trend) {
         final percentage = trend['percentage'] as double;
-        final color = percentage >= 95 ? Colors.green : (percentage >= 85 ? Colors.orange : Colors.red);
-        
+        final color = percentage >= 95
+            ? Colors.green
+            : (percentage >= 85 ? Colors.orange : Colors.red);
+
         return Padding(
           padding: const EdgeInsets.only(bottom: 12.0),
           child: Row(
@@ -404,7 +409,7 @@ class _ParentProgressScreenState extends State<ParentProgressScreen> {
   Widget _buildAssignmentCompletionSection() {
     final stats = _logic.getAssignmentStats();
     final completionRate = _logic.calculateCompletionRate();
-    
+
     return Container(
       margin: const EdgeInsets.fromLTRB(24.0, 0, 24.0, 16.0),
       child: Card(
@@ -417,14 +422,15 @@ class _ParentProgressScreenState extends State<ParentProgressScreen> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.assignment_turned_in, color: Colors.purple.shade700, size: 24),
+                  Icon(
+                    Icons.assignment_turned_in,
+                    color: Colors.purple.shade700,
+                    size: 24,
+                  ),
                   const SizedBox(width: 8),
                   const Text(
                     'Assignment Completion',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                 ],
               ),
@@ -439,7 +445,9 @@ class _ParentProgressScreenState extends State<ParentProgressScreen> {
                         value: completionRate / 100,
                         strokeWidth: 20,
                         backgroundColor: Colors.grey.shade200,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.purple.shade400),
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Colors.purple.shade400,
+                        ),
                       ),
                       Center(
                         child: Column(
@@ -471,8 +479,16 @@ class _ParentProgressScreenState extends State<ParentProgressScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _buildStatItem('Submitted', '${stats['submitted']}', Colors.green),
-                  _buildStatItem('Pending', '${stats['pending']}', Colors.orange),
+                  _buildStatItem(
+                    'Submitted',
+                    '${stats['submitted']}',
+                    Colors.green,
+                  ),
+                  _buildStatItem(
+                    'Pending',
+                    '${stats['pending']}',
+                    Colors.orange,
+                  ),
                   _buildStatItem('Late', '${stats['late']}', Colors.red),
                 ],
               ),
@@ -496,10 +512,7 @@ class _ParentProgressScreenState extends State<ParentProgressScreen> {
         ),
         Text(
           label,
-          style: TextStyle(
-            fontSize: 13,
-            color: Colors.grey.shade600,
-          ),
+          style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
         ),
       ],
     );
@@ -507,7 +520,7 @@ class _ParentProgressScreenState extends State<ParentProgressScreen> {
 
   Widget _buildTeacherCommentsSection() {
     final comments = _logic.getTeacherComments();
-    
+
     return Container(
       margin: const EdgeInsets.fromLTRB(24.0, 0, 24.0, 24.0),
       child: Card(
@@ -524,10 +537,7 @@ class _ParentProgressScreenState extends State<ParentProgressScreen> {
                   const SizedBox(width: 8),
                   const Text(
                     'Teacher Comments',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                 ],
               ),
@@ -589,41 +599,16 @@ class _ParentProgressScreenState extends State<ParentProgressScreen> {
               ),
               Text(
                 comment['date'],
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.grey.shade500,
-                ),
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
               ),
             ],
           ),
           const SizedBox(height: 12),
           Text(
             comment['comment'],
-            style: const TextStyle(
-              fontSize: 14,
-              height: 1.5,
-            ),
+            style: const TextStyle(fontSize: 14, height: 1.5),
           ),
         ],
-      ),
-    );
-  }
-
-  void _showExportDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => ReportExportDialog(
-        reportType: 'Complete Progress Report',
-        onExport: (format, options) {
-          _logic.exportFullReport().then((_) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Exporting full report as $format...'),
-                backgroundColor: Colors.green,
-              ),
-            );
-          });
-        },
       ),
     );
   }

@@ -64,6 +64,8 @@ dependencies:
   connectivity_plus: ^7.0.0
   uni_links: ^0.5.1
   syncfusion_flutter_xlsio: 29.2.11
+  flutter_pdfview: ^1.4.3
+  syncfusion_flutter_pdf: 29.2.11
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
