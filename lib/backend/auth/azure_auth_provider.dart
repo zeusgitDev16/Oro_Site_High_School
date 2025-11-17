@@ -1,6 +1,6 @@
 // Azure AD Authentication Provider
 // Handles Azure Active Directory authentication with Supabase
-// 
+//
 // Configured users:
 // - admin@aezycreativegmail.onmicrosoft.com (Admin)
 // - ICT_Coordinator@aezycreativegmail.onmicrosoft.com (ICT Coordinator)
@@ -30,8 +30,8 @@ class AzureAuthProvider {
   /// Sign in with Azure AD
   Future<AuthResponse?> signInWithAzure() async {
     try {
-      print('🔐 Initiating Azure AD sign in...');
-      
+      print('[AUTH] Initiating Azure AD sign in...');
+
       if (!Environment.enableAzureAuth) {
         throw Exception('Azure AD authentication is disabled');
       }
@@ -40,7 +40,8 @@ class AzureAuthProvider {
       // The actual session will be available through auth state change listener
       final success = await _client.auth.signInWithOAuth(
         OAuthProvider.azure,
-        scopes: 'openid profile email offline_access https://graph.microsoft.com/User.Read',
+        scopes:
+            'openid profile email offline_access https://graph.microsoft.com/User.Read',
         redirectTo: Environment.azureRedirectUri,
         queryParams: {
           'tenant': Environment.azureTenantId,
@@ -49,8 +50,8 @@ class AzureAuthProvider {
       );
 
       if (success) {
-        print('✅ Azure AD sign in initiated');
-        
+        print('[INFO] Azure AD sign in initiated');
+
         // Wait for auth state change to get the session
         // The session will be handled by the auth state listener
         // Return a placeholder response
@@ -58,9 +59,8 @@ class AzureAuthProvider {
       }
 
       return null;
-      
     } catch (e) {
-      print('❌ Azure AD sign in failed: $e');
+      print('[ERROR] Azure AD sign in failed: $e');
       rethrow;
     }
   }
@@ -71,26 +71,25 @@ class AzureAuthProvider {
     required String password,
   }) async {
     try {
-      print('🔐 Signing in with email/password...');
-      
+      print('[AUTH] Signing in with email/password...');
+
       final response = await _client.auth.signInWithPassword(
         email: email,
         password: password,
       );
 
       if (response.session != null) {
-        print('✅ Sign in successful');
-        
+        print('[INFO] Sign in successful');
+
         // Create or update user profile
         await _createOrUpdateProfile(response.session!);
-        
+
         return response;
       }
 
       return null;
-      
     } catch (e) {
-      print('❌ Sign in failed: $e');
+      print('[ERROR] Sign in failed: $e');
       rethrow;
     }
   }
@@ -100,17 +99,17 @@ class AzureAuthProvider {
     try {
       final user = session.user;
       final email = user.email?.toLowerCase();
-      
+
       if (email == null) {
         throw Exception('User email is null');
       }
 
       // Determine role based on email
       final role = _determineRole(email);
-      
+
       // Get role ID from database
       final roleId = await _getRoleId(role);
-      
+
       // Check if profile exists
       final existingProfile = await _client
           .from('profiles')
@@ -123,32 +122,38 @@ class AzureAuthProvider {
         await _client.from('profiles').insert({
           'id': user.id,
           'email': email,
-          'full_name': user.userMetadata?['full_name'] ?? _extractNameFromEmail(email),
+          'full_name':
+              user.userMetadata?['full_name'] ?? _extractNameFromEmail(email),
           'avatar_url': user.userMetadata?['avatar_url'],
           'role_id': roleId,
           'is_active': true,
           'created_at': DateTime.now().toIso8601String(),
         });
 
-        print('✅ User profile created');
-        
+        print('[INFO] User profile created');
+
         // Create role-specific record
         await _createRoleSpecificRecord(user.id, email, role);
-        
       } else {
         // Update existing profile
-        await _client.from('profiles').update({
-          'email': email,
-          'full_name': user.userMetadata?['full_name'] ?? existingProfile['full_name'],
-          'avatar_url': user.userMetadata?['avatar_url'] ?? existingProfile['avatar_url'],
-          'updated_at': DateTime.now().toIso8601String(),
-        }).eq('id', user.id);
+        await _client
+            .from('profiles')
+            .update({
+              'email': email,
+              'full_name':
+                  user.userMetadata?['full_name'] ??
+                  existingProfile['full_name'],
+              'avatar_url':
+                  user.userMetadata?['avatar_url'] ??
+                  existingProfile['avatar_url'],
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('id', user.id);
 
-        print('✅ User profile updated');
+        print('[INFO] User profile updated');
       }
-      
     } catch (e) {
-      print('❌ Error creating/updating profile: $e');
+      print('[ERROR] Error creating/updating profile: $e');
       // Don't throw - allow login to continue even if profile update fails
     }
   }
@@ -163,11 +168,12 @@ class AzureAuthProvider {
 
     // Fallback role determination based on email patterns
     if (email.contains('admin')) return 'admin';
-    if (email.contains('coordinator') || email.contains('ict')) return 'coordinator';
+    if (email.contains('coordinator') || email.contains('ict'))
+      return 'coordinator';
     if (email.contains('teacher')) return 'teacher';
     if (email.contains('parent')) return 'parent';
     if (email.contains('student')) return 'student';
-    
+
     // Default to student role
     return 'student';
   }
@@ -180,25 +186,28 @@ class AzureAuthProvider {
           .select('id')
           .eq('name', roleName)
           .single();
-      
+
       return response['id'];
-      
     } catch (e) {
-      print('⚠️ Role not found: $roleName, using default');
-      
+      print('[WARN] Role not found: $roleName, using default');
+
       // Create role if it doesn't exist
       final newRole = await _client
           .from('roles')
           .insert({'name': roleName})
           .select('id')
           .single();
-      
+
       return newRole['id'];
     }
   }
 
   /// Create role-specific record (student, teacher, etc.)
-  Future<void> _createRoleSpecificRecord(String userId, String email, String role) async {
+  Future<void> _createRoleSpecificRecord(
+    String userId,
+    String email,
+    String role,
+  ) async {
     try {
       switch (role) {
         case 'student':
@@ -208,7 +217,7 @@ class AzureAuthProvider {
               .select()
               .eq('id', userId)
               .maybeSingle();
-          
+
           if (existingStudent == null) {
             await _client.from('students').insert({
               'id': userId,
@@ -218,26 +227,26 @@ class AzureAuthProvider {
               'is_active': true,
               'created_at': DateTime.now().toIso8601String(),
             });
-            print('✅ Student record created');
+            print('[INFO] Student record created');
           }
           break;
-          
+
         case 'teacher':
         case 'coordinator':
           // Teachers and coordinators don't need additional records
           // Their assignments are handled separately
           break;
-          
+
         case 'parent':
           // Parent-student relationships are created separately
           break;
-          
+
         case 'admin':
           // Admins don't need additional records
           break;
       }
     } catch (e) {
-      print('⚠️ Error creating role-specific record: $e');
+      print('[WARN] Error creating role-specific record: $e');
     }
   }
 
@@ -266,7 +275,6 @@ class AzureAuthProvider {
           .single();
 
       return response['roles']?['name'];
-      
     } catch (e) {
       print('Error fetching user role: $e');
       return null;
@@ -298,9 +306,9 @@ class AzureAuthProvider {
   Future<void> signOut() async {
     try {
       await _client.auth.signOut();
-      print('✅ User signed out successfully');
+      print('[INFO] User signed out successfully');
     } catch (e) {
-      print('❌ Error signing out: $e');
+      print('[ERROR] Error signing out: $e');
       rethrow;
     }
   }
@@ -324,9 +332,9 @@ class AzureAuthProvider {
         email,
         redirectTo: '${Environment.azureRedirectUri}reset-password',
       );
-      print('✅ Password reset email sent to $email');
+      print('[INFO] Password reset email sent to $email');
     } catch (e) {
-      print('❌ Error sending password reset: $e');
+      print('[ERROR] Error sending password reset: $e');
       rethrow;
     }
   }
@@ -334,12 +342,10 @@ class AzureAuthProvider {
   /// Update user password
   Future<void> updatePassword(String newPassword) async {
     try {
-      await _client.auth.updateUser(
-        UserAttributes(password: newPassword),
-      );
-      print('✅ Password updated successfully');
+      await _client.auth.updateUser(UserAttributes(password: newPassword));
+      print('[INFO] Password updated successfully');
     } catch (e) {
-      print('❌ Error updating password: $e');
+      print('[ERROR] Error updating password: $e');
       rethrow;
     }
   }
