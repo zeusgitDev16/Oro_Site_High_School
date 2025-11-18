@@ -576,18 +576,25 @@ class ClassroomService {
 
       print('✅ Student enrolled successfully');
 
-      // Update student count based on live enrollments (avoids race conditions)
-      final newEnrollments = await _supabase
-          .from('classroom_students')
-          .select('student_id')
-          .eq('classroom_id', classroom.id);
-      final updatedCount = (newEnrollments as List).length;
-      await _supabase
-          .from('classrooms')
-          .update({'current_students': updatedCount})
-          .eq('id', classroom.id);
-
-      print('✅ Student count updated to $updatedCount');
+      // Update student count based on live enrollments (avoids race conditions).
+      // This is a best-effort update only; if RLS blocks the UPDATE on classrooms,
+      // we still treat the join as successful because enrollment already succeeded.
+      try {
+        final newEnrollments = await _supabase
+            .from('classroom_students')
+            .select('student_id')
+            .eq('classroom_id', classroom.id);
+        final updatedCount = (newEnrollments as List).length;
+        await _supabase
+            .from('classrooms')
+            .update({'current_students': updatedCount})
+            .eq('id', classroom.id);
+        print('✅ Student count updated to $updatedCount');
+      } catch (e) {
+        print(
+          '⚠️ Student joined, but could not update classroom current_students: $e',
+        );
+      }
 
       return {
         'success': true,
