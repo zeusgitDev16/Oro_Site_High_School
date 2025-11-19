@@ -98,11 +98,8 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
         }
       }
     });
-    _studentsSearchCtrl.addListener(() {
-      setState(() {
-        _studentsQuery = _studentsSearchCtrl.text.trim();
-      });
-    });
+    // Note: _studentsQuery is updated directly in the dialog's TextField onChanged
+    // to avoid unnecessary full-screen rebuilds. No listener needed here.
     _initializeTeacher();
     _subscribeClassroomsRealtime();
     _subscribeAssignmentsRealtime();
@@ -331,6 +328,10 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
     } catch (_) {
       // ignore
     }
+  }
+
+  Future<void> _afterMemberMutationDelay() async {
+    await Future.delayed(const Duration(milliseconds: 300));
   }
 
   Future<void> _loadClassrooms() async {
@@ -1810,6 +1811,8 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                                     await _refreshEnrollmentCount(
                                       _selectedClassroom!.id,
                                     );
+                                    // Wait for Supabase replication before refetching
+                                    await _afterMemberMutationDelay();
                                     if (mounted) {
                                       ScaffoldMessenger.of(
                                         context,
@@ -1905,6 +1908,9 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                           ),
                   ),
                   onChanged: (v) {
+                    print(
+                      '🔍 Client-side filter: "$v" (no backend call)',
+                    ); // DEBUG
                     _studentsQuery = v.trim();
                     setLocal?.call(() {});
                   },
@@ -1948,161 +1954,6 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  void _showAddStudentDialog() async {
-    if (_selectedClassroom == null) return;
-    final TextEditingController searchCtrl = TextEditingController();
-    List<Profile> results = [];
-    bool isLoading = false;
-    final enrolledIds = <String>{};
-
-    try {
-      final enrolled = await _classroomService.getClassroomStudents(
-        _selectedClassroom!.id,
-      );
-      for (final s in enrolled) {
-        final sid = s['student_id'] as String?;
-        if (sid != null) enrolledIds.add(sid);
-      }
-    } catch (_) {}
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          Future<void> runSearch(String q) async {
-            setDialogState(() {
-              isLoading = true;
-            });
-            try {
-              final list = await _profileService.getAllUsers(
-                roleFilter: 'student',
-                searchQuery: q.isEmpty ? null : q,
-                limit: 50,
-                page: 1,
-              );
-              setDialogState(() {
-                results = list;
-              });
-            } catch (e) {
-              // ignore
-            } finally {
-              setDialogState(() {
-                isLoading = false;
-              });
-            }
-          }
-
-          if (results.isEmpty && !isLoading) {
-            runSearch('');
-          }
-
-          Future<void> addStudent(Profile p) async {
-            setDialogState(() {
-              isLoading = true;
-            });
-            final res = await _classroomService.joinClassroom(
-              accessCode:
-                  _selectedClassroom!.accessCode ?? _selectedClassroom!.id,
-              studentId: p.id,
-            );
-            setDialogState(() {
-              isLoading = false;
-            });
-            if (!mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(res['message'] ?? 'Operation complete'),
-                backgroundColor: (res['success'] == true)
-                    ? Colors.green
-                    : Colors.orange,
-              ),
-            );
-            if (res['success'] == true) {
-              enrolledIds.add(p.id);
-              await _refreshEnrollmentCount(_selectedClassroom!.id);
-              setState(() {});
-            }
-          }
-
-          return AlertDialog(
-            title: const Text('Add student to classroom'),
-            content: SizedBox(
-              width: 600,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: searchCtrl,
-                    decoration: InputDecoration(
-                      hintText: 'Search students by name or email...',
-                      prefixIcon: const Icon(Icons.search),
-                      border: const OutlineInputBorder(),
-                      isDense: true,
-                      suffixIcon: searchCtrl.text.isEmpty
-                          ? null
-                          : IconButton(
-                              icon: const Icon(Icons.clear),
-                              onPressed: () {
-                                searchCtrl.clear();
-                                runSearch('');
-                              },
-                            ),
-                    ),
-                    onChanged: (q) => runSearch(q),
-                  ),
-                  const SizedBox(height: 12),
-                  if (isLoading) const LinearProgressIndicator(minHeight: 2),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    height: 360,
-                    width: double.infinity,
-                    child: results.isEmpty && !isLoading
-                        ? Center(
-                            child: Text(
-                              'No students found',
-                              style: TextStyle(color: Colors.grey.shade700),
-                            ),
-                          )
-                        : ListView.builder(
-                            itemCount: results.length,
-                            itemBuilder: (ctx, i) {
-                              final p = results[i];
-                              final already = enrolledIds.contains(p.id);
-                              return ListTile(
-                                leading: CircleAvatar(child: Text(p.initials)),
-                                title: Text(p.displayName),
-                                subtitle: Text(p.email ?? ''),
-                                trailing: TextButton.icon(
-                                  onPressed: already || isLoading
-                                      ? null
-                                      : () => addStudent(p),
-                                  icon: const Icon(Icons.add),
-                                  label: Text(already ? 'Added' : 'Add'),
-                                  style: TextButton.styleFrom(
-                                    foregroundColor: already
-                                        ? Colors.grey
-                                        : Colors.blue,
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Close'),
-              ),
-            ],
-          );
-        },
       ),
     );
   }
@@ -2363,6 +2214,10 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                                       classroomId: _selectedClassroom!.id,
                                       teacherId: m['id']!,
                                     );
+                                // Wait for Supabase replication before refetching
+                                if (ok) {
+                                  await _afterMemberMutationDelay();
+                                }
                                 if (!mounted) return;
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
@@ -2430,8 +2285,10 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
 
     String type = initialType; // 'student' or 'teacher'
     final TextEditingController searchCtrl = TextEditingController();
-    List<Profile> results = [];
+    List<Profile> allUsers = [];
+    List<Profile> filteredUsers = [];
     bool isLoading = false;
+    bool dialogActive = true; // Track if dialog is still active
 
     // Preload membership sets to show status in the Add dialog and avoid duplicates
     final Set<String> enrolledIds = <String>{};
@@ -2459,44 +2316,59 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
       teacherIds.add(_selectedClassroom!.teacherId);
     }
 
-    Future<void> runSearch(String q) async {
+    Future<void> loadUsers() async {
+      print(
+        '🔥 NEW loadUsers() called - type: $type',
+      ); // DEBUG: Verify new code is running
       isLoading = true;
       try {
-        // Fetch users broadly then filter client-side to keep this change minimal
-        final all = await _profileService.getAllUsers(
-          searchQuery: q.isEmpty ? null : q,
-          limit: 100,
-          page: 1,
-        );
+        final all = await _profileService.getAllUsers(limit: 200, page: 1);
         List<Profile> filtered;
         if (type == 'student') {
-          filtered = all
-              .where(
-                (p) =>
-                    (p.roleName ?? '').toLowerCase() == 'student' ||
-                    p.roleId == 3,
-              )
-              .toList();
+          filtered = all.where((p) {
+            final isStudent =
+                (p.roleName ?? '').toLowerCase() == 'student' || p.roleId == 3;
+            final isEnrolled = enrolledIds.contains(p.id);
+            final isAdmin =
+                (p.roleName ?? '').toLowerCase() == 'admin' || p.roleId == 1;
+            return isStudent && !isEnrolled && !isAdmin;
+          }).toList();
         } else {
-          bool isTeacherLike(Profile p) {
+          filtered = all.where((p) {
             final rn = (p.roleName ?? '').toLowerCase();
-            return rn == 'teacher' ||
+            final isTeacherLike =
+                rn == 'teacher' ||
                 rn == 'grade_level_coordinator' ||
                 rn == 'coordinator' ||
                 rn == 'hybrid' ||
-                rn == 'admin' ||
                 p.roleId == 2 ||
-                p.roleId == 5 ||
-                p.roleId == 1;
-          }
-
-          filtered = all.where(isTeacherLike).toList();
+                p.roleId == 5;
+            final isAlreadyInClassroom = teacherIds.contains(p.id);
+            final isAdmin = rn == 'admin' || p.roleId == 1;
+            return isTeacherLike && !isAlreadyInClassroom && !isAdmin;
+          }).toList();
         }
-        results = filtered;
-      } catch (_) {
-        results = [];
+        allUsers = filtered;
+        filteredUsers = filtered;
+      } catch (e) {
+        print('Error loading users: $e');
+        allUsers = [];
+        filteredUsers = [];
       } finally {
         isLoading = false;
+      }
+    }
+
+    void filterUsers(String query) {
+      if (query.isEmpty) {
+        filteredUsers = allUsers;
+      } else {
+        final q = query.toLowerCase();
+        filteredUsers = allUsers.where((p) {
+          final name = (p.fullName ?? '').toLowerCase();
+          final email = (p.email ?? '').toLowerCase();
+          return name.contains(q) || email.contains(q);
+        }).toList();
       }
     }
 
@@ -2504,11 +2376,19 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) {
-          Future<void> searchNow(String q) async {
-            setDialogState(() => isLoading = true);
-            await runSearch(q);
-            setDialogState(() {});
-          }
+          // Load users on first render
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (allUsers.isEmpty && !isLoading && dialogActive) {
+              // Set loading state before starting
+              setDialogState(() {
+                isLoading = true;
+              });
+              loadUsers().then((_) {
+                // Rebuild after loading completes
+                if (dialogActive) setDialogState(() {});
+              });
+            }
+          });
 
           Future<void> addSelected(Profile p) async {
             // Prevent duplicates based on preloaded membership sets
@@ -2580,15 +2460,15 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
               }
               // Let parent dialog refresh its lists & counters
               onMembersChanged?.call();
+              await _afterMemberMutationDelay();
               setState(() {
                 _membersDialogReloadKey++;
               });
-              setDialogState(() {});
+              // Remove from available lists
+              allUsers.removeWhere((u) => u.id == p.id);
+              filteredUsers.removeWhere((u) => u.id == p.id);
+              if (dialogActive) setDialogState(() {});
             }
-          }
-
-          if (results.isEmpty && !isLoading) {
-            searchNow('');
           }
 
           return AlertDialog(
@@ -2620,11 +2500,16 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                         ],
                         onChanged: (v) {
                           if (v == null) return;
+                          type = v;
+                          allUsers.clear();
+                          filteredUsers.clear();
+                          // Set loading state before starting
                           setDialogState(() {
-                            type = v;
-                            results = [];
+                            isLoading = true;
                           });
-                          searchNow(searchCtrl.text);
+                          loadUsers().then((_) {
+                            if (dialogActive) setDialogState(() {});
+                          });
                         },
                       ),
                     ],
@@ -2645,11 +2530,15 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                               icon: const Icon(Icons.clear),
                               onPressed: () {
                                 searchCtrl.clear();
-                                searchNow('');
+                                filterUsers('');
+                                if (dialogActive) setDialogState(() {});
                               },
                             ),
                     ),
-                    onChanged: (q) => searchNow(q),
+                    onChanged: (q) {
+                      filterUsers(q);
+                      if (dialogActive) setDialogState(() {});
+                    },
                   ),
                   const SizedBox(height: 12),
                   if (isLoading) const LinearProgressIndicator(minHeight: 2),
@@ -2657,7 +2546,9 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                   SizedBox(
                     height: 360,
                     width: double.infinity,
-                    child: results.isEmpty && !isLoading
+                    child: isLoading
+                        ? const Center(child: CircularProgressIndicator())
+                        : filteredUsers.isEmpty
                         ? Center(
                             child: Text(
                               type == 'student'
@@ -2667,9 +2558,9 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                             ),
                           )
                         : ListView.builder(
-                            itemCount: results.length,
+                            itemCount: filteredUsers.length,
                             itemBuilder: (ctx, i) {
-                              final p = results[i];
+                              final p = filteredUsers[i];
                               final bool isOwner =
                                   _selectedClassroom != null &&
                                   _selectedClassroom!.teacherId == _teacherId;
@@ -2941,7 +2832,7 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
           );
         },
       ),
-    );
+    ).then((_) => dialogActive = false);
   }
 
   Future<void> _loadClassroomAssignments(String classroomId) async {

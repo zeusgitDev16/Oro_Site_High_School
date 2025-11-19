@@ -780,25 +780,40 @@ class ClassroomService {
   }
 
   /// Get enrollment counts for a list of classrooms
+  ///
+  /// Uses the same secure RPC as [getClassroomStudents] when available so that
+  /// counts respect the same RLS/visibility rules as the actual members list.
+  /// Falls back to a direct `classroom_students` select per classroom if the RPC
+  /// is not deployed. Pure read-only, fully idempotent.
   Future<Map<String, int>> getEnrollmentCountsForClassrooms(
     List<String> classroomIds,
   ) async {
     if (classroomIds.isEmpty) return {};
-    try {
-      final response = await _supabase
-          .from('classroom_students')
-          .select('classroom_id')
-          .inFilter('classroom_id', classroomIds);
 
-      final counts = <String, int>{};
-      for (final row in (response as List)) {
-        final id = row['classroom_id'] as String;
-        counts[id] = (counts[id] ?? 0) + 1;
+    final counts = <String, int>{};
+
+    try {
+      for (final id in classroomIds) {
+        try {
+          // Preferred path: RPC that already encodes access/joins correctly.
+          final rows = await _supabase.rpc(
+            'get_classroom_students_with_profile',
+            params: {'p_classroom_id': id},
+          );
+          counts[id] = (rows as List).length;
+        } catch (_) {
+          // Fallback: direct select for environments without the RPC.
+          final response = await _supabase
+              .from('classroom_students')
+              .select('student_id')
+              .eq('classroom_id', id);
+          counts[id] = (response as List).length;
+        }
       }
       return counts;
     } catch (e) {
-      print('❌ Error fetching enrollment counts: $e');
-      return {};
+      print('❌ Error fetching enrollment counts via RPC/direct: $e');
+      return counts;
     }
   }
 
