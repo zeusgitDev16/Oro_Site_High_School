@@ -558,7 +558,78 @@ using (
 - classroom_students_student_id_fkey, relation to public.profiles, student_id -> public.profiles.id
 
 ###RLS POLICIES:
-- NONE
+first policy:
+- policy name, Teachers can add students to own classrooms 
+- table on clause, public.classroom_students
+- policy behavior, Permissive
+- policy command, INSERT
+- target roles, authenticated
+
+###SQL:
+alter policy "Teachers can add students to own classrooms"
+
+
+on "public"."classroom_students"
+
+
+to authenticated
+
+
+with check (
+
+  is_classroom_manager(classroom_id, auth.uid())
+
+);
+
+second policy:
+- policy name, Teachers can remove students from own classrooms 
+- table on clause, public.classroom_students
+- policy behavior, Permissive
+- policy command, DELETE
+- target roles, authenticated
+
+###SQL:
+alter policy "Teachers can remove students from own classrooms"
+
+
+on "public"."classroom_students"
+
+
+to authenticated
+
+
+using (
+
+
+  is_classroom_manager(classroom_id, auth.uid())
+
+);
+
+third policy:
+- policy name, Teachers can view enrollments
+- table on clause, public.classroom_students
+- policy behavior, Permissive
+- policy command, SELECT
+- target roles, authenticated
+
+###SQL:
+alter policy "Teachers can view enrollments"
+
+
+on "public"."classroom_students"
+
+
+to authenticated
+
+
+using (
+
+
+  (EXISTS ( SELECT 1
+   FROM profiles p
+  WHERE ((p.id = auth.uid()) AND (p.role = 'teacher'::text))))
+
+);
 
 6. classroom_teachers
 
@@ -938,7 +1009,42 @@ using (
 ### this is the first 15 crucial tables as per your requested.
 
 
-    
+  16. announcements
+
+  ###COLUMNS:
+    - id, int8, NULL, primary key
+    - course_id, int8, NULL
+    - title, text, NULL
+    - content, text, NULL
+    - created_at, timestampz, now()
+    - classroom_id, text, NULL
+    - author_id, uuid, NULL
+
+  ###FOREIGN KEYS:
+  - announcements_course_id_fkey, relation to public.courses, course_id -> public.courses.id
+  - announcements_author_id_fkey, relation to auth.users, author_id -> auth.users.id
+
+  ###RLS POLICIES:
+  - NONE
+
+  17. announcement_replies
+
+  ###COLUMNS:
+    - id, int8, NULL, primary key
+    - announcement_id, int8, NULL
+    - author_id, text, NULL
+    - content, text, NULL
+    - created_at, timestampz, now()
+    - is_deleted, bool, false
+    - author_id_uuid, uuid, NULL
+
+  ###FOREIGN KEYS:
+  - announcement_replies_announcement_id_fkey, relation to public.announcements, announcement_id -> public.announcements.id
+  - announcement_replies_author_id_uuid_fkey, relation to public.profiles, author_id_uuid -> public.profiles.id
+  - fk_author_uuid, relation to public.profiles, author_id_uuid -> public.profiles.id
+
+  ###RLS POLICIES:
+  - NONE
 
 
 

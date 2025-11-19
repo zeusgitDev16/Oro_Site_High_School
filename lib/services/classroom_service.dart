@@ -352,23 +352,23 @@ class ClassroomService {
     }
   }
 
-  /// Decrement student count
+  /// Decrement student count using live enrollment rows
+  ///
+  /// This mirrors the logic in [joinClassroom]: it derives the count from
+  /// `classroom_students` instead of trusting a potentially stale
+  /// `current_students` value. This keeps things idempotent and resilient
+  /// against race conditions.
   Future<void> decrementStudentCount(String classroomId) async {
     try {
-      // Get current classroom
-      final classroom = await getClassroomById(classroomId);
-      if (classroom == null) {
-        throw Exception('Classroom not found');
-      }
-
-      // Decrement count (don't go below 0)
-      final newCount = classroom.currentStudents > 0
-          ? classroom.currentStudents - 1
-          : 0;
+      final rows = await _supabase
+          .from('classroom_students')
+          .select('student_id')
+          .eq('classroom_id', classroomId);
+      final updatedCount = (rows as List).length;
 
       await _supabase
           .from('classrooms')
-          .update({'current_students': newCount})
+          .update({'current_students': updatedCount})
           .eq('id', classroomId);
     } catch (e) {
       print('❌ Error decrementing student count: $e');

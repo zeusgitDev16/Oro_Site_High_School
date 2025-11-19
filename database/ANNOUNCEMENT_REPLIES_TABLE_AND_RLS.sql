@@ -43,7 +43,7 @@ DROP POLICY IF EXISTS "Replies delete by author_or_teacher" ON public.announceme
 
 -- 6) Policies
 -- Helper logic (duplicated inline) mirrors announcements classroom scoping
--- SELECT: classroom owner (teacher), classroom students, or admin
+-- SELECT: classroom owner (teacher), co-teachers, classroom students, or admin
 CREATE POLICY "Replies select visible to classroom members"
   ON public.announcement_replies
   FOR SELECT
@@ -57,6 +57,11 @@ CREATE POLICY "Replies select visible to classroom members"
         AND (
           c.teacher_id::text = auth.uid()::text
           OR EXISTS (
+            SELECT 1 FROM public.classroom_teachers ct
+            WHERE ct.classroom_id::text = a.classroom_id::text
+              AND ct.teacher_id::text = auth.uid()::text
+          )
+          OR EXISTS (
             SELECT 1 FROM public.classroom_students cs
             WHERE cs.classroom_id::text = a.classroom_id::text
               AND cs.student_id::text = auth.uid()::text
@@ -66,7 +71,7 @@ CREATE POLICY "Replies select visible to classroom members"
     )
   );
 
--- INSERT: classroom members (teacher owner OR enrolled students), or admin
+-- INSERT: classroom members (teacher owner, co-teachers OR enrolled students), or admin
 CREATE POLICY "Replies insert by classroom members"
   ON public.announcement_replies
   FOR INSERT
@@ -80,6 +85,11 @@ CREATE POLICY "Replies insert by classroom members"
         AND (
           c.teacher_id::text = auth.uid()::text
           OR EXISTS (
+            SELECT 1 FROM public.classroom_teachers ct
+            WHERE ct.classroom_id::text = a.classroom_id::text
+              AND ct.teacher_id::text = auth.uid()::text
+          )
+          OR EXISTS (
             SELECT 1 FROM public.classroom_students cs
             WHERE cs.classroom_id::text = a.classroom_id::text
               AND cs.student_id::text = auth.uid()::text
@@ -89,7 +99,7 @@ CREATE POLICY "Replies insert by classroom members"
     )
   );
 
--- UPDATE: author can edit own reply; teacher owner can edit any; admin override
+-- UPDATE: author can edit own reply; teachers/co-teachers can edit any; admin override
 CREATE POLICY "Replies update by author_or_teacher"
   ON public.announcement_replies
   FOR UPDATE
@@ -98,7 +108,7 @@ CREATE POLICY "Replies update by author_or_teacher"
     -- Author
     public.announcement_replies.author_id::text = auth.uid()::text
     OR
-    -- Classroom owner or admin per linked announcement
+    -- Classroom owner, co-teachers, or admin per linked announcement
     EXISTS (
       SELECT 1
       FROM public.announcements a
@@ -106,6 +116,11 @@ CREATE POLICY "Replies update by author_or_teacher"
       WHERE a.id = public.announcement_replies.announcement_id
         AND (
           c.teacher_id::text = auth.uid()::text
+          OR EXISTS (
+            SELECT 1 FROM public.classroom_teachers ct
+            WHERE ct.classroom_id::text = a.classroom_id::text
+              AND ct.teacher_id::text = auth.uid()::text
+          )
           OR COALESCE((SELECT public.is_admin(auth.uid())), FALSE)
         )
     )
@@ -119,12 +134,17 @@ CREATE POLICY "Replies update by author_or_teacher"
       WHERE a.id = public.announcement_replies.announcement_id
         AND (
           c.teacher_id::text = auth.uid()::text
+          OR EXISTS (
+            SELECT 1 FROM public.classroom_teachers ct
+            WHERE ct.classroom_id::text = a.classroom_id::text
+              AND ct.teacher_id::text = auth.uid()::text
+          )
           OR COALESCE((SELECT public.is_admin(auth.uid())), FALSE)
         )
     )
   );
 
--- DELETE: author can delete own reply; teacher owner can delete any; admin override
+-- DELETE: author can delete own reply; teachers/co-teachers can delete any; admin override
 CREATE POLICY "Replies delete by author_or_teacher"
   ON public.announcement_replies
   FOR DELETE
@@ -138,6 +158,11 @@ CREATE POLICY "Replies delete by author_or_teacher"
       WHERE a.id = public.announcement_replies.announcement_id
         AND (
           c.teacher_id::text = auth.uid()::text
+          OR EXISTS (
+            SELECT 1 FROM public.classroom_teachers ct
+            WHERE ct.classroom_id::text = a.classroom_id::text
+              AND ct.teacher_id::text = auth.uid()::text
+          )
           OR COALESCE((SELECT public.is_admin(auth.uid())), FALSE)
         )
     )

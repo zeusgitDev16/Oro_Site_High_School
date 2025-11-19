@@ -57,6 +57,10 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
   final TextEditingController _teachersSearchCtrl = TextEditingController();
   String _teachersQuery = '';
 
+  // Small reload key used to force the joined dialog FutureBuilders to refetch
+  // after add/remove operations. Purely UI-side and idempotent.
+  int _membersDialogReloadKey = 0;
+
   // Classroom-level Active Quarter (default) state
   int? _classroomActiveQuarter; // null when not set
   bool _isSettingClassroomActiveQuarter = false;
@@ -1624,6 +1628,9 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
         _buildStudentsToolbar(setLocal: setLocal),
         Expanded(
           child: FutureBuilder<List<Map<String, dynamic>>>(
+            key: ValueKey(
+              'students-${_selectedClassroom!.id}-$_membersDialogReloadKey',
+            ),
             future: _classroomService.getClassroomStudents(
               _selectedClassroom!.id,
             ),
@@ -1641,8 +1648,39 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                 );
               }
 
-              List<Map<String, dynamic>> students =
-                  List<Map<String, dynamic>>.from(snapshot.data ?? const []);
+              final rawStudents = List<Map<String, dynamic>>.from(
+                snapshot.data ?? const [],
+              );
+              final totalEnrolled = rawStudents.length;
+
+              // Keep enrollment counts in sync with the actual list we are showing.
+              if (_selectedClassroom != null) {
+                final selectedId = _selectedClassroom!.id;
+                final existingCount = _enrollmentCounts[selectedId];
+                if (existingCount != totalEnrolled ||
+                    _selectedClassroom!.currentStudents != totalEnrolled) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted) return;
+                    setState(() {
+                      _enrollmentCounts[selectedId] = totalEnrolled;
+                      _selectedClassroom = _selectedClassroom!.copyWith(
+                        currentStudents: totalEnrolled,
+                      );
+                      final idx = _classrooms.indexWhere(
+                        (c) => c.id == selectedId,
+                      );
+                      if (idx != -1) {
+                        _classrooms[idx] = _classrooms[idx].copyWith(
+                          currentStudents: totalEnrolled,
+                        );
+                      }
+                    });
+                  });
+                }
+              }
+
+              // Apply search filtering on top of the raw list (does not affect counts).
+              List<Map<String, dynamic>> students = rawStudents;
               if (_studentsQuery.isNotEmpty) {
                 final q = _studentsQuery.toLowerCase();
                 students = students.where((s) {
@@ -1784,7 +1822,9 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                                         ),
                                       );
                                     }
-                                    setState(() {});
+                                    setState(() {
+                                      _membersDialogReloadKey++;
+                                    });
                                     setLocal?.call(() {});
                                   } catch (e) {
                                     if (mounted) {
@@ -1880,7 +1920,10 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
             child: InkWell(
               onTap: _selectedClassroom == null
                   ? null
-                  : () => _showAddMemberDialog(initialType: 'student'),
+                  : () => _showAddMemberDialog(
+                      initialType: 'student',
+                      onMembersChanged: () => setLocal?.call(() {}),
+                    ),
               borderRadius: BorderRadius.circular(16),
               child: Container(
                 height: 32,
@@ -2110,7 +2153,10 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
             child: InkWell(
               onTap: _selectedClassroom == null
                   ? null
-                  : () => _showAddMemberDialog(initialType: 'teacher'),
+                  : () => _showAddMemberDialog(
+                      initialType: 'teacher',
+                      onMembersChanged: () => setLocal?.call(() {}),
+                    ),
               borderRadius: BorderRadius.circular(16),
               child: Container(
                 height: 32,
@@ -2157,6 +2203,9 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
         _buildTeachersToolbar(setLocal: setLocal),
         Expanded(
           child: FutureBuilder<Map<String, dynamic>>(
+            key: ValueKey(
+              'teachers-${_selectedClassroom!.id}-$_membersDialogReloadKey',
+            ),
             future: (() async {
               // Fetch owner profile and co-teachers concurrently
               Profile? owner;
@@ -2327,6 +2376,11 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                                         : Colors.red,
                                   ),
                                 );
+                                if (ok) {
+                                  setState(() {
+                                    _membersDialogReloadKey++;
+                                  });
+                                }
                                 setLocal?.call(() {});
                               },
                             ),
@@ -2368,7 +2422,10 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
     );
   }
 
-  void _showAddMemberDialog({String initialType = 'student'}) async {
+  void _showAddMemberDialog({
+    String initialType = 'student',
+    VoidCallback? onMembersChanged,
+  }) async {
     if (_selectedClassroom == null) return;
 
     String type = initialType; // 'student' or 'teacher'
@@ -2521,8 +2578,11 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
               } else {
                 teacherIds.add(p.id);
               }
-              // Ask parent to refresh data; counts in outer dialog update on reopen
-              setState(() {});
+              // Let parent dialog refresh its lists & counters
+              onMembersChanged?.call();
+              setState(() {
+                _membersDialogReloadKey++;
+              });
               setDialogState(() {});
             }
           }
@@ -2710,6 +2770,7 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                                                   await _refreshEnrollmentCount(
                                                     _selectedClassroom!.id,
                                                   );
+                                                  onMembersChanged?.call();
                                                   if (mounted) {
                                                     ScaffoldMessenger.of(
                                                       context,
@@ -2723,7 +2784,9 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                                                       ),
                                                     );
                                                   }
-                                                  setState(() {});
+                                                  setState(() {
+                                                    _membersDialogReloadKey++;
+                                                  });
                                                 } catch (e) {
                                                   if (mounted) {
                                                     ScaffoldMessenger.of(
@@ -2806,6 +2869,7 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                                                       );
                                                   if (ok) {
                                                     teacherIds.remove(p.id);
+                                                    onMembersChanged?.call();
                                                     if (mounted) {
                                                       ScaffoldMessenger.of(
                                                         context,
@@ -2819,7 +2883,9 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                                                         ),
                                                       );
                                                     }
-                                                    setState(() {});
+                                                    setState(() {
+                                                      _membersDialogReloadKey++;
+                                                    });
                                                   } else {
                                                     if (mounted) {
                                                       ScaffoldMessenger.of(

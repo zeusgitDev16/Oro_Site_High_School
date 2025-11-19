@@ -46,7 +46,7 @@ DROP POLICY IF EXISTS "Teachers delete course announcements" ON public.announcem
 DROP POLICY IF EXISTS "Teachers delete classroom announcements" ON public.announcements;
 
 -- 3) Classroom-scoped policies
--- SELECT: classroom owner (teacher), classroom students, or admin
+-- SELECT: classroom owner (teacher), co-teachers, classroom students, or admin
 CREATE POLICY "Announcements select visible to classroom members"
   ON public.announcements
   FOR SELECT
@@ -58,6 +58,14 @@ CREATE POLICY "Announcements select visible to classroom members"
       FROM public.classrooms c
       WHERE c.id::text = public.announcements.classroom_id::text
         AND c.teacher_id::text = auth.uid()::text
+    )
+    OR
+    -- Co-teacher assigned to the classroom
+    EXISTS (
+      SELECT 1
+      FROM public.classroom_teachers ct
+      WHERE ct.classroom_id::text = public.announcements.classroom_id::text
+        AND ct.teacher_id::text = auth.uid()::text
     )
     OR
     -- Student enrolled in the classroom
@@ -72,22 +80,32 @@ CREATE POLICY "Announcements select visible to classroom members"
     COALESCE((SELECT public.is_admin(auth.uid())), FALSE)
   );
 
--- INSERT: classroom owner or admin
+-- INSERT: classroom owner, co-teachers, or admin
 CREATE POLICY "Teachers insert classroom announcements"
   ON public.announcements
   FOR INSERT
   TO authenticated
   WITH CHECK (
+    -- Classroom owner
     EXISTS (
       SELECT 1
       FROM public.classrooms c
       WHERE c.id::text = public.announcements.classroom_id::text
         AND c.teacher_id::text = auth.uid()::text
     )
-    OR COALESCE((SELECT public.is_admin(auth.uid())), FALSE)
+    OR
+    -- Co-teacher assigned to the classroom
+    EXISTS (
+      SELECT 1
+      FROM public.classroom_teachers ct
+      WHERE ct.classroom_id::text = public.announcements.classroom_id::text
+        AND ct.teacher_id::text = auth.uid()::text
+    )
+    OR
+    COALESCE((SELECT public.is_admin(auth.uid())), FALSE)
   );
 
--- UPDATE: classroom owner or admin
+-- UPDATE: classroom owner, co-teachers, or admin
 CREATE POLICY "Teachers update classroom announcements"
   ON public.announcements
   FOR UPDATE
@@ -99,6 +117,12 @@ CREATE POLICY "Teachers update classroom announcements"
       WHERE c.id::text = public.announcements.classroom_id::text
         AND c.teacher_id::text = auth.uid()::text
     )
+    OR EXISTS (
+      SELECT 1
+      FROM public.classroom_teachers ct
+      WHERE ct.classroom_id::text = public.announcements.classroom_id::text
+        AND ct.teacher_id::text = auth.uid()::text
+    )
     OR COALESCE((SELECT public.is_admin(auth.uid())), FALSE)
   )
   WITH CHECK (
@@ -108,10 +132,16 @@ CREATE POLICY "Teachers update classroom announcements"
       WHERE c.id::text = public.announcements.classroom_id::text
         AND c.teacher_id::text = auth.uid()::text
     )
+    OR EXISTS (
+      SELECT 1
+      FROM public.classroom_teachers ct
+      WHERE ct.classroom_id::text = public.announcements.classroom_id::text
+        AND ct.teacher_id::text = auth.uid()::text
+    )
     OR COALESCE((SELECT public.is_admin(auth.uid())), FALSE)
   );
 
--- DELETE: classroom owner or admin
+-- DELETE: classroom owner, co-teachers, or admin
 CREATE POLICY "Teachers delete classroom announcements"
   ON public.announcements
   FOR DELETE
@@ -122,6 +152,12 @@ CREATE POLICY "Teachers delete classroom announcements"
       FROM public.classrooms c
       WHERE c.id::text = public.announcements.classroom_id::text
         AND c.teacher_id::text = auth.uid()::text
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM public.classroom_teachers ct
+      WHERE ct.classroom_id::text = public.announcements.classroom_id::text
+        AND ct.teacher_id::text = auth.uid()::text
     )
     OR COALESCE((SELECT public.is_admin(auth.uid())), FALSE)
   );
