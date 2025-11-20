@@ -270,6 +270,7 @@ CREATE TABLE public.classrooms (
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
   access_code text UNIQUE,
+  school_level text NOT NULL DEFAULT 'JHS'::text CHECK (school_level = ANY (ARRAY['JHS'::text, 'SHS'::text])),
   CONSTRAINT classrooms_pkey PRIMARY KEY (id),
   CONSTRAINT classrooms_teacher_id_fkey FOREIGN KEY (teacher_id) REFERENCES auth.users(id)
 );

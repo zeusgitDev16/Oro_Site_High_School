@@ -557,8 +557,13 @@ class ClassroomService {
           .eq('student_id', studentId)
           .maybeSingle();
 
+      print(
+        '🔎 existingEnrollment check: classroomId=${classroom.id}, '
+        'studentId=$studentId, found=${existingEnrollment != null}',
+      );
+
       if (existingEnrollment != null) {
-        print('❌ Student already enrolled in classroom');
+        print('❌ Student already enrolled in classroom (pre-insert check).');
         return {
           'success': false,
           'message': 'You are already enrolled in this classroom.',
@@ -603,6 +608,27 @@ class ClassroomService {
       };
     } catch (e) {
       print('❌ Error joining classroom: $e');
+
+      // Normalize duplicate-enrollment unique constraint into an idempotent,
+      // user-friendly response. This specifically targets the
+      // `classroom_students_classroom_id_student_id_key` error (code 23505)
+      // that occurs when a student is already enrolled in the classroom.
+      final isDup = _isDuplicateEnrollmentError(e);
+      print(
+        '🔁 joinClassroom catch; isDuplicateEnrollmentError=$isDup; '
+        'errorType=${e.runtimeType}',
+      );
+      if (isDup) {
+        print(
+          'ℹ️ Duplicate enrollment detected; treating as already enrolled.',
+        );
+        return {
+          'success': false,
+          'message': 'Student is already enrolled in this classroom.',
+          'alreadyJoined': true,
+        };
+      }
+
       print('❌ Stack trace: ${StackTrace.current}');
       return {
         'success': false,
@@ -610,6 +636,26 @@ class ClassroomService {
             'An error occurred while joining the classroom. Please try again. Error: $e',
       };
     }
+  }
+
+  bool _isDuplicateEnrollmentError(Object e) {
+    // Prefer structured PostgrestException inspection when available.
+    if (e is PostgrestException) {
+      final message = e.message ?? '';
+      final details = e.details?.toString() ?? '';
+      if (e.code == '23505' &&
+          (message.contains('classroom_students_classroom_id_student_id_key') ||
+              details.contains(
+                'classroom_students_classroom_id_student_id_key',
+              ))) {
+        return true;
+      }
+    }
+
+    // Fallback: string-based detection to stay robust across SDK versions.
+    final text = e.toString();
+    return text.contains('23505') &&
+        text.contains('classroom_students_classroom_id_student_id_key');
   }
 
   /// Allow a teacher to join a classroom using the access code (co-teacher)
@@ -779,12 +825,11 @@ class ClassroomService {
     }
   }
 
-  /// Get enrollment counts for a list of classrooms
+  /// Get enrollment counts for a list of classrooms.
   ///
-  /// Uses the same secure RPC as [getClassroomStudents] when available so that
-  /// counts respect the same RLS/visibility rules as the actual members list.
-  /// Falls back to a direct `classroom_students` select per classroom if the RPC
-  /// is not deployed. Pure read-only, fully idempotent.
+  /// This intentionally reads directly from the `classroom_students` table so
+  /// that counts always reflect the same source of truth used by
+  /// `joinClassroom`, `leaveClassroom`, and `getClassroomStudents`.
   Future<Map<String, int>> getEnrollmentCountsForClassrooms(
     List<String> classroomIds,
   ) async {
@@ -794,35 +839,29 @@ class ClassroomService {
 
     try {
       for (final id in classroomIds) {
-        try {
-          // Preferred path: RPC that already encodes access/joins correctly.
-          final rows = await _supabase.rpc(
-            'get_classroom_students_with_profile',
-            params: {'p_classroom_id': id},
-          );
-          counts[id] = (rows as List).length;
-        } catch (_) {
-          // Fallback: direct select for environments without the RPC.
-          final response = await _supabase
-              .from('classroom_students')
-              .select('student_id')
-              .eq('classroom_id', id);
-          counts[id] = (response as List).length;
-        }
+        final response = await _supabase
+            .from('classroom_students')
+            .select('student_id')
+            .eq('classroom_id', id);
+        counts[id] = (response as List).length;
       }
       return counts;
     } catch (e) {
-      print('❌ Error fetching enrollment counts via RPC/direct: $e');
+      print('❌ Error fetching enrollment counts from classroom_students: $e');
       return counts;
     }
   }
 
   /// Get all students enrolled in a classroom
+  ///
+  /// Prefer the `get_classroom_students_with_profile` RPC so that visibility
+  /// is enforced server-side. Falls back to direct select for environments
+  /// where the RPC is not yet deployed.
   Future<List<Map<String, dynamic>>> getClassroomStudents(
     String classroomId,
   ) async {
     try {
-      // Prefer secure RPC that enforces owner/co-teacher visibility server-side.
+      // Prefer secure RPC that can enforce visibility server-side if available
       try {
         final rows = await _supabase.rpc(
           'get_classroom_students_with_profile',
@@ -848,7 +887,13 @@ class ClassroomService {
           .eq('classroom_id', classroomId)
           .order('enrolled_at', ascending: false);
 
-      return (response as List).map((item) {
+      final rows = (response as List);
+      print(
+        '📚 getClassroomStudents($classroomId) returned ${rows.length} '
+        'rows (classroom_students x profiles!inner).',
+      );
+
+      return rows.map((item) {
         final profile = item['profiles'];
         return {
           'student_id': item['student_id'],

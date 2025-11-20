@@ -61,6 +61,11 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
   // after add/remove operations. Purely UI-side and idempotent.
   int _membersDialogReloadKey = 0;
 
+  // Local-only tracking of students removed while the joined dialog is open.
+  // This lets the UI immediately hide removed rows even if the backend read
+  // briefly lags behind the delete. Cleared every time the dialog is opened.
+  final Set<String> _studentsRemovedInDialog = <String>{};
+
   // Classroom-level Active Quarter (default) state
   int? _classroomActiveQuarter; // null when not set
   bool _isSettingClassroomActiveQuarter = false;
@@ -1565,6 +1570,10 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
       );
       return;
     }
+
+    // Fresh dialog open: clear any locally tracked removals.
+    _studentsRemovedInDialog.clear();
+
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -1582,6 +1591,9 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   FutureBuilder<int>(
+                    key: ValueKey(
+                      'teacher-count-${_selectedClassroom!.id}-$_membersDialogReloadKey',
+                    ),
                     future: _classroomService.getClassroomTeacherCount(
                       _selectedClassroom!.id,
                     ),
@@ -1649,9 +1661,18 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                 );
               }
 
-              final rawStudents = List<Map<String, dynamic>>.from(
+              var rawStudents = List<Map<String, dynamic>>.from(
                 snapshot.data ?? const [],
               );
+              // Apply any local removals tracked while this dialog is open so the
+              // UI immediately reflects successful remove operations, even if the
+              // backend read briefly lags behind the delete.
+              if (_studentsRemovedInDialog.isNotEmpty) {
+                rawStudents = rawStudents.where((s) {
+                  final id = (s['student_id'] ?? '').toString();
+                  return !_studentsRemovedInDialog.contains(id);
+                }).toList();
+              }
               final totalEnrolled = rawStudents.length;
 
               // Keep enrollment counts in sync with the actual list we are showing.
@@ -1803,16 +1824,53 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                                   ),
                                 );
                                 if (confirmed == true) {
+                                  // Always rely on the real student_id from the backend row.
+                                  final removedId =
+                                      (student['student_id'] ?? '').toString();
+
                                   try {
                                     await _classroomService.leaveClassroom(
-                                      studentId: student['student_id'],
+                                      studentId: removedId,
                                       classroomId: _selectedClassroom!.id,
                                     );
+                                    // Give Supabase a moment to apply/replicate the delete.
+                                    await _afterMemberMutationDelay();
+
+                                    // Verify that the student is actually no longer enrolled.
+                                    // If they still appear in classroom_students, treat this as
+                                    // a real failure (likely RLS/policy) instead of a fake UI
+                                    // removal.
+                                    final stillEnrolled =
+                                        await _classroomService
+                                            .isStudentEnrolled(
+                                              studentId: removedId,
+                                              classroomId:
+                                                  _selectedClassroom!.id,
+                                            );
+                                    if (stillEnrolled) {
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Failed to remove student in database. Please check Supabase policies.',
+                                            ),
+                                            backgroundColor: Colors.red,
+                                          ),
+                                        );
+                                      }
+                                      return;
+                                    }
+
                                     await _refreshEnrollmentCount(
                                       _selectedClassroom!.id,
                                     );
-                                    // Wait for Supabase replication before refetching
-                                    await _afterMemberMutationDelay();
+
+                                    // Track removal locally so the dialog list updates immediately
+                                    // even if a subsequent backend read briefly lags behind.
+                                    _studentsRemovedInDialog.add(removedId);
+
                                     if (mounted) {
                                       ScaffoldMessenger.of(
                                         context,
@@ -2289,6 +2347,8 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
     List<Profile> filteredUsers = [];
     bool isLoading = false;
     bool dialogActive = true; // Track if dialog is still active
+    bool hasLoadedStudents = false;
+    bool hasLoadedTeachers = false;
 
     // Preload membership sets to show status in the Add dialog and avoid duplicates
     final Set<String> enrolledIds = <String>{};
@@ -2316,22 +2376,45 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
       teacherIds.add(_selectedClassroom!.teacherId);
     }
 
-    Future<void> loadUsers() async {
+    // DEBUG: log membership sets for Add Member dialog
+    print(
+      '👥 AddMember preload for classroom ${_selectedClassroom!.id}: '
+      'enrolledIds=${enrolledIds.length}, teacherIds=${teacherIds.length}',
+    );
+    print('   enrolledIds sample: ${enrolledIds.take(10).toList()}');
+    print('   teacherIds sample: ${teacherIds.take(10).toList()}');
+
+    Future<void> loadUsersForType(String requestedType) async {
       print(
-        '🔥 NEW loadUsers() called - type: $type',
+        '🔥 NEW loadUsers() called - type: $requestedType',
       ); // DEBUG: Verify new code is running
       isLoading = true;
       try {
-        final all = await _profileService.getAllUsers(limit: 200, page: 1);
+        // Use domain tables for candidates to avoid profiles RLS where possible.
+        List<Profile> all;
+        if (requestedType == 'student') {
+          all = await _profileService.getAllStudentsForClassroomAdd(
+            limit: 200,
+            page: 1,
+          );
+        } else {
+          all = await _profileService.getAllTeachersForClassroomAdd(
+            limit: 200,
+            page: 1,
+          );
+        }
+        print(
+          '🔥 loadUsersForType received \\${all.length} raw candidates for type: \\${requestedType}',
+        );
+
         List<Profile> filtered;
-        if (type == 'student') {
+        if (requestedType == 'student') {
           filtered = all.where((p) {
-            final isStudent =
-                (p.roleName ?? '').toLowerCase() == 'student' || p.roleId == 3;
-            final isEnrolled = enrolledIds.contains(p.id);
-            final isAdmin =
-                (p.roleName ?? '').toLowerCase() == 'admin' || p.roleId == 1;
-            return isStudent && !isEnrolled && !isAdmin;
+            final rn = (p.roleName ?? '').toLowerCase();
+            final isStudent = rn == 'student' || p.roleId == 3;
+            final isAdmin = rn == 'admin' || p.roleId == 1;
+            // Show ALL students for this school (even if already enrolled), but never admins.
+            return isStudent && !isAdmin;
           }).toList();
         } else {
           filtered = all.where((p) {
@@ -2339,15 +2422,33 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
             final isTeacherLike =
                 rn == 'teacher' ||
                 rn == 'grade_level_coordinator' ||
+                rn == 'grade_coordinator' ||
                 rn == 'coordinator' ||
                 rn == 'hybrid' ||
                 p.roleId == 2 ||
                 p.roleId == 5;
-            final isAlreadyInClassroom = teacherIds.contains(p.id);
             final isAdmin = rn == 'admin' || p.roleId == 1;
-            return isTeacherLike && !isAlreadyInClassroom && !isAdmin;
+            // Show ALL teacher-like accounts (even if already in classroom), but never admins.
+            return isTeacherLike && !isAdmin;
           }).toList();
         }
+
+        print(
+          '🔥 Filtered \\${filtered.length} visible candidates for type: \\${requestedType}',
+        );
+
+        // Keep ordering stable and modern: sort by display name (case-insensitive).
+        filtered.sort(
+          (a, b) => a.displayName.toLowerCase().compareTo(
+            b.displayName.toLowerCase(),
+          ),
+        );
+
+        // Only apply results if the dialog is still active and the type
+        // hasn't changed while this async call was in flight.
+        if (!dialogActive) return;
+        if (type != requestedType) return;
+
         allUsers = filtered;
         filteredUsers = filtered;
       } catch (e) {
@@ -2355,6 +2456,14 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
         allUsers = [];
         filteredUsers = [];
       } finally {
+        // Mark this type as loaded exactly once, even if the result is empty
+        // or an error occurred. This prevents infinite re-tries when there
+        // are legitimately no matching users.
+        if (requestedType == 'student') {
+          hasLoadedStudents = true;
+        } else {
+          hasLoadedTeachers = true;
+        }
         isLoading = false;
       }
     }
@@ -2378,12 +2487,16 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
         builder: (context, setDialogState) {
           // Load users on first render
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (allUsers.isEmpty && !isLoading && dialogActive) {
+            final currentType = type;
+            final hasLoadedCurrentType = currentType == 'student'
+                ? hasLoadedStudents
+                : hasLoadedTeachers;
+            if (!hasLoadedCurrentType && !isLoading && dialogActive) {
               // Set loading state before starting
               setDialogState(() {
                 isLoading = true;
               });
-              loadUsers().then((_) {
+              loadUsersForType(currentType).then((_) {
                 // Rebuild after loading completes
                 if (dialogActive) setDialogState(() {});
               });
@@ -2391,8 +2504,17 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
           });
 
           Future<void> addSelected(Profile p) async {
+            print(
+              '➕ AddMember.addSelected type=$type, candidateId=${p.id} '
+              'alreadyStudent=${enrolledIds.contains(p.id)} '
+              'alreadyTeacher=${teacherIds.contains(p.id)}',
+            );
+
             // Prevent duplicates based on preloaded membership sets
             if (type == 'student' && enrolledIds.contains(p.id)) {
+              print(
+                '🚫 addSelected blocked by enrolledIds pre-check (student).',
+              );
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content: Text('Student is already in this classroom'),
@@ -2402,6 +2524,9 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
               return;
             }
             if (type == 'teacher' && teacherIds.contains(p.id)) {
+              print(
+                '🚫 addSelected blocked by teacherIds pre-check (teacher).',
+              );
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content: Text('Teacher is already in this classroom'),
@@ -2438,6 +2563,11 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                   accessCode: code,
                 );
               }
+              print(
+                "✅ addSelected result for candidateId=${p.id}: "
+                "success=${res['success']} alreadyJoined=${res['alreadyJoined']} "
+                "message=${res['message']}",
+              );
             } finally {
               setDialogState(() => isLoading = false);
             }
@@ -2507,7 +2637,8 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                           setDialogState(() {
                             isLoading = true;
                           });
-                          loadUsers().then((_) {
+                          final currentType = type;
+                          loadUsersForType(currentType).then((_) {
                             if (dialogActive) setDialogState(() {});
                           });
                         },
@@ -2649,15 +2780,47 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                                                 setDialogState(
                                                   () => isLoading = true,
                                                 );
+                                                final removedId = p.id;
                                                 try {
                                                   await _classroomService
                                                       .leaveClassroom(
-                                                        studentId: p.id,
+                                                        studentId: removedId,
                                                         classroomId:
                                                             _selectedClassroom!
                                                                 .id,
                                                       );
-                                                  enrolledIds.remove(p.id);
+                                                  // Give Supabase a moment to apply/replicate
+                                                  await _afterMemberMutationDelay();
+
+                                                  // Double-check against the database to avoid any
+                                                  // fake UI-only removal.
+                                                  final stillEnrolled =
+                                                      await _classroomService
+                                                          .isStudentEnrolled(
+                                                            studentId:
+                                                                removedId,
+                                                            classroomId:
+                                                                _selectedClassroom!
+                                                                    .id,
+                                                          );
+                                                  if (stillEnrolled) {
+                                                    if (mounted) {
+                                                      ScaffoldMessenger.of(
+                                                        context,
+                                                      ).showSnackBar(
+                                                        const SnackBar(
+                                                          content: Text(
+                                                            'Failed to remove student in database. Please check Supabase policies.',
+                                                          ),
+                                                          backgroundColor:
+                                                              Colors.red,
+                                                        ),
+                                                      );
+                                                    }
+                                                    return;
+                                                  }
+
+                                                  enrolledIds.remove(removedId);
                                                   await _refreshEnrollmentCount(
                                                     _selectedClassroom!.id,
                                                   );

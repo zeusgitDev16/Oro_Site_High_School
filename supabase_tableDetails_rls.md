@@ -1046,7 +1046,129 @@ using (
   ###RLS POLICIES:
   - NONE
 
+18. classroom_students
 
+###COLUMNS:
+  - id, uuid, get_random_uuid(), primary key
+  - classroom_id, uuid, NULL
+  - student_id, uuid, NULL
+  - enrolled_at, timestampz, now()
+  - created_at, timestampz, now()
+
+###FOREIGN KEYS:
+- classroom_students_classroom_id_fkey, relation to public.classrooms, classroom_id -> public.classrooms.id
+- classroom_students_student_id_fkey, relation to public.profiles, student_id -> public.profiles.id
+
+###RLS POLICIES:
+first policy:
+- policy name, Teeachers can add students to own classrooms
+- table on clause, public.classroom_students
+- policy behavior, Permissive
+- policy command, INSERT
+- target roles, authenticated
+
+###SQL:
+alter policy "Teachers can add students to own classrooms"
+
+
+on "public"."classroom_students"
+
+
+to authenticated
+
+
+with check (
+
+
+  is_classroom_manager(classroom_id, auth.uid())
+
+);
+
+second policy:
+- policy name, Teachers can remove students from own classrooms 
+- table on clause, public.classroom_students
+- policy behavior, Permissive
+- policy command, DELETE
+- target roles, authenticated
+
+###SQL:
+alter policy "Teachers can remove students from own classrooms"
+
+
+on "public"."classroom_students"
+
+
+to authenticated
+
+
+using (
+
+
+  is_classroom_manager(classroom_id, auth.uid())
+
+);
+
+third policy:
+- policy name, Teachers can view enrollments
+- table on clause, public.classroom_students
+- policy behavior, Permissive
+- policy command, SELECT
+- target roles, authenticated
+
+###SQL:
+alter policy "Teachers can view enrollments"
+
+
+on "public"."classroom_students"
+
+
+to authenticated
+
+
+using (
+
+
+  (EXISTS ( SELECT 1
+   FROM profiles p
+  WHERE ((p.id = auth.uid()) AND (p.role = 'teacher'::text))))
+
+);
+
+19. classrooms_teachers
+
+###COLUMNS:
+    - classroom_id, uuid, NULL, primary key
+    - teacher_id, uuid, NULL, primary key
+    - joined_at, timestampz, now()
+
+###FOREIGN KEYS:
+- classrooms_teachers_classroom_id_fkey, relation to public.classrooms, classroom_id -> public.classrooms.id
+- classrooms_teachers_teacher_id_fkey, relation to public.profiles, teacher_id -> public.profiles.id
+
+###RLS POLICIES:
+first policy:
+- policy name, ct_insert_self_join_any
+- table on clause, public.classrooms_teachers
+- policy behavior, Permissive
+- policy command, INSERT
+- target roles, authenticated
+
+###SQL:
+alter policy "ct_insert_self_join_any"
+
+
+on "public"."classrooms_teachers"
+
+
+to authenticated
+
+
+with check (
+
+
+  teacher_id = auth.uid()
+
+);
 
 
 
