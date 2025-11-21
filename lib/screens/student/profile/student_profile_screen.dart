@@ -33,6 +33,13 @@ class _StudentProfileScreenState extends State<StudentProfileScreen>
     super.initState();
     _tabController = TabController(length: 5, vsync: this);
     _logic = StudentProfileLogic();
+
+    // Load real student data (including LRN) from backend after first frame.
+    // This keeps the existing UI design and simply swaps in live data when
+    // available.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _logic.loadFromBackend();
+    });
   }
 
   @override
@@ -179,7 +186,6 @@ class _StudentProfileScreenState extends State<StudentProfileScreen>
     );
   }
 
-  
   Widget _buildProfileSidebar() {
     return Container(
       width: 240,
@@ -259,9 +265,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen>
                       ],
                     ),
                   ),
-                  Expanded(
-                    child: _buildTabContent(),
-                  ),
+                  Expanded(child: _buildTabContent()),
                 ],
               ),
             ),
@@ -316,7 +320,10 @@ class _StudentProfileScreenState extends State<StudentProfileScreen>
           Stack(
             children: [
               IconButton(
-                icon: const Icon(Icons.notifications_outlined, color: Colors.black),
+                icon: const Icon(
+                  Icons.notifications_outlined,
+                  color: Colors.black,
+                ),
                 onPressed: () {
                   Navigator.push(
                     context,
@@ -394,7 +401,10 @@ class _StudentProfileScreenState extends State<StudentProfileScreen>
             ],
           ),
           IconButton(
-            icon: const Icon(Icons.calendar_today_outlined, color: Colors.black),
+            icon: const Icon(
+              Icons.calendar_today_outlined,
+              color: Colors.black,
+            ),
             onPressed: () {
               showDialog(
                 context: context,
@@ -476,7 +486,8 @@ class _StudentProfileScreenState extends State<StudentProfileScreen>
           decoration: const BoxDecoration(
             image: DecorationImage(
               image: NetworkImage(
-                  'https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=1200'),
+                'https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=1200',
+              ),
               fit: BoxFit.cover,
             ),
           ),
@@ -517,8 +528,10 @@ class _StudentProfileScreenState extends State<StudentProfileScreen>
                   ),
                   const SizedBox(width: 8),
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.green,
                       borderRadius: BorderRadius.circular(12),
@@ -633,10 +646,12 @@ class _StudentProfileScreenState extends State<StudentProfileScreen>
             spacing: 8,
             runSpacing: 8,
             children: (_logic.studentData['interests'] as List<String>)
-                .map((interest) => Chip(
-                      label: Text(interest),
-                      backgroundColor: Colors.green.shade50,
-                    ))
+                .map(
+                  (interest) => Chip(
+                    label: Text(interest),
+                    backgroundColor: Colors.green.shade50,
+                  ),
+                )
                 .toList(),
           ),
           const SizedBox(height: 24),
@@ -646,16 +661,18 @@ class _StudentProfileScreenState extends State<StudentProfileScreen>
           ),
           const SizedBox(height: 12),
           ...(_logic.studentData['achievements'] as List<String>)
-              .map((achievement) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Row(
-                      children: [
-                        Icon(Icons.star, size: 16, color: Colors.green.shade700),
-                        const SizedBox(width: 8),
-                        Text(achievement),
-                      ],
-                    ),
-                  ))
+              .map(
+                (achievement) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      Icon(Icons.star, size: 16, color: Colors.green.shade700),
+                      const SizedBox(width: 8),
+                      Text(achievement),
+                    ],
+                  ),
+                ),
+              )
               .toList(),
         ],
       ),
@@ -709,45 +726,53 @@ class _StudentProfileScreenState extends State<StudentProfileScreen>
           _buildInfoRow('Grade Level', _logic.studentData['gradeLevel']),
           _buildInfoRow('Section', _logic.studentData['section']),
           _buildInfoRow('Adviser', _logic.studentData['adviser']),
-          _buildInfoRow('Enrollment Date', _logic.studentData['enrollmentDate']),
+          _buildInfoRow(
+            'Enrollment Date',
+            _logic.studentData['enrollmentDate'],
+          ),
           const SizedBox(height: 24),
           const Text(
             'Enrolled Courses',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 16),
-          ..._logic.enrolledCourses.map((course) => Card(
-                margin: const EdgeInsets.only(bottom: 12),
-                child: ListTile(
-                  leading: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.green.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(Icons.book, color: Colors.green),
+          ..._logic.enrolledCourses.map(
+            (course) => Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              child: ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  title: Text(
-                    course['name'],
-                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  child: const Icon(Icons.book, color: Colors.green),
+                ),
+                title: Text(
+                  course['name'],
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                subtitle: Text('Teacher: ${course['teacher']}'),
+                trailing: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
                   ),
-                  subtitle: Text('Teacher: ${course['teacher']}'),
-                  trailing: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.green.shade50,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      '${course['grade']}',
-                      style: TextStyle(
-                        color: Colors.green.shade700,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '${course['grade']}',
+                    style: TextStyle(
+                      color: Colors.green.shade700,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),
-              )),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -868,27 +893,28 @@ class _StudentProfileScreenState extends State<StudentProfileScreen>
                     ),
                   ),
                 ),
-                ...(daySchedule['schedule'] as List<Map<String, dynamic>>)
-                    .map((schedule) => Card(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          child: ListTile(
-                            leading: Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: Colors.green.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Icon(Icons.schedule, color: Colors.green),
-                            ),
-                            title: Text(
-                              schedule['subject'],
-                              style: const TextStyle(fontWeight: FontWeight.w600),
-                            ),
-                            subtitle: Text(
-                              '${schedule['time']} • ${schedule['room']}',
-                            ),
-                          ),
-                        )),
+                ...(daySchedule['schedule'] as List<Map<String, dynamic>>).map(
+                  (schedule) => Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: ListTile(
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.schedule, color: Colors.green),
+                      ),
+                      title: Text(
+                        schedule['subject'],
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: Text(
+                        '${schedule['time']} • ${schedule['room']}',
+                      ),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 16),
               ],
             );
@@ -898,7 +924,12 @@ class _StudentProfileScreenState extends State<StudentProfileScreen>
     );
   }
 
-  Widget _buildStatCard(String label, String value, IconData icon, Color color) {
+  Widget _buildStatCard(
+    String label,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
     return Card(
       elevation: 2,
       child: Padding(
@@ -918,10 +949,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen>
             const SizedBox(height: 8),
             Text(
               label,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade600,
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
             ),
           ],
         ),
@@ -979,11 +1007,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen>
       width: 300,
       color: Colors.grey.shade50,
       padding: const EdgeInsets.all(24),
-      child: ListView(
-        children: [
-          _buildAccountCard(),
-        ],
-      ),
+      child: ListView(children: [_buildAccountCard()]),
     );
   }
 
@@ -1045,19 +1069,13 @@ class _StudentProfileScreenState extends State<StudentProfileScreen>
             width: 140,
             child: Text(
               label,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade600,
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
             ),
           ),
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-              ),
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -1070,7 +1088,10 @@ class _StudentProfileScreenState extends State<StudentProfileScreen>
       children: [
         Icon(icon, size: 16, color: Colors.grey.shade600),
         const SizedBox(width: 8),
-        Text('$label:', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+        Text(
+          '$label:',
+          style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+        ),
         const SizedBox(width: 8),
         Expanded(
           child: Text(

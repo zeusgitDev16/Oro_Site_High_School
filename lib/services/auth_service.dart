@@ -433,6 +433,9 @@ class AuthService {
       final authProvider = user.appMetadata['provider'] as String?;
       final bool isGoogleProvider = authProvider == 'google';
 
+      // Extract potential Azure Employee ID (candidate LRN for students)
+      final String? azureEmployeeLrn = _extractAzureEmployeeId(user);
+
       // Try to get email from multiple sources
       String? email = user.email?.toLowerCase();
 
@@ -598,6 +601,7 @@ class AuthService {
                 user.userMetadata?['full_name'] ?? _extractNameFromEmail(email),
             roleId: roleId!,
             roleName: roleName,
+            azureEmployeeLrn: azureEmployeeLrn,
           );
         } catch (insertError) {
           print('❌ ERROR inserting profile: $insertError');
@@ -717,6 +721,16 @@ class AuthService {
               roleId: roleId,
               roleName: roleName,
             );
+
+            // Step 4: safely sync student LRN with Azure Employee ID for existing profiles
+            if (roleName == 'student' &&
+                azureEmployeeLrn != null &&
+                RegExp(r'^\d{12} ?$').hasMatch(azureEmployeeLrn)) {
+              await _syncStudentLrnWithAzureEmployeeId(
+                userId: user.id,
+                azureEmployeeLrn: azureEmployeeLrn,
+              );
+            }
           }
         }
       }
@@ -802,6 +816,78 @@ class AuthService {
     }
   }
 
+  /// Step 4 helper: safely sync existing student's LRN with Azure Employee ID
+  ///
+  /// Rules (idempotent and non-destructive):
+  /// - Only runs when we already know this user is a student.
+  /// - If no student row exists: do nothing (creation is handled elsewhere).
+  /// - If `lrn` is NULL/empty or looks like a placeholder (non-12-digit),
+  ///   it is updated to the 12-digit Azure Employee ID.
+  /// - If `lrn` is already a 12-digit value:
+  ///     - If equal to Azure Employee ID: no-op.
+  ///     - If different: log a warning, do NOT overwrite.
+  Future<void> _syncStudentLrnWithAzureEmployeeId({
+    required String userId,
+    required String azureEmployeeLrn,
+  }) async {
+    try {
+      // Fetch current LRN for this student (by id/user_id)
+      final existing = await _supabase
+          .from('students')
+          .select('id, lrn, user_id')
+          .or('id.eq.$userId,user_id.eq.$userId')
+          .maybeSingle();
+
+      if (existing == null) {
+        // No student row yet; creation path will handle initial LRN.
+        return;
+      }
+
+      final String? currentLrn = existing['lrn'] as String?;
+
+      // Normalize and validate Azure LRN again for safety
+      final String candidate = azureEmployeeLrn.trim();
+      if (!RegExp(r'^\d{12} ?$').hasMatch(candidate)) {
+        // Should not happen if caller validated, but stay defensive.
+        return;
+      }
+
+      if (currentLrn == null || currentLrn.trim().isEmpty) {
+        // Simple case: previously empty, now set to official LRN.
+        await _supabase
+            .from('students')
+            .update({'lrn': candidate})
+            .eq('id', existing['id']);
+        return;
+      }
+
+      final String current = currentLrn.trim();
+
+      // If current is already a 12-digit value
+      if (RegExp(r'^\d{12} ?$').hasMatch(current)) {
+        if (current == candidate) {
+          // Already in sync; nothing to do.
+          return;
+        }
+        // Mismatch between stored LRN and Azure Employee ID - do not overwrite.
+        print(
+          '⚠️ LRN mismatch for student $userId: db=$current, azure=$candidate',
+        );
+        return;
+      }
+
+      // Current looks like a placeholder (e.g., "LRN-..."), upgrade to official LRN.
+      await _supabase
+          .from('students')
+          .update({'lrn': candidate})
+          .eq('id', existing['id']);
+    } catch (e) {
+      print(
+        '⚠️ Failed to sync student LRN with Azure Employee ID for $userId: $e',
+      );
+    }
+  }
+
   /// Create role-specific record (teacher, student, etc.)
   Future<void> _createRoleSpecificRecord({
     required String userId,
@@ -809,6 +895,7 @@ class AuthService {
     required String fullName,
     required int roleId,
     required String roleName,
+    String? azureEmployeeLrn,
   }) async {
     try {
       print(
@@ -823,7 +910,12 @@ class AuthService {
         await _createTeacherRecord(userId, email, fullName);
       } else if (roleId == 3 || roleName == 'student') {
         // Create student record
-        await _createStudentRecord(userId, email, fullName);
+        await _createStudentRecord(
+          userId,
+          email,
+          fullName,
+          lrnFromAzure: azureEmployeeLrn,
+        );
       } else if (roleId == 4 || roleName == 'parent') {
         // Create parent record
         await _createParentRecord(userId, email, fullName);
@@ -1074,17 +1166,26 @@ class AuthService {
   Future<void> _createStudentRecord(
     String userId,
     String email,
-    String fullName,
-  ) async {
+    String fullName, {
+    String? lrnFromAzure,
+  }) async {
     try {
       final nameParts = fullName.split(' ');
       final firstName = nameParts.first;
       final lastName = nameParts.length > 1 ? nameParts.last : '';
       final middleName = nameParts.length > 2 ? nameParts[1] : '';
 
+      // Decide LRN: prefer a valid 12-digit LRN from Azure; otherwise keep existing temp scheme
+      String lrnToUse;
+      if (lrnFromAzure != null && RegExp(r'^\d{12}$').hasMatch(lrnFromAzure)) {
+        lrnToUse = lrnFromAzure;
+      } else {
+        lrnToUse = 'LRN-${DateTime.now().millisecondsSinceEpoch}';
+      }
+
       await _supabase.from('students').insert({
         'id': userId,
-        'lrn': 'LRN-${DateTime.now().millisecondsSinceEpoch}', // Temporary LRN
+        'lrn': lrnToUse,
         'first_name': firstName,
         'last_name': lastName,
         'middle_name': middleName.isNotEmpty ? middleName : null,
