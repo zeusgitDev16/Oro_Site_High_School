@@ -951,62 +951,47 @@ class _MyAssignmentsScreenState extends State<MyAssignmentsScreen> {
             content = Map<String, dynamic>.from(a['content'] as Map);
           }
         } catch (_) {}
+        // Normalize grading tags: prefer DB columns, then fall back to meta
         final String? component =
             a['component']?.toString() ??
             content?['meta']?['component']?.toString();
-        final int? quarterNo = int.tryParse(
-          (a['quarter_no'] ?? content?['meta']?['quarter_no'])?.toString() ??
-              '',
-        );
+        final int? quarterNo = a['quarter_no'] != null
+            ? int.tryParse(a['quarter_no'].toString())
+            : int.tryParse((content?['meta']?['quarter_no'])?.toString() ?? '');
 
-        bool isFirstCourse = true;
+        // Always create assignments bound to the current classroom + selected courses.
         for (final courseId in selectedCourseIds) {
-          if (isFirstCourse) {
-            // Update the original assignment to publish into the first selected course
-            await _assignmentService.updateAssignment(
-              assignmentId: assignmentId,
-              isPublished: true,
-              courseId: courseId,
-              component: component,
-              quarterNo: quarterNo,
-            );
-            // Ensure the publish flag is set at DB level (idempotent)
-            try {
-              await _supabase
-                  .from('assignments')
-                  .update({'is_published': true})
-                  .eq('id', assignmentId);
-            } catch (_) {}
-            // Remove from local pool immediately (no refresh required)
-            setState(() {
-              _assignments.removeWhere(
-                (x) => x['id'].toString() == assignmentId,
-              );
-              _selectedForDistribution.remove(assignmentId);
-              if (_selectedAssignmentId == assignmentId) {
-                _selectedAssignmentId = null;
-              }
-            });
-            isFirstCourse = false;
-          } else {
-            // Clone for additional courses
-            await _assignmentService.createAssignment(
-              classroomId: classroom.id,
-              teacherId: uid,
-              title: title,
-              description: description,
-              assignmentType: type,
-              totalPoints: totalPoints,
-              dueDate: dueDate,
-              allowLateSubmissions: allowLate,
-              content: content,
-              courseId: courseId,
-              isPublished: true,
-              component: component,
-              quarterNo: quarterNo,
-            );
-          }
+          await _assignmentService.createAssignment(
+            classroomId: classroom.id,
+            teacherId: uid,
+            title: title,
+            description: description,
+            assignmentType: type,
+            totalPoints: totalPoints,
+            dueDate: dueDate,
+            allowLateSubmissions: allowLate,
+            content: content,
+            courseId: courseId,
+            isPublished: true,
+            component: component,
+            quarterNo: quarterNo,
+          );
         }
+
+        // Remove the original draft from the unpublished pool locally and in DB
+        try {
+          await _supabase
+              .from('assignments')
+              .update({'is_published': true})
+              .eq('id', assignmentId);
+        } catch (_) {}
+        setState(() {
+          _assignments.removeWhere((x) => x['id'].toString() == assignmentId);
+          _selectedForDistribution.remove(assignmentId);
+          if (_selectedAssignmentId == assignmentId) {
+            _selectedAssignmentId = null;
+          }
+        });
       }
 
       // 6) Refresh and confirm

@@ -38,6 +38,7 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
   StreamSubscription? _classroomStream;
 
   RealtimeChannel? _assignmentsChannel;
+  RealtimeChannel? _membershipChannel;
 
   Course? _selectedCourse;
   List<CourseFile> _moduleFiles = [];
@@ -108,6 +109,7 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
     _initializeTeacher();
     _subscribeClassroomsRealtime();
     _subscribeAssignmentsRealtime();
+    _subscribeMembershipRealtime();
   }
 
   void _subscribeAssignmentsRealtime() {
@@ -138,10 +140,42 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
         .subscribe();
   }
 
+  void _subscribeMembershipRealtime() {
+    _membershipChannel?.unsubscribe();
+    final supa = Supabase.instance.client;
+    final user = supa.auth.currentUser;
+    if (user == null) return;
+
+    _membershipChannel = supa
+        .channel('teacher-classroom-memberships')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'classroom_teachers',
+          callback: (payload) async {
+            final map = payload.newRecord.isNotEmpty
+                ? payload.newRecord
+                : payload.oldRecord;
+            if (map.isEmpty) {
+              return;
+            }
+            final row = Map<String, dynamic>.from(map);
+            final teacherId = (row['teacher_id'] ?? '').toString();
+            if (teacherId.isEmpty || teacherId != user.id) {
+              return;
+            }
+            if (!mounted) return;
+            await _loadClassrooms();
+          },
+        )
+        .subscribe();
+  }
+
   @override
   void dispose() {
     _classroomStream?.cancel();
     _assignmentsChannel?.unsubscribe();
+    _membershipChannel?.unsubscribe();
     _tabController.dispose();
     _quarterTabController.dispose();
     _studentsSearchCtrl.dispose();
@@ -340,33 +374,49 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
   }
 
   Future<void> _loadClassrooms() async {
-    if (_teacherId == null) return;
+    // Prefer cached _teacherId but fall back to current auth user for robustness
+    final tid = _teacherId ?? Supabase.instance.client.auth.currentUser?.id;
+    if (tid == null) return;
 
     setState(() {
       _isLoading = true;
     });
 
     try {
-      final classrooms = await _classroomService.getTeacherClassrooms(
-        _teacherId!,
-      );
+      final classrooms = await _classroomService.getTeacherClassrooms(tid);
       final counts = await _classroomService.getEnrollmentCountsForClassrooms(
         classrooms.map((c) => c.id).toList(),
       );
+
+      // Build updated list with live enrollment counts first
+      final updatedClassrooms = classrooms
+          .map(
+            (c) =>
+                c.copyWith(currentStudents: counts[c.id] ?? c.currentStudents),
+          )
+          .toList();
+
+      final previousSelectedId = _selectedClassroom?.id;
+
       setState(() {
-        _classrooms = classrooms
-            .map(
-              (c) => c.copyWith(
-                currentStudents: counts[c.id] ?? c.currentStudents,
-              ),
-            )
-            .toList();
+        _classrooms = updatedClassrooms;
         _enrollmentCounts = counts;
         _isLoading = false;
-        // Auto-select first classroom
-        if (_classrooms.isNotEmpty && _selectedClassroom == null) {
+
+        // Keep selection if it still exists; otherwise pick the first (if any)
+        final hasPrevious =
+            previousSelectedId != null &&
+            _classrooms.any((c) => c.id == previousSelectedId);
+
+        if (_classrooms.isEmpty) {
+          _selectedClassroom = null;
+          _classroomCourses = [];
+          _selectedCourse = null;
+        } else if (!hasPrevious) {
           _selectedClassroom = _classrooms.first;
-          _loadClassroomCourses(_classrooms.first.id);
+          _classroomCourses = [];
+          _selectedCourse = null;
+          _loadClassroomCourses(_selectedClassroom!.id);
           _loadClassroomActiveQuarter();
         }
       });
@@ -440,8 +490,15 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
 
   bool _canAccessAssignments() {
     final uid = _teacherId ?? Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) return false;
+
+    // Only the effective course owner (teacher_id on Course) can access
     final owner = _selectedCourse?.teacherId;
-    return uid != null && owner != null && owner == uid;
+    if (owner != null && owner == uid) {
+      return true;
+    }
+
+    return false;
   }
 
   Widget _buildAssignmentsLocked() {
@@ -2999,21 +3056,53 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
   }
 
   Future<void> _loadClassroomAssignments(String classroomId) async {
+    // Teacher-side view should only show assignments created/distributed by
+    // the logged-in teacher. We keep this filter local here so that
+    // student-facing queries remain broad.
+    final uid = _teacherId ?? Supabase.instance.client.auth.currentUser?.id;
+
+    // If we somehow don't have a teacher id yet, avoid leaking other
+    // teachers' assignments by short-circuiting to an empty list.
+    if (uid == null || uid.isEmpty) {
+      setState(() {
+        _classroomAssignments = [];
+        _isLoadingClassroomAssignments = false;
+      });
+      return;
+    }
+
     setState(() {
       _isLoadingClassroomAssignments = true;
     });
+
     try {
-      List<Map<String, dynamic>> list;
+      final query = Supabase.instance.client
+          .from('assignments')
+          .select()
+          .eq('classroom_id', classroomId)
+          .eq('is_active', true)
+          .eq('is_published', true)
+          .eq('teacher_id', uid);
+
       if (_selectedCourse != null) {
-        list = await _assignmentService.getAssignmentsByClassroomAndCourse(
-          classroomId: classroomId,
-          courseId: _selectedCourse!.id,
-        );
-      } else {
-        list = await _assignmentService.getClassroomAssignments(classroomId);
+        query.eq('course_id', _selectedCourse!.id);
       }
+
+      final response = await query.order('created_at', ascending: false);
+      final list = List<Map<String, dynamic>>.from(response as List);
+
+      // Final local safety filter: drop any rows that somehow don't belong
+      // to the current teacher (or legacy owner keys), to guard against
+      // RLS or query misconfiguration.
+      final owned = list.where((row) {
+        final owner =
+            (row['teacher_id'] ?? row['created_by'] ?? row['owner_id'])
+                ?.toString();
+        return owner == uid;
+      }).toList();
+
       setState(() {
-        _classroomAssignments = list;
+        _classroomAssignments = owned;
         _isLoadingClassroomAssignments = false;
       });
     } catch (e) {

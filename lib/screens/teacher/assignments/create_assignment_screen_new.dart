@@ -78,15 +78,22 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
         }
       }
 
-      // Hydrate grading tags if present (temporary: from content.meta)
+      // Hydrate grading tags if present (DB columns win over meta; both are kept in sync)
       try {
         final meta = (a['content']?['meta']) as Map<String, dynamic>?;
-        if (meta != null) {
-          _component = (meta['component'] as String?) ?? _component;
-          _quarterNo = int.tryParse((meta['quarter_no']?.toString() ?? '1')) ?? _quarterNo;
+        if (a['component'] != null) {
+          _component = a['component'];
+        } else if (meta != null && meta['component'] != null) {
+          _component = meta['component'] as String? ?? _component;
         }
-        if (a['component'] != null) _component = a['component'];
-        if (a['quarter_no'] != null) _quarterNo = int.tryParse(a['quarter_no'].toString()) ?? _quarterNo;
+
+        if (a['quarter_no'] != null) {
+          _quarterNo = int.tryParse(a['quarter_no'].toString()) ?? _quarterNo;
+        } else if (meta != null && meta['quarter_no'] != null) {
+          _quarterNo =
+              int.tryParse((meta['quarter_no']?.toString() ?? '1')) ??
+              _quarterNo;
+        }
       } catch (_) {}
 
       // Load content based on type
@@ -94,23 +101,33 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
       switch (_selectedType) {
         case 'quiz':
           final qs = (content['questions'] as List?) ?? [];
-          _quizQuestions.addAll(qs.map((e) => Map<String, dynamic>.from(e as Map)));
+          _quizQuestions.addAll(
+            qs.map((e) => Map<String, dynamic>.from(e as Map)),
+          );
           break;
         case 'multiple_choice':
           final qs = (content['questions'] as List?) ?? [];
-          _multipleChoiceQuestions.addAll(qs.map((e) => Map<String, dynamic>.from(e as Map)));
+          _multipleChoiceQuestions.addAll(
+            qs.map((e) => Map<String, dynamic>.from(e as Map)),
+          );
           break;
         case 'identification':
           final qs = (content['questions'] as List?) ?? [];
-          _identificationQuestions.addAll(qs.map((e) => Map<String, dynamic>.from(e as Map)));
+          _identificationQuestions.addAll(
+            qs.map((e) => Map<String, dynamic>.from(e as Map)),
+          );
           break;
         case 'matching_type':
           final ps = (content['pairs'] as List?) ?? [];
-          _matchingPairs.addAll(ps.map((e) => Map<String, dynamic>.from(e as Map)));
+          _matchingPairs.addAll(
+            ps.map((e) => Map<String, dynamic>.from(e as Map)),
+          );
           break;
         case 'essay':
           final qs = (content['questions'] as List?) ?? [];
-          _essayQuestions.addAll(qs.map((e) => Map<String, dynamic>.from(e as Map)));
+          _essayQuestions.addAll(
+            qs.map((e) => Map<String, dynamic>.from(e as Map)),
+          );
           break;
         case 'file_upload':
           // file_upload uses free-form; nothing to hydrate beyond instructions
@@ -218,7 +235,9 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  widget.existingAssignment == null ? 'Create New Assignment' : 'Edit Assignment',
+                  widget.existingAssignment == null
+                      ? 'Create New Assignment'
+                      : 'Edit Assignment',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
@@ -579,7 +598,11 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
                   const SizedBox(width: 8),
                   const Text(
                     'Grading Tags',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
                   ),
                 ],
               ),
@@ -591,7 +614,14 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Component', style: TextStyle(fontSize: 13, color: Colors.grey.shade800, fontWeight: FontWeight.w600)),
+                        Text(
+                          'Component',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade800,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                         const SizedBox(height: 8),
                         Wrap(
                           spacing: 8,
@@ -600,12 +630,15 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
                             ChoiceChip(
                               selected: _component == 'written_works',
                               label: const Text('Written Works'),
-                              onSelected: (_) => setState(() => _component = 'written_works'),
+                              onSelected: (_) =>
+                                  setState(() => _component = 'written_works'),
                             ),
                             ChoiceChip(
                               selected: _component == 'performance_task',
                               label: const Text('Performance Task'),
-                              onSelected: (_) => setState(() => _component = 'performance_task'),
+                              onSelected: (_) => setState(
+                                () => _component = 'performance_task',
+                              ),
                             ),
                           ],
                         ),
@@ -617,7 +650,14 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Quarter', style: TextStyle(fontSize: 13, color: Colors.grey.shade800, fontWeight: FontWeight.w600)),
+                        Text(
+                          'Quarter',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade800,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                         const SizedBox(height: 8),
                         DropdownButtonFormField<int>(
                           value: _quarterNo,
@@ -673,14 +713,16 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
             ],
           ),
           const SizedBox(height: 16),
-          
+
           // Allow Late Submissions Toggle
           Container(
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color: _allowLateSubmissions ? Colors.green.shade300 : Colors.red.shade300,
+                color: _allowLateSubmissions
+                    ? Colors.green.shade300
+                    : Colors.red.shade300,
                 width: 2,
               ),
             ),
@@ -692,11 +734,15 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
                 });
               },
               title: Text(
-                _allowLateSubmissions ? 'Allow Late Submissions' : 'Do Not Allow Late Submissions',
+                _allowLateSubmissions
+                    ? 'Allow Late Submissions'
+                    : 'Do Not Allow Late Submissions',
                 style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
-                  color: _allowLateSubmissions ? Colors.green.shade700 : Colors.red.shade700,
+                  color: _allowLateSubmissions
+                      ? Colors.green.shade700
+                      : Colors.red.shade700,
                 ),
               ),
               subtitle: Text(
@@ -710,28 +756,39 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
                 ),
               ),
               activeColor: Colors.green,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 8,
+              ),
             ),
           ),
-          
+
           const SizedBox(height: 16),
-          
+
           // Info Box
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: _allowLateSubmissions ? Colors.green.shade50 : Colors.red.shade50,
+              color: _allowLateSubmissions
+                  ? Colors.green.shade50
+                  : Colors.red.shade50,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color: _allowLateSubmissions ? Colors.green.shade200 : Colors.red.shade200,
+                color: _allowLateSubmissions
+                    ? Colors.green.shade200
+                    : Colors.red.shade200,
               ),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(
-                  _allowLateSubmissions ? Icons.check_circle_outline : Icons.block,
-                  color: _allowLateSubmissions ? Colors.green.shade700 : Colors.red.shade700,
+                  _allowLateSubmissions
+                      ? Icons.check_circle_outline
+                      : Icons.block,
+                  color: _allowLateSubmissions
+                      ? Colors.green.shade700
+                      : Colors.red.shade700,
                   size: 20,
                 ),
                 const SizedBox(width: 12),
@@ -740,27 +797,33 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _allowLateSubmissions ? 'Late Submissions Enabled' : 'Late Submissions Disabled',
+                        _allowLateSubmissions
+                            ? 'Late Submissions Enabled'
+                            : 'Late Submissions Disabled',
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          color: _allowLateSubmissions ? Colors.green.shade900 : Colors.red.shade900,
+                          color: _allowLateSubmissions
+                              ? Colors.green.shade900
+                              : Colors.red.shade900,
                         ),
                       ),
                       const SizedBox(height: 6),
                       Text(
                         _allowLateSubmissions
                             ? '• Assignment remains visible to students after deadline\n'
-                              '• Students can still submit their work\n'
-                              '• Late submissions will be clearly marked\n'
-                              '• You can apply late penalties when grading'
+                                  '• Students can still submit their work\n'
+                                  '• Late submissions will be clearly marked\n'
+                                  '• You can apply late penalties when grading'
                             : '• Assignment automatically hidden after deadline\n'
-                              '• Students cannot view or submit after due date\n'
-                              '• Helps enforce strict deadlines\n'
-                              '• Students who miss deadline get 0 points',
+                                  '• Students cannot view or submit after due date\n'
+                                  '• Helps enforce strict deadlines\n'
+                                  '• Students who miss deadline get 0 points',
                         style: TextStyle(
                           fontSize: 13,
-                          color: _allowLateSubmissions ? Colors.green.shade800 : Colors.red.shade800,
+                          color: _allowLateSubmissions
+                              ? Colors.green.shade800
+                              : Colors.red.shade800,
                           height: 1.5,
                         ),
                       ),
@@ -965,7 +1028,9 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
     Map<String, dynamic> question,
   ) {
     final choices = List<String>.from(
-      ((question['choices'] as List?) ?? const []).map((e) => e == null ? '' : e.toString()),
+      ((question['choices'] as List?) ?? const []).map(
+        (e) => e == null ? '' : e.toString(),
+      ),
     );
 
     return Card(
@@ -1429,7 +1494,9 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.insert_drive_file),
                   title: Text(f['file_name'] ?? 'file'),
-                  subtitle: Text('${_formatBytes(f['file_size'] as int)} • ${f['file_type'] ?? 'file'}'),
+                  subtitle: Text(
+                    '${_formatBytes(f['file_size'] as int)} • ${f['file_type'] ?? 'file'}',
+                  ),
                   trailing: IconButton(
                     icon: const Icon(Icons.close, color: Colors.red),
                     tooltip: 'Remove',
@@ -1609,12 +1676,18 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
       final userId = _supabase.auth.currentUser?.id;
       if (userId == null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('You must be signed in to upload files'), backgroundColor: Colors.red),
+          const SnackBar(
+            content: Text('You must be signed in to upload files'),
+            backgroundColor: Colors.red,
+          ),
         );
         return;
       }
 
-      final result = await FilePicker.platform.pickFiles(allowMultiple: true, withData: true);
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: true,
+        withData: true,
+      );
       if (result == null) return; // user canceled
 
       for (final file in result.files) {
@@ -1623,19 +1696,30 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
         final String name = file.name;
         if (bytes == null) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Could not read data for $name'), backgroundColor: Colors.red),
+            SnackBar(
+              content: Text('Could not read data for $name'),
+              backgroundColor: Colors.red,
+            ),
           );
           continue;
         }
 
         final sanitizedName = _sanitizeStorageSegment(name);
-        final uniqueName = '${DateTime.now().millisecondsSinceEpoch}_$sanitizedName';
+        final uniqueName =
+            '${DateTime.now().millisecondsSinceEpoch}_$sanitizedName';
         final storagePath = '${_sanitizeStorageSegment(userId)}/$uniqueName';
 
         // Upload to Supabase storage (assignment_files bucket)
         await _supabase.storage
             .from('assignment_files')
-            .uploadBinary(storagePath, bytes, fileOptions: const FileOptions(cacheControl: '3600', upsert: false));
+            .uploadBinary(
+              storagePath,
+              bytes,
+              fileOptions: const FileOptions(
+                cacheControl: '3600',
+                upsert: false,
+              ),
+            );
 
         setState(() {
           _pendingFiles.add({
@@ -1650,14 +1734,26 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Row(children: const [Icon(Icons.check_circle, color: Colors.white), SizedBox(width: 12), Text('File(s) uploaded')]),
+          content: Row(
+            children: const [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 12),
+              Text('File(s) uploaded'),
+            ],
+          ),
           backgroundColor: Colors.green,
         ),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Row(children: [const Icon(Icons.error, color: Colors.white), const SizedBox(width: 12), Expanded(child: Text('Upload failed: $e'))]),
+          content: Row(
+            children: [
+              const Icon(Icons.error, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(child: Text('Upload failed: $e')),
+            ],
+          ),
           backgroundColor: Colors.red,
         ),
       );
@@ -1674,7 +1770,13 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Row(children: [const Icon(Icons.error, color: Colors.white), const SizedBox(width: 12), Expanded(child: Text('Remove failed: $e'))]),
+          content: Row(
+            children: [
+              const Icon(Icons.error, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(child: Text('Remove failed: $e')),
+            ],
+          ),
           backgroundColor: Colors.red,
         ),
       );
@@ -1684,8 +1786,10 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
   String _guessMimeFromName(String name) {
     final lc = name.toLowerCase();
     if (lc.endsWith('.pdf')) return 'application/pdf';
-    if (lc.endsWith('.doc') || lc.endsWith('.docx')) return 'application/msword';
-    if (lc.endsWith('.xls') || lc.endsWith('.xlsx')) return 'application/vnd.ms-excel';
+    if (lc.endsWith('.doc') || lc.endsWith('.docx'))
+      return 'application/msword';
+    if (lc.endsWith('.xls') || lc.endsWith('.xlsx'))
+      return 'application/vnd.ms-excel';
     if (lc.endsWith('.png')) return 'image/png';
     if (lc.endsWith('.jpg') || lc.endsWith('.jpeg')) return 'image/jpeg';
     if (lc.endsWith('.txt')) return 'text/plain';
@@ -1988,7 +2092,7 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
     String? error;
     if (_dueDate == null) {
       error = 'Please select a Due Date (required).';
-    } else if (!{'written_works','performance_task'}.contains(_component)) {
+    } else if (!{'written_works', 'performance_task'}.contains(_component)) {
       error = 'Please select a Component (Written Works or Performance Task).';
     } else if (!([1, 2, 3, 4].contains(_quarterNo))) {
       error = 'Please select a Quarter (Q1–Q4).';
@@ -1998,10 +2102,12 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
           if (_quizQuestions.isEmpty) error = 'Add at least 1 quiz question.';
           break;
         case 'multiple_choice':
-          if (_multipleChoiceQuestions.isEmpty) error = 'Add at least 1 multiple choice question.';
+          if (_multipleChoiceQuestions.isEmpty)
+            error = 'Add at least 1 multiple choice question.';
           break;
         case 'identification':
-          if (_identificationQuestions.isEmpty) error = 'Add at least 1 identification question.';
+          if (_identificationQuestions.isEmpty)
+            error = 'Add at least 1 identification question.';
           break;
         case 'matching_type':
           if (_matchingPairs.isEmpty) error = 'Add at least 1 matching pair.';
@@ -2031,14 +2137,14 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
     try {
       final supabase = Supabase.instance.client;
       final userId = supabase.auth.currentUser?.id;
-      
+
       if (userId == null) {
         throw Exception('User not authenticated');
       }
 
       // Prepare assignment content based on type
       Map<String, dynamic> content = {};
-      
+
       switch (_selectedType) {
         case 'quiz':
           content = {'questions': _quizQuestions};
@@ -2065,10 +2171,7 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
       }
 
       // Persist grading tags inside content meta temporarily (until DB columns wired)
-      content['meta'] = {
-        'component': _component,
-        'quarter_no': _quarterNo,
-      };
+      content['meta'] = {'component': _component, 'quarter_no': _quarterNo};
 
       // Combine due date and time
       DateTime? dueDateTime;
@@ -2092,10 +2195,10 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
 
       // Ensure points are up to date before saving
       _updateTotalPoints();
-      
+
       // Get the final points value
       final totalPoints = int.tryParse(_pointsController.text) ?? 0;
-      
+
       // Save or update via service
       final assignmentService = AssignmentService();
 
@@ -2219,9 +2322,7 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
               children: [
                 const Icon(Icons.error, color: Colors.white),
                 const SizedBox(width: 12),
-                Expanded(
-                  child: Text('Error creating assignment: $e'),
-                ),
+                Expanded(child: Text('Error creating assignment: $e')),
               ],
             ),
             backgroundColor: Colors.red,
