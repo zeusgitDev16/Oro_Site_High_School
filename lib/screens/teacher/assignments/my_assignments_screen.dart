@@ -134,6 +134,7 @@ class _MyAssignmentsScreenState extends State<MyAssignmentsScreen> {
           .select()
           .eq('teacher_id', userId)
           .eq('is_published', false)
+          .isFilter('course_id', null)
           .order('created_at', ascending: false);
       final List<Map<String, dynamic>> list = List<Map<String, dynamic>>.from(
         response as List,
@@ -978,15 +979,11 @@ class _MyAssignmentsScreenState extends State<MyAssignmentsScreen> {
           );
         }
 
-        // Remove the original draft from the unpublished pool locally and in DB
-        try {
-          await _supabase
-              .from('assignments')
-              .update({'is_published': true})
-              .eq('id', assignmentId);
-        } catch (_) {}
+        // Keep the original draft as a template in the unpublished pool.
+        // Do NOT publish or mutate it here; only the per-course clones above
+        // are published instances. This prevents duplicate entries in the
+        // classroom view and duplicate drafts when unpublishing.
         setState(() {
-          _assignments.removeWhere((x) => x['id'].toString() == assignmentId);
           _selectedForDistribution.remove(assignmentId);
           if (_selectedAssignmentId == assignmentId) {
             _selectedAssignmentId = null;

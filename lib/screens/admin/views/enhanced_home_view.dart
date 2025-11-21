@@ -3,7 +3,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
-import '../users/enhanced_add_user_screen.dart';
+import '../users/manage_users_screen.dart';
 
 class EnhancedHomeView extends StatefulWidget {
   const EnhancedHomeView({super.key});
@@ -20,7 +20,7 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
   final int activeCourses = 32;
   final double attendanceRate = 92.5;
   final double averageGrade = 85.3;
-  
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -106,12 +106,17 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
                 const SizedBox(height: 16),
                 Row(
                   children: [
-                    _buildInfoChip(Icons.calendar_today, 
-                        'SY 2023-2024', Colors.white.withOpacity(0.2)),
+                    _buildInfoChip(
+                      Icons.calendar_today,
+                      'SY 2023-2024',
+                      Colors.white.withOpacity(0.2),
+                    ),
                     const SizedBox(width: 12),
-                    _buildInfoChip(Icons.schedule, 
-                        '${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}', 
-                        Colors.white.withOpacity(0.2)),
+                    _buildInfoChip(
+                      Icons.schedule,
+                      '${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}',
+                      Colors.white.withOpacity(0.2),
+                    ),
                   ],
                 ),
               ],
@@ -165,41 +170,23 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
       children: [
         const Text(
           'Quick Actions',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 16),
         Row(
           children: [
             Expanded(
               child: _buildActionCard(
-                'Add New User',
-                'Create student, teacher, or parent account',
-                Icons.person_add,
-                Colors.green,
+                'Manage Users',
+                'View and manage all users',
+                Icons.people_outline,
+                Colors.blue,
                 () {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => const EnhancedAddUserScreen(),
+                      builder: (context) => const ManageUsersScreen(),
                     ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _buildActionCard(
-                'Create Course',
-                'Add new course to curriculum',
-                Icons.library_add,
-                Colors.blue,
-                () {
-                  // Navigate to courses screen
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Navigate to Courses')),
                   );
                 },
               ),
@@ -246,9 +233,7 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
   ) {
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
@@ -276,10 +261,7 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
               const SizedBox(height: 4),
               Text(
                 subtitle,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey.shade600,
-                ),
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
               ),
             ],
           ),
@@ -294,10 +276,7 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
       children: [
         const Text(
           'System Overview',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 16),
         Row(
@@ -409,9 +388,7 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
   ) {
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -448,18 +425,12 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
             const SizedBox(height: 4),
             Text(
               title,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
             ),
             const SizedBox(height: 4),
             Text(
               subtitle,
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey.shade600,
-              ),
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
             ),
           ],
         ),
@@ -471,14 +442,9 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          flex: 2,
-          child: _buildEnrollmentChart(),
-        ),
+        Expanded(flex: 2, child: _buildEnrollmentChart()),
         const SizedBox(width: 16),
-        Expanded(
-          child: _buildGradeDistribution(),
-        ),
+        Expanded(child: _buildGradeDistribution()),
       ],
     );
   }
@@ -486,9 +452,7 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
   Widget _buildEnrollmentChart() {
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -496,10 +460,7 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
           children: [
             const Text(
               'Enrollment Trends',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 20),
             SizedBox(
@@ -521,7 +482,14 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
                       sideTitles: SideTitles(
                         showTitles: true,
                         getTitlesWidget: (value, meta) {
-                          const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
+                          const months = [
+                            'Jan',
+                            'Feb',
+                            'Mar',
+                            'Apr',
+                            'May',
+                            'Jun',
+                          ];
                           if (value.toInt() < months.length) {
                             return Text(
                               months[value.toInt()],
@@ -566,9 +534,7 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
   Widget _buildGradeDistribution() {
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -576,10 +542,7 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
           children: [
             const Text(
               'Grade Distribution',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 20),
             _buildGradeBar('Grade 7', 210, Colors.blue),
@@ -604,10 +567,7 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                grade,
-                style: const TextStyle(fontSize: 12),
-              ),
+              Text(grade, style: const TextStyle(fontSize: 12)),
               Text(
                 count.toString(),
                 style: const TextStyle(
@@ -632,9 +592,7 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
   Widget _buildRecentActivities() {
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -645,15 +603,9 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
               children: [
                 const Text(
                   'Recent Activities',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
-                TextButton(
-                  onPressed: () {},
-                  child: const Text('View All'),
-                ),
+                TextButton(onPressed: () {}, child: const Text('View All')),
               ],
             ),
             const SizedBox(height: 16),
@@ -724,26 +676,18 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w500,
-                  ),
+                  style: const TextStyle(fontWeight: FontWeight.w500),
                 ),
                 Text(
                   description,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade600,
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
               ],
             ),
           ),
           Text(
             time,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey.shade500,
-            ),
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
           ),
         ],
       ),
@@ -753,9 +697,7 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
   Widget _buildSystemStatus() {
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -763,10 +705,7 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
           children: [
             const Text(
               'System Status',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
             Row(
@@ -832,10 +771,7 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
           const SizedBox(height: 8),
           Text(
             label,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
           ),
           const SizedBox(height: 4),
           Container(
@@ -862,9 +798,7 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
     showDialog(
       context: context,
       builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Container(
           width: 500,
           padding: const EdgeInsets.all(24),
@@ -880,18 +814,12 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
                       color: Colors.purple.shade50,
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Icon(
-                      Icons.upgrade,
-                      color: Colors.purple.shade700,
-                    ),
+                    child: Icon(Icons.upgrade, color: Colors.purple.shade700),
                   ),
                   const SizedBox(width: 12),
                   const Text(
                     'Role Upgrade',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                 ],
               ),
@@ -950,7 +878,7 @@ class _EnhancedHomeViewState extends State<EnhancedHomeView> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => const EnhancedAddUserScreen(),
+                          builder: (context) => const ManageUsersScreen(),
                         ),
                       );
                     },

@@ -295,11 +295,9 @@ class AssignmentService {
         '📢 ${isPublished ? 'Publishing' : 'Unpublishing'} assignment: $assignmentId',
       );
 
+      // Only toggle publish flag; keep course binding intact so distributed
+      // instances do not re-enter the generic draft pool as duplicates.
       final updates = <String, dynamic>{'is_published': isPublished};
-      // When unpublishing, detach from subject so it returns to the pool cleanly
-      if (!isPublished) {
-        updates['course_id'] = null;
-      }
 
       final currentUserId = _supabase.auth.currentUser?.id;
       var query = _supabase

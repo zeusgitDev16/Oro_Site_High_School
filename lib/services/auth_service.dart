@@ -13,6 +13,10 @@ class AuthService {
   static final AuthService _instance = AuthService._internal();
   factory AuthService() => _instance;
   AuthService._internal();
+  // Flag to identify that the current OAuth login was initiated from the
+  // parent Google login entrypoint. This is used by _createOrUpdateProfile
+  // to force roleName = 'parent' for first-time profiles from this flow.
+  bool _pendingParentGoogleLogin = false;
 
   Future<bool> signIn({
     required BuildContext context,
@@ -163,6 +167,71 @@ class AuthService {
     }
   }
 
+  /// Google OAuth sign in flow dedicated for parent accounts
+  Future<bool> signInWithGoogleForParent(BuildContext context) async {
+    try {
+      print('[AUTH] Starting Google OAuth authentication for parent...');
+
+      // Dynamically get the current URL - works with ANY port
+      final currentUrl = Uri.base.toString();
+      String appRedirectUrl;
+
+      // Parse the current URL to get the exact host and port
+      final uri = Uri.parse(currentUrl);
+
+      if (uri.host == 'localhost' || uri.host == '127.0.0.1') {
+        // For local development, dynamically use whatever port Flutter assigned
+        // This works with ANY port number
+        appRedirectUrl = '${uri.scheme}://${uri.host}:${uri.port}/';
+        print('[AUTH] (Google Parent) Dynamic redirect URL: $appRedirectUrl');
+        print('[AUTH] (Google Parent) Running on port: ${uri.port}');
+      } else {
+        // For production deployment
+        appRedirectUrl = '${uri.scheme}://${uri.host}/';
+        if (uri.port != 80 && uri.port != 443 && uri.port != 0) {
+          appRedirectUrl = '${uri.scheme}://${uri.host}:${uri.port}/';
+        }
+      }
+
+      // Clean up the URL - remove hash and query parameters
+      appRedirectUrl = appRedirectUrl.split('#').first.split('?').first;
+
+      // Mark that the next OAuth login should create a parent profile
+      _pendingParentGoogleLogin = true;
+
+      final response = await _supabase.auth.signInWithOAuth(
+        OAuthProvider.google,
+        redirectTo: appRedirectUrl,
+        scopes: 'openid profile email',
+      );
+
+      print('[AUTH] Google OAuth (parent) initiated: $response');
+      print('[AUTH] Supabase will redirect back to: $appRedirectUrl');
+
+      if (response) {
+        // OAuth flow started successfully
+        return true;
+      }
+
+      // If OAuth did not start, clear the flag so other logins are unaffected
+      _pendingParentGoogleLogin = false;
+      return false;
+    } catch (e) {
+      print('[ERROR] Google (parent) sign in error: $e');
+      // Clear the flag on error to avoid affecting future logins
+      _pendingParentGoogleLogin = false;
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Parent Google sign in failed: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return false;
+    }
+  }
+
   // Flag to track if we need to verify admin role after OAuth
   bool _pendingAdminCheck = false;
 
@@ -264,8 +333,9 @@ class AuthService {
       final user = getCurrentUser();
       if (user == null) return null;
 
-      // Check cache first
-      if (_currentUserRole != null) return _currentUserRole;
+      // Detect auth provider (e.g., 'google', 'azure', 'email')
+      final authProvider = user.appMetadata['provider'] as String?;
+      final bool isGoogleProvider = authProvider == 'google';
 
       // Query from database
       final response = await _supabase
@@ -275,12 +345,26 @@ class AuthService {
           .maybeSingle();
 
       if (response != null && response['roles'] != null) {
-        final role = response['roles']['name'] as String;
+        var role = response['roles']['name'] as String;
+
+        // For Google OAuth, always treat the user as a parent in routing,
+        // regardless of what's currently stored in the roles table.
+        if (isGoogleProvider) {
+          role = 'parent';
+        }
+
         _currentUserRole = role;
         return role;
       }
 
-      // Fallback: determine role from email
+      // If no profile/role row yet but this is a Google OAuth session,
+      // still treat the user as a parent for routing.
+      if (isGoogleProvider) {
+        _currentUserRole = 'parent';
+        return 'parent';
+      }
+
+      // Fallback: determine role from email (non-Google flows only)
       final email = user.email?.toLowerCase();
       if (email != null) {
         if (email.contains('admin')) return 'admin';
@@ -345,6 +429,10 @@ class AuthService {
         '🔍 User Identities: ${user.identities?.map((i) => {'provider': i.provider, 'id': i.id, 'identity_data': i.identityData}).toList()}',
       );
 
+      // Detect auth provider (e.g., 'google', 'azure', 'email')
+      final authProvider = user.appMetadata['provider'] as String?;
+      final bool isGoogleProvider = authProvider == 'google';
+
       // Try to get email from multiple sources
       String? email = user.email?.toLowerCase();
 
@@ -406,48 +494,66 @@ class AuthService {
           .maybeSingle();
 
       if (existingProfile == null) {
-        // Determine role from Azure App Roles first, then fallback to email
+        // Determine role from provider/App Roles first, then fallback to email.
+        // For parent Google login flow, we always treat the user as a parent.
+        final bool isParentGoogleFlow =
+            _pendingParentGoogleLogin || isGoogleProvider;
+
+        // One-shot flag: clear it so future logins are not affected
+        _pendingParentGoogleLogin = false;
+
         String? roleName;
-        // Try extract roles from Azure token
+        if (isParentGoogleFlow) {
+          roleName = 'parent';
+        }
+
+        // Try extract roles from Azure token (only for non-parent Google flows)
         try {
-          final identities = user.identities;
-          final identityData = identities != null && identities.isNotEmpty
-              ? identities.first.identityData
-              : null;
-          final List<dynamic>? azureRoles =
-              (identityData?['roles'] as List?) ??
-              (identityData?['custom_claims']?['roles'] as List?);
-          if (azureRoles != null && azureRoles.isNotEmpty) {
-            final rolesLower = azureRoles
-                .map((e) => e.toString().toLowerCase())
-                .toList();
-            if (rolesLower.contains('admin'))
-              roleName = 'admin';
-            else if (rolesLower.contains('grade_coordinator'))
-              roleName = 'grade_coordinator';
-            else if (rolesLower.contains('teacher'))
-              roleName = 'teacher';
-            else if (rolesLower.contains('student'))
-              roleName = 'student';
-            else if (rolesLower.contains('parent'))
-              roleName = 'parent';
-            else if (rolesLower.contains('ict_coordinator'))
-              roleName = 'ict_coordinator';
+          if (!isParentGoogleFlow) {
+            final identities = user.identities;
+            final identityData = identities != null && identities.isNotEmpty
+                ? identities.first.identityData
+                : null;
+            final List<dynamic>? azureRoles =
+                (identityData?['roles'] as List?) ??
+                (identityData?['custom_claims']?['roles'] as List?);
+            if (azureRoles != null && azureRoles.isNotEmpty) {
+              final rolesLower = azureRoles
+                  .map((e) => e.toString().toLowerCase())
+                  .toList();
+              if (rolesLower.contains('admin'))
+                roleName = 'admin';
+              else if (rolesLower.contains('grade_coordinator'))
+                roleName = 'grade_coordinator';
+              else if (rolesLower.contains('teacher'))
+                roleName = 'teacher';
+              else if (rolesLower.contains('student'))
+                roleName = 'student';
+              else if (rolesLower.contains('parent'))
+                roleName = 'parent';
+              else if (rolesLower.contains('ict_coordinator'))
+                roleName = 'ict_coordinator';
+            }
           }
         } catch (_) {}
 
-        // Fallback: determine role based on email
-        roleName ??= 'student'; // Default
-        if (email.contains('admin'))
-          roleName = 'admin';
-        else if (email.contains('coordinator'))
-          roleName = 'grade_coordinator';
-        else if (email.contains('teacher'))
-          roleName = 'teacher';
-        else if (email.contains('parent'))
-          roleName = 'parent';
-        else if (email.contains('student'))
-          roleName = 'student';
+        if (!isParentGoogleFlow) {
+          // Fallback: determine role based on email for non-Google flows
+          roleName ??= 'student'; // Default
+          if (email.contains('admin'))
+            roleName = 'admin';
+          else if (email.contains('coordinator'))
+            roleName = 'grade_coordinator';
+          else if (email.contains('teacher'))
+            roleName = 'teacher';
+          else if (email.contains('parent'))
+            roleName = 'parent';
+          else if (email.contains('student'))
+            roleName = 'student';
+        } else {
+          // Defensive: for parent Google flow, ensure we end up with 'parent'
+          roleName ??= 'parent';
+        }
 
         // Get or create role
         var roleResponse = await _supabase
@@ -623,6 +729,77 @@ class AuthService {
   String _extractNameFromEmail(String email) {
     final parts = email.split('@')[0].split('.');
     return parts.map((p) => p[0].toUpperCase() + p.substring(1)).join(' ');
+  }
+
+  /// Extract 12-digit Azure Employee ID (to be used as LRN for students)
+  ///
+  /// This is a safe, nullable helper:
+  /// - Only attempts extraction when provider is 'azure'.
+  /// - Returns a 12-digit numeric string if found, otherwise null.
+  /// - Never throws; logs diagnostics for visibility.
+  String? _extractAzureEmployeeId(User user) {
+    try {
+      final provider = user.appMetadata['provider'] as String?;
+      if (provider != 'azure') {
+        return null;
+      }
+
+      // Prefer identity data coming from Azure
+      final identities = user.identities;
+      final dynamic rawIdentityData =
+          identities != null && identities.isNotEmpty
+          ? identities.first.identityData
+          : null;
+
+      final Map<String, dynamic>? identityData =
+          rawIdentityData is Map<String, dynamic> ? rawIdentityData : null;
+
+      final candidates = <String?>[];
+
+      if (identityData != null) {
+        // Common/likely keys
+        candidates.add(identityData['employeeId']?.toString());
+        candidates.add(identityData['employee_id']?.toString());
+
+        // Also scan keys case-insensitively in case Azure mapping uses a variant
+        identityData.forEach((key, value) {
+          final lowerKey = key.toString().toLowerCase();
+          if (lowerKey == 'employeeid' || lowerKey == 'employee_id') {
+            candidates.add(value?.toString());
+          }
+        });
+
+        // Sometimes custom claims may hold extended attributes
+        final customClaims = identityData['custom_claims'];
+        if (customClaims is Map) {
+          candidates.add(customClaims['employeeId']?.toString());
+          candidates.add(customClaims['employee_id']?.toString());
+        }
+      }
+
+      // Fallback: user metadata
+      final Map<String, dynamic>? meta = user.userMetadata;
+      if (meta != null) {
+        candidates.add(meta['employeeId']?.toString());
+        candidates.add(meta['employee_id']?.toString());
+      }
+
+      for (final raw in candidates) {
+        if (raw == null) continue;
+        final value = raw.trim();
+        // DepEd LRN is exactly 12 digits
+        if (RegExp(r'^\d{12} ?$').hasMatch(value)) {
+          print('🔎 Azure Employee ID accepted as LRN candidate: $value');
+          return value.substring(0, 12); // Ensure exactly 12 digits
+        }
+      }
+
+      print('ℹ️ No valid 12-digit Azure Employee ID found for user ${user.id}');
+      return null;
+    } catch (e) {
+      print('⚠️ Failed to extract Azure Employee ID: $e');
+      return null;
+    }
   }
 
   /// Create role-specific record (teacher, student, etc.)
