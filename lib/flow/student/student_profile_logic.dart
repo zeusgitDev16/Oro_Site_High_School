@@ -30,6 +30,7 @@ class StudentProfileLogic extends ChangeNotifier {
     'guardianRelation': 'Father',
     'guardianPhone': '+63 912 345 6780',
     'guardianEmail': 'pedro.delacruz@gmail.com',
+    'parentAccessCode': null,
     'bio':
         'I am a Grade 7 student passionate about mathematics and science. I enjoy learning new things and participating in school activities. My goal is to excel in my studies and contribute positively to our school community.',
     'interests': ['Mathematics', 'Science', 'Reading', 'Basketball'],
@@ -307,6 +308,10 @@ class StudentProfileLogic extends ChangeNotifier {
 
       // Keep guardianEmail from mock for now; we don't yet store it in DB
 
+      // Parent access code, if any
+      _studentData['parentAccessCode'] =
+          student['parent_access_code'] ?? _studentData['parentAccessCode'];
+
       // Enrollment date: use ISO string or keep existing friendly text
       if (student['enrollment_date'] != null) {
         _studentData['enrollmentDate'] = student['enrollment_date'].toString();
@@ -343,6 +348,25 @@ class StudentProfileLogic extends ChangeNotifier {
     if (guardianPhone != null) _studentData['guardianPhone'] = guardianPhone;
     if (guardianEmail != null) _studentData['guardianEmail'] = guardianEmail;
     notifyListeners();
+  }
+
+  String? get parentAccessCode => _studentData['parentAccessCode'] as String?;
+
+  Future<void> generateParentAccessCode() async {
+    try {
+      final student = await _backendService.getCurrentStudent();
+      if (student == null) return;
+      final studentId = student['id'] as String?;
+      if (studentId == null) return;
+
+      final code = await _backendService.generateParentAccessCode(studentId);
+      if (code == null) return;
+      _studentData['parentAccessCode'] = code;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error generating parent access code: $e');
+      rethrow;
+    }
   }
 
   // Calculate completion percentage

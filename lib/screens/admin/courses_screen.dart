@@ -18,26 +18,28 @@ class CoursesScreen extends StatefulWidget {
   State<CoursesScreen> createState() => _CoursesScreenState();
 }
 
-class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProviderStateMixin {
+class _CoursesScreenState extends State<CoursesScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final CourseService _courseService = CourseService();
   final TeacherService _teacherService = TeacherService();
   final FileUploadService _fileUploadService = FileUploadService();
   final ProfileService _profileService = ProfileService();
-  
+
   List<Course> _courses = [];
   String? _selectedCourseId;
   bool _isLoading = true;
-  
+
   // Teacher data
-  Map<String, List<String>> _courseTeachers = {}; // courseId -> List of teacherIds
+  Map<String, List<String>> _courseTeachers =
+      {}; // courseId -> List of teacherIds
   Map<String, String> _teacherNames = {}; // teacherId -> teacher name
   bool _isLoadingTeachers = false;
   // Avatar cache for teachers (profile avatar_url)
   final Map<String, String?> _teacherAvatars = {};
   // Selected assigned teacher per course (for display in pill)
   final Map<String, String?> _selectedCourseTeacherId = {};
-  
+
   // File data
   Map<String, List<CourseFile>> _courseFiles = {}; // courseId -> List of files
   bool _isLoadingFiles = false;
@@ -65,10 +67,10 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
           _selectedCourseId = _courses.first.id;
         }
       });
-      
+
       // Load teachers for all courses
       await _loadAllTeachers();
-      
+
       // Load files for all courses
       await _loadAllFiles();
     } catch (e) {
@@ -91,20 +93,20 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
     try {
       // Load all active teachers
       final teachers = await _teacherService.getActiveTeachers();
-      
+
       // Build teacher name map
       final nameMap = <String, String>{};
       for (var teacher in teachers) {
         nameMap[teacher.id] = teacher.displayName;
       }
-      
+
       // Load teachers for each course
       final courseTeacherMap = <String, List<String>>{};
       for (var course in _courses) {
         final teacherIds = await _courseService.getCourseTeachers(course.id);
         courseTeacherMap[course.id] = teacherIds;
       }
-      
+
       setState(() {
         _teacherNames = nameMap;
         _courseTeachers = courseTeacherMap;
@@ -131,7 +133,8 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
         if (profile != null) {
           setState(() {
             // Use profile full name if teacher name is missing
-            _teacherNames[id] = _teacherNames[id] ?? profile.fullName ?? 'Unknown Teacher';
+            _teacherNames[id] =
+                _teacherNames[id] ?? profile.fullName ?? 'Unknown Teacher';
             _teacherAvatars[id] = profile.avatarUrl;
           });
         }
@@ -145,14 +148,14 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
   Future<void> _loadAllFiles() async {
     try {
       final fileMap = <String, List<CourseFile>>{};
-      
+
       for (var course in _courses) {
         final files = await _fileUploadService.getCourseFiles(
           courseId: course.id,
         );
         fileMap[course.id] = files;
       }
-      
+
       setState(() {
         _courseFiles = fileMap;
       });
@@ -172,9 +175,7 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
     if (_isLoading) {
       return const Scaffold(
         backgroundColor: Colors.white,
-        body: Center(
-          child: CircularProgressIndicator(),
-        ),
+        body: Center(child: CircularProgressIndicator()),
       );
     }
 
@@ -184,7 +185,7 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
         children: [
           // Left Sidebar - Course List
           _buildLeftSidebar(),
-          
+
           // Main Content Area
           Expanded(
             child: _selectedCourseId != null
@@ -229,7 +230,7 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
               ],
             ),
           ),
-          
+
           // Create Course Button
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -249,9 +250,9 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
               ),
             ),
           ),
-          
+
           const Divider(height: 1),
-          
+
           // Course List
           Expanded(
             child: _courses.isEmpty
@@ -273,23 +274,46 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
                     itemBuilder: (context, index) {
                       final course = _courses[index];
                       final isSelected = _selectedCourseId == course.id;
-                      
+
                       return Container(
                         decoration: BoxDecoration(
-                          color: isSelected ? Colors.blue.shade50 : Colors.transparent,
+                          color: isSelected
+                              ? Colors.blue.shade50
+                              : Colors.transparent,
                           border: Border(
                             left: BorderSide(
-                              color: isSelected ? Colors.blue : Colors.transparent,
+                              color: isSelected
+                                  ? Colors.blue
+                                  : Colors.transparent,
                               width: 3,
                             ),
                           ),
                         ),
                         child: ListTile(
                           title: Text(
-                            course.title,
+                            course.title
+                                .split(' ')
+                                .map((word) {
+                                  if (word.isEmpty) return word;
+                                  // Check if word has mixed case or is all caps - preserve it
+                                  bool hasMixedCase = word
+                                      .substring(1)
+                                      .contains(RegExp(r'[A-Z]'));
+                                  if (hasMixedCase ||
+                                      word == word.toUpperCase()) {
+                                    return word[0].toUpperCase() +
+                                        word.substring(1);
+                                  }
+                                  // Otherwise, capitalize first letter and lowercase the rest
+                                  return word[0].toUpperCase() +
+                                      word.substring(1).toLowerCase();
+                                })
+                                .join(' '),
                             style: TextStyle(
                               fontSize: 14,
-                              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                              fontWeight: isSelected
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
                             ),
                           ),
                           trailing: IconButton(
@@ -317,7 +341,7 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
 
   Widget _buildCourseContent() {
     final course = _courses.firstWhere((c) => c.id == _selectedCourseId);
-    
+
     return Column(
       children: [
         // Course Header
@@ -358,7 +382,7 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
             ],
           ),
         ),
-        
+
         // Tabs
         Container(
           decoration: BoxDecoration(
@@ -378,7 +402,7 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
             ],
           ),
         ),
-        
+
         // Tab Content
         Expanded(
           child: TabBarView(
@@ -389,7 +413,7 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
             ],
           ),
         ),
-        
+
         // Bottom Action Buttons
         Container(
           padding: const EdgeInsets.all(16),
@@ -409,7 +433,10 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.grey.shade200,
                   foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 12,
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
@@ -423,7 +450,10 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.grey.shade800,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 12,
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
@@ -451,11 +481,7 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                Icons.folder_open,
-                size: 64,
-                color: Colors.grey.shade300,
-              ),
+              Icon(Icons.folder_open, size: 64, color: Colors.grey.shade300),
               const SizedBox(height: 16),
               Text(
                 'No files uploaded yet',
@@ -468,10 +494,7 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
               const SizedBox(height: 8),
               Text(
                 'Click "upload files" to add $type resources',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey.shade500,
-                ),
+                style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
               ),
             ],
           ),
@@ -489,10 +512,7 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
           child: ListTile(
             leading: CircleAvatar(
               backgroundColor: Colors.blue.shade50,
-              child: Text(
-                file.fileIcon,
-                style: const TextStyle(fontSize: 24),
-              ),
+              child: Text(file.fileIcon, style: const TextStyle(fontSize: 24)),
             ),
             title: Text(
               file.fileName,
@@ -500,10 +520,7 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
             ),
             subtitle: Text(
               '${file.fileSizeFormatted} • ${file.uploadedAt.toString().split('.')[0]}',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey.shade600,
-              ),
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
             ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
@@ -521,7 +538,11 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
                   color: Colors.green,
                 ),
                 IconButton(
-                  icon: Icon(Icons.delete, size: 20, color: Colors.red.shade400),
+                  icon: Icon(
+                    Icons.delete,
+                    size: 20,
+                    color: Colors.red.shade400,
+                  ),
                   onPressed: () => _confirmDeleteFile(file),
                   tooltip: 'Delete',
                 ),
@@ -542,18 +563,12 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
           const SizedBox(height: 16),
           Text(
             'No course selected',
-            style: TextStyle(
-              fontSize: 18,
-              color: Colors.grey.shade600,
-            ),
+            style: TextStyle(fontSize: 18, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 8),
           Text(
             'Create a course or select one from the sidebar',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade500,
-            ),
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
           ),
         ],
       ),
@@ -564,7 +579,7 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
     final titleController = TextEditingController();
     final descriptionController = TextEditingController();
     bool isCreating = false;
-    
+
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -582,6 +597,7 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
                     hintText: 'e.g., Mathematics 7',
                     border: OutlineInputBorder(),
                   ),
+                  textCapitalization: TextCapitalization.words,
                   enabled: !isCreating,
                 ),
                 const SizedBox(height: 16),
@@ -632,7 +648,7 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
                         );
 
                         Navigator.pop(context);
-                        
+
                         // Reload courses
                         await _loadCourses();
 
@@ -648,7 +664,7 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
                         setDialogState(() {
                           isCreating = false;
                         });
-                        
+
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
@@ -699,10 +715,10 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
   Future<void> _deleteCourse(String courseId) async {
     try {
       await _courseService.deleteCourse(courseId);
-      
+
       // Reload courses
       await _loadCourses();
-      
+
       // Clear selection if deleted course was selected
       if (_selectedCourseId == courseId) {
         setState(() {
@@ -734,24 +750,24 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
     final assignedTeacherIds = _courseTeachers[courseId] ?? [];
 
     Widget emptyPill(String text) => Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.grey.shade100,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: Colors.grey.shade300),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.person_outline, size: 16, color: Colors.grey.shade600),
+          const SizedBox(width: 8),
+          Text(
+            text,
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.person_outline, size: 16, color: Colors.grey.shade600),
-              const SizedBox(width: 8),
-              Text(
-                text,
-                style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
-              ),
-            ],
-          ),
-        );
+        ],
+      ),
+    );
 
     if (assignedTeacherIds.isEmpty) {
       return emptyPill('No teachers assigned');
@@ -765,14 +781,17 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
     });
 
     // Determine selected teacher for this course
-    final selectedId = _selectedCourseTeacherId[courseId] ?? assignedTeacherIds.first;
+    final selectedId =
+        _selectedCourseTeacherId[courseId] ?? assignedTeacherIds.first;
     final selectedName = _teacherNames[selectedId] ?? 'Unknown Teacher';
     final avatarUrl = _teacherAvatars[selectedId];
     String initials = '';
     if (selectedName.isNotEmpty) {
       final parts = selectedName.split(' ');
-      if (parts.isNotEmpty) initials += parts.first.isNotEmpty ? parts.first[0] : '';
-      if (parts.length > 1) initials += parts.last.isNotEmpty ? parts.last[0] : '';
+      if (parts.isNotEmpty)
+        initials += parts.first.isNotEmpty ? parts.first[0] : '';
+      if (parts.length > 1)
+        initials += parts.last.isNotEmpty ? parts.last[0] : '';
     }
 
     return InkWell(
@@ -795,7 +814,13 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
                   ? NetworkImage(avatarUrl)
                   : null,
               child: (avatarUrl == null || avatarUrl.isEmpty)
-                  ? Text(initials.toUpperCase(), style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w600))
+                  ? Text(
+                      initials.toUpperCase(),
+                      style: const TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    )
                   : null,
             ),
             const SizedBox(width: 8),
@@ -818,7 +843,11 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
               ),
             ),
             const SizedBox(width: 6),
-            Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: Colors.grey.shade700),
+            Icon(
+              Icons.keyboard_arrow_down_rounded,
+              size: 18,
+              color: Colors.grey.shade700,
+            ),
           ],
         ),
       ),
@@ -826,7 +855,9 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
   }
 
   Future<void> _showAssignedTeachersPicker(String courseId) async {
-    final assignedTeacherIds = List<String>.from(_courseTeachers[courseId] ?? []);
+    final assignedTeacherIds = List<String>.from(
+      _courseTeachers[courseId] ?? [],
+    );
     String localQuery = '';
     final controller = TextEditingController();
     final scrollCtrl = ScrollController();
@@ -868,14 +899,22 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: TextField(
                       controller: controller,
-                      onChanged: (v) => setLocalState(() => localQuery = v.trim()),
+                      onChanged: (v) =>
+                          setLocalState(() => localQuery = v.trim()),
                       decoration: InputDecoration(
                         hintText: 'Search assigned teachers',
-                        hintStyle: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+                        hintStyle: TextStyle(
+                          color: Colors.grey.shade500,
+                          fontSize: 13,
+                        ),
                         isDense: true,
                         filled: true,
                         fillColor: Colors.white,
-                        prefixIcon: const Icon(Icons.search, size: 18, color: Colors.grey),
+                        prefixIcon: const Icon(
+                          Icons.search,
+                          size: 18,
+                          color: Colors.grey,
+                        ),
                         suffixIcon: localQuery.isEmpty
                             ? null
                             : IconButton(
@@ -916,7 +955,10 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
               height: MediaQuery.of(ctx).size.height * 0.6,
               child: filtered.isEmpty
                   ? Center(
-                      child: Text('No results', style: TextStyle(color: Colors.grey.shade600)),
+                      child: Text(
+                        'No results',
+                        style: TextStyle(color: Colors.grey.shade600),
+                      ),
                     )
                   : Scrollbar(
                       controller: scrollCtrl,
@@ -934,22 +976,48 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
                           String initials = '';
                           if (name.isNotEmpty) {
                             final parts = name.split(' ');
-                            if (parts.isNotEmpty) initials += parts.first.isNotEmpty ? parts.first[0] : '';
-                            if (parts.length > 1) initials += parts.last.isNotEmpty ? parts.last[0] : '';
+                            if (parts.isNotEmpty)
+                              initials += parts.first.isNotEmpty
+                                  ? parts.first[0]
+                                  : '';
+                            if (parts.length > 1)
+                              initials += parts.last.isNotEmpty
+                                  ? parts.last[0]
+                                  : '';
                           }
                           return ListTile(
                             dense: true,
                             leading: CircleAvatar(
                               radius: 14,
                               backgroundColor: Colors.blueGrey.shade100,
-                              backgroundImage: (avatarUrl != null && avatarUrl.isNotEmpty) ? NetworkImage(avatarUrl) : null,
+                              backgroundImage:
+                                  (avatarUrl != null && avatarUrl.isNotEmpty)
+                                  ? NetworkImage(avatarUrl)
+                                  : null,
                               child: (avatarUrl == null || avatarUrl.isEmpty)
-                                  ? Text(initials.toUpperCase(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600))
+                                  ? Text(
+                                      initials.toUpperCase(),
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    )
                                   : null,
                             ),
-                            title: Text(name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                            title: Text(
+                              name,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
                             trailing: IconButton(
-                              icon: Icon(Icons.remove_circle_outline, size: 18, color: Colors.red.shade400),
+                              icon: Icon(
+                                Icons.remove_circle_outline,
+                                size: 18,
+                                color: Colors.red.shade400,
+                              ),
                               onPressed: () async {
                                 Navigator.of(ctx).pop();
                                 await _removeTeacher(courseId, id);
@@ -974,7 +1042,7 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
 
   void _showAddTeachersDialog() {
     if (_selectedCourseId == null) return;
-    
+
     showDialog(
       context: context,
       builder: (context) => _AddTeacherDialog(
@@ -995,9 +1063,9 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
         courseId: courseId,
         teacherId: teacherId,
       );
-      
+
       await _loadAllTeachers();
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -1020,20 +1088,20 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
 
   void _showUploadFilesDialog() async {
     if (_selectedCourseId == null) return;
-    
+
     final currentTab = _tabController.index == 0 ? 'module' : 'assignment';
-    
+
     try {
       // Pick files
       final files = await _fileUploadService.pickFiles(allowMultiple: true);
-      
+
       if (files == null || files.isEmpty) {
         return;
       }
 
       // Show upload progress dialog
       if (!mounted) return;
-      
+
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -1064,7 +1132,7 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
       final uri = Uri.parse(file.fileUrl);
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
-        
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -1143,9 +1211,9 @@ class _CoursesScreenState extends State<CoursesScreen> with SingleTickerProvider
         fileUrl: file.fileUrl,
         fileType: file.fileType,
       );
-      
+
       await _loadAllFiles();
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -1248,9 +1316,7 @@ class _UploadProgressDialogState extends State<_UploadProgressDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (!_isComplete && _error == null) ...[
-              LinearProgressIndicator(
-                value: _uploadedCount / _totalCount,
-              ),
+              LinearProgressIndicator(value: _uploadedCount / _totalCount),
               const SizedBox(height: 16),
               Text(
                 'Uploading $_uploadedCount of $_totalCount files',
@@ -1259,20 +1325,13 @@ class _UploadProgressDialogState extends State<_UploadProgressDialog> {
               const SizedBox(height: 8),
               Text(
                 _currentFileName,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey.shade600,
-                ),
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
             ],
             if (_isComplete) ...[
-              const Icon(
-                Icons.check_circle,
-                color: Colors.green,
-                size: 64,
-              ),
+              const Icon(Icons.check_circle, color: Colors.green, size: 64),
               const SizedBox(height: 16),
               Text(
                 'Successfully uploaded $_uploadedCount file(s)!',
@@ -1280,11 +1339,7 @@ class _UploadProgressDialogState extends State<_UploadProgressDialog> {
               ),
             ],
             if (_error != null) ...[
-              const Icon(
-                Icons.error,
-                color: Colors.red,
-                size: 64,
-              ),
+              const Icon(Icons.error, color: Colors.red, size: 64),
               const SizedBox(height: 16),
               Text(
                 'Error: $_error',
@@ -1362,12 +1417,12 @@ class _AddTeacherDialogState extends State<_AddTeacherDialog> {
   Future<void> _loadTeachers() async {
     try {
       final teachers = await widget.teacherService.getActiveTeachers();
-      
+
       // Filter out already assigned teachers
       final available = teachers.where((teacher) {
         return !widget.assignedTeacherIds.contains(teacher.id);
       }).toList();
-      
+
       setState(() {
         _availableTeachers = available;
         _isLoading = false;
@@ -1389,7 +1444,9 @@ class _AddTeacherDialogState extends State<_AddTeacherDialog> {
       // Server-side search
       final results = await widget.teacherService.searchTeachers(_query);
       // Filter out already assigned
-      final filtered = results.where((t) => !widget.assignedTeacherIds.contains(t.id)).toList();
+      final filtered = results
+          .where((t) => !widget.assignedTeacherIds.contains(t.id))
+          .toList();
       setState(() {
         _availableTeachers = filtered;
       });
@@ -1434,6 +1491,7 @@ class _AddTeacherDialogState extends State<_AddTeacherDialog> {
       final byRole = _glcRoleIds.contains(id);
       return flag || byRole;
     }
+
     final normal = base.where((t) => !isGlc(t)).where(matches).toList();
     final glc = base.where((t) => isGlc(t)).where(matches).toList();
 
@@ -1441,7 +1499,9 @@ class _AddTeacherDialogState extends State<_AddTeacherDialog> {
       final id = (t.id).toString();
       final name = (t.displayName ?? t.fullName ?? '').toString();
       final email = (t.email ?? '').toString();
-      final selected = isGLC ? _selectedGLC.contains(id) : _selectedNormal.contains(id);
+      final selected = isGLC
+          ? _selectedGLC.contains(id)
+          : _selectedNormal.contains(id);
 
       void toggle() {
         setState(() {
@@ -1473,7 +1533,10 @@ class _AddTeacherDialogState extends State<_AddTeacherDialog> {
               const SizedBox(width: 8),
               Expanded(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(8),
@@ -1486,10 +1549,7 @@ class _AddTeacherDialogState extends State<_AddTeacherDialog> {
                 ),
               ),
               const SizedBox(width: 8),
-              Checkbox(
-                value: selected,
-                onChanged: (v) => toggle(),
-              ),
+              Checkbox(value: selected, onChanged: (v) => toggle()),
             ],
           ),
         ),
@@ -1501,7 +1561,12 @@ class _AddTeacherDialogState extends State<_AddTeacherDialog> {
       content: SizedBox(
         width: 1000,
         child: _isLoading
-            ? const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator()))
+            ? const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(32),
+                  child: CircularProgressIndicator(),
+                ),
+              )
             : Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1514,7 +1579,10 @@ class _AddTeacherDialogState extends State<_AddTeacherDialog> {
                       prefixIcon: const Icon(Icons.search),
                       filled: true,
                       fillColor: Colors.grey.shade100,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(20),
                         borderSide: BorderSide(color: Colors.grey.shade300),
@@ -1525,7 +1593,10 @@ class _AddTeacherDialogState extends State<_AddTeacherDialog> {
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(20),
-                        borderSide: const BorderSide(color: Colors.blue, width: 2),
+                        borderSide: const BorderSide(
+                          color: Colors.blue,
+                          width: 2,
+                        ),
                       ),
                       suffixIcon: _query.isEmpty
                           ? null
@@ -1549,69 +1620,123 @@ class _AddTeacherDialogState extends State<_AddTeacherDialog> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
-                                  const Text('teachers:', style: TextStyle(fontWeight: FontWeight.w600, decoration: TextDecoration.underline)),
-                                  Row(children: [
-                                    InkWell(
-                                      onTap: () {
-                                        setState(() {
-                                          final allIds = normal.map((t) => (t as dynamic).id.toString()).toList();
-                                          if (_selectedNormal.length == allIds.length) {
-                                            _selectedNormal.clear();
-                                          } else {
-                                            _selectedNormal
-                                              ..clear()
-                                              ..addAll(allIds);
-                                          }
-                                        });
-                                      },
-                                      borderRadius: BorderRadius.circular(16),
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                        decoration: BoxDecoration(
-                                          color: Colors.green.shade50,
-                                          borderRadius: BorderRadius.circular(16),
-                                          border: Border.all(color: Colors.green.shade200),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(Icons.done_all, size: 14, color: Colors.green.shade700),
-                                            const SizedBox(width: 6),
-                                            const Text('select all', style: TextStyle(fontSize: 12, color: Colors.black87)),
-                                            if (_selectedNormal.length > 0) ...[
+                                  const Text(
+                                    'teachers:',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      decoration: TextDecoration.underline,
+                                    ),
+                                  ),
+                                  Row(
+                                    children: [
+                                      InkWell(
+                                        onTap: () {
+                                          setState(() {
+                                            final allIds = normal
+                                                .map(
+                                                  (t) => (t as dynamic).id
+                                                      .toString(),
+                                                )
+                                                .toList();
+                                            if (_selectedNormal.length ==
+                                                allIds.length) {
+                                              _selectedNormal.clear();
+                                            } else {
+                                              _selectedNormal
+                                                ..clear()
+                                                ..addAll(allIds);
+                                            }
+                                          });
+                                        },
+                                        borderRadius: BorderRadius.circular(16),
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 6,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.green.shade50,
+                                            borderRadius: BorderRadius.circular(
+                                              16,
+                                            ),
+                                            border: Border.all(
+                                              color: Colors.green.shade200,
+                                            ),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.done_all,
+                                                size: 14,
+                                                color: Colors.green.shade700,
+                                              ),
                                               const SizedBox(width: 6),
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.green.shade100,
-                                                  borderRadius: BorderRadius.circular(10),
-                                                ),
-                                                child: Text(
-                                                  '${_selectedNormal.length}',
-                                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.black87),
+                                              const Text(
+                                                'select all',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.black87,
                                                 ),
                                               ),
+                                              if (_selectedNormal.length >
+                                                  0) ...[
+                                                const SizedBox(width: 6),
+                                                Container(
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 6,
+                                                        vertical: 2,
+                                                      ),
+                                                  decoration: BoxDecoration(
+                                                    color:
+                                                        Colors.green.shade100,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          10,
+                                                        ),
+                                                  ),
+                                                  child: Text(
+                                                    '${_selectedNormal.length}',
+                                                    style: const TextStyle(
+                                                      fontSize: 11,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                      color: Colors.black87,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
                                             ],
-                                          ],
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                  ]),
+                                    ],
+                                  ),
                                 ],
                               ),
                               const SizedBox(height: 8),
                               Expanded(
                                 child: normal.isEmpty
-                                    ? Center(child: Text('No results', style: TextStyle(color: Colors.grey.shade600)))
+                                    ? Center(
+                                        child: Text(
+                                          'No results',
+                                          style: TextStyle(
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ),
+                                      )
                                     : Scrollbar(
                                         controller: _normalScrollCtrl,
                                         thumbVisibility: true,
                                         child: ListView.builder(
                                           controller: _normalScrollCtrl,
                                           itemCount: normal.length,
-                                          itemBuilder: (ctx, i) => listTile(normal[i], i, false),
+                                          itemBuilder: (ctx, i) =>
+                                              listTile(normal[i], i, false),
                                         ),
                                       ),
                               ),
@@ -1632,69 +1757,122 @@ class _AddTeacherDialogState extends State<_AddTeacherDialog> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
-                                  const Text('GLC teachers:', style: TextStyle(fontWeight: FontWeight.w600, decoration: TextDecoration.underline)),
-                                  Row(children: [
-                                    InkWell(
-                                      onTap: () {
-                                        setState(() {
-                                          final allIds = glc.map((t) => (t as dynamic).id.toString()).toList();
-                                          if (_selectedGLC.length == allIds.length) {
-                                            _selectedGLC.clear();
-                                          } else {
-                                            _selectedGLC
-                                              ..clear()
-                                              ..addAll(allIds);
-                                          }
-                                        });
-                                      },
-                                      borderRadius: BorderRadius.circular(16),
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                        decoration: BoxDecoration(
-                                          color: Colors.green.shade50,
-                                          borderRadius: BorderRadius.circular(16),
-                                          border: Border.all(color: Colors.green.shade200),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(Icons.done_all, size: 14, color: Colors.green.shade700),
-                                            const SizedBox(width: 6),
-                                            const Text('select all', style: TextStyle(fontSize: 12, color: Colors.black87)),
-                                            if (_selectedGLC.length > 0) ...[
+                                  const Text(
+                                    'GLC teachers:',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      decoration: TextDecoration.underline,
+                                    ),
+                                  ),
+                                  Row(
+                                    children: [
+                                      InkWell(
+                                        onTap: () {
+                                          setState(() {
+                                            final allIds = glc
+                                                .map(
+                                                  (t) => (t as dynamic).id
+                                                      .toString(),
+                                                )
+                                                .toList();
+                                            if (_selectedGLC.length ==
+                                                allIds.length) {
+                                              _selectedGLC.clear();
+                                            } else {
+                                              _selectedGLC
+                                                ..clear()
+                                                ..addAll(allIds);
+                                            }
+                                          });
+                                        },
+                                        borderRadius: BorderRadius.circular(16),
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 6,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.green.shade50,
+                                            borderRadius: BorderRadius.circular(
+                                              16,
+                                            ),
+                                            border: Border.all(
+                                              color: Colors.green.shade200,
+                                            ),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.done_all,
+                                                size: 14,
+                                                color: Colors.green.shade700,
+                                              ),
                                               const SizedBox(width: 6),
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.green.shade100,
-                                                  borderRadius: BorderRadius.circular(10),
-                                                ),
-                                                child: Text(
-                                                  '${_selectedGLC.length}',
-                                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.black87),
+                                              const Text(
+                                                'select all',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.black87,
                                                 ),
                                               ),
+                                              if (_selectedGLC.length > 0) ...[
+                                                const SizedBox(width: 6),
+                                                Container(
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 6,
+                                                        vertical: 2,
+                                                      ),
+                                                  decoration: BoxDecoration(
+                                                    color:
+                                                        Colors.green.shade100,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          10,
+                                                        ),
+                                                  ),
+                                                  child: Text(
+                                                    '${_selectedGLC.length}',
+                                                    style: const TextStyle(
+                                                      fontSize: 11,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                      color: Colors.black87,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
                                             ],
-                                          ],
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                  ]),
+                                    ],
+                                  ),
                                 ],
                               ),
                               const SizedBox(height: 8),
                               Expanded(
                                 child: glc.isEmpty
-                                    ? Center(child: Text('No results', style: TextStyle(color: Colors.grey.shade600)))
+                                    ? Center(
+                                        child: Text(
+                                          'No results',
+                                          style: TextStyle(
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ),
+                                      )
                                     : Scrollbar(
                                         controller: _glcScrollCtrl,
                                         thumbVisibility: true,
                                         child: ListView.builder(
                                           controller: _glcScrollCtrl,
                                           itemCount: glc.length,
-                                          itemBuilder: (ctx, i) => listTile(glc[i], i, true),
+                                          itemBuilder: (ctx, i) =>
+                                              listTile(glc[i], i, true),
                                         ),
                                       ),
                               ),
@@ -1713,12 +1891,17 @@ class _AddTeacherDialogState extends State<_AddTeacherDialog> {
           child: const Text('Cancel'),
         ),
         ElevatedButton(
-          onPressed: (_selectedNormal.isEmpty && _selectedGLC.isEmpty) || _isAdding
+          onPressed:
+              (_selectedNormal.isEmpty && _selectedGLC.isEmpty) || _isAdding
               ? null
               : () async {
-                  setState(() { _isAdding = true; });
+                  setState(() {
+                    _isAdding = true;
+                  });
                   try {
-                    final ids = <String>{}..addAll(_selectedNormal)..addAll(_selectedGLC);
+                    final ids = <String>{}
+                      ..addAll(_selectedNormal)
+                      ..addAll(_selectedGLC);
                     for (final id in ids) {
                       await widget.courseService.addTeacherToCourse(
                         courseId: widget.courseId,
@@ -1729,20 +1912,32 @@ class _AddTeacherDialogState extends State<_AddTeacherDialog> {
                       widget.onTeacherAdded();
                       Navigator.pop(context);
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Teacher(s) added successfully'), backgroundColor: Colors.green),
+                        const SnackBar(
+                          content: Text('Teacher(s) added successfully'),
+                          backgroundColor: Colors.green,
+                        ),
                       );
                     }
                   } catch (e) {
-                    setState(() { _isAdding = false; });
+                    setState(() {
+                      _isAdding = false;
+                    });
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Error adding teachers: $e'), backgroundColor: Colors.red),
+                        SnackBar(
+                          content: Text('Error adding teachers: $e'),
+                          backgroundColor: Colors.red,
+                        ),
                       );
                     }
                   }
                 },
           child: _isAdding
-              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
               : const Text('Add selected'),
         ),
       ],
@@ -1765,7 +1960,7 @@ class _AddTeacherDialogState extends State<_AddTeacherDialog> {
       if (mounted) {
         Navigator.pop(context);
         widget.onTeacherAdded();
-        
+
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Teacher added successfully!'),

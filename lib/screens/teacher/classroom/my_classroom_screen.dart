@@ -4180,6 +4180,27 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                       });
 
                       try {
+                        // Get current school year from database
+                        final schoolYearResponse = await Supabase
+                            .instance
+                            .client
+                            .from('school_years')
+                            .select('year_label')
+                            .eq('is_current', true)
+                            .maybeSingle();
+
+                        String schoolYear;
+                        if (schoolYearResponse != null) {
+                          schoolYear =
+                              schoolYearResponse['year_label'] as String;
+                        } else {
+                          // Fallback to current academic year
+                          final now = DateTime.now();
+                          final currentYear = now.year;
+                          final nextYear = currentYear + 1;
+                          schoolYear = '$currentYear-$nextYear';
+                        }
+
                         await _classroomService.createClassroom(
                           teacherId: _teacherId!,
                           title: titleController.text.trim(),
@@ -4189,6 +4210,7 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                           gradeLevel: selectedGradeLevel!,
                           maxStudents: maxStudents,
                           schoolLevel: selectedSchoolLevel!,
+                          schoolYear: schoolYear,
                         );
 
                         Navigator.pop(context);

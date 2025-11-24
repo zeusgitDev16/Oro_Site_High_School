@@ -38,7 +38,7 @@ class CoordinatorAssignment {
 
   factory CoordinatorAssignment.fromJson(Map<String, dynamic> json) {
     return CoordinatorAssignment(
-      id: json['id'],
+      id: json['id'].toString(), // Convert bigint to String
       teacherId: json['teacher_id'],
       teacherName: json['teacher_name'],
       gradeLevel: json['grade_level'],
@@ -120,7 +120,8 @@ class GradeLevelStats {
 }
 
 class GradeCoordinatorService extends ChangeNotifier {
-  static final GradeCoordinatorService _instance = GradeCoordinatorService._internal();
+  static final GradeCoordinatorService _instance =
+      GradeCoordinatorService._internal();
   factory GradeCoordinatorService() => _instance;
   GradeCoordinatorService._internal();
 
@@ -147,7 +148,7 @@ class GradeCoordinatorService extends ChangeNotifier {
     try {
       // Load coordinator assignment
       await _loadCoordinatorAssignment(teacherId);
-      
+
       if (_currentAssignment != null) {
         // Load grade level data
         await Future.wait([
@@ -156,7 +157,7 @@ class GradeCoordinatorService extends ChangeNotifier {
           _loadGradeLevelStats(),
         ]);
       }
-      
+
       notifyListeners();
     } catch (e) {
       print('Error initializing coordinator service: $e');
@@ -178,6 +179,162 @@ class GradeCoordinatorService extends ChangeNotifier {
       }
     } catch (e) {
       print('Error loading coordinator assignment: $e');
+    }
+  }
+
+  /// Get all active coordinator assignments (for admin use)
+  Future<Map<int, CoordinatorAssignment>>
+  getAllActiveCoordinatorAssignments() async {
+    try {
+      print('🔍 [Service] Querying coordinator_assignments table...');
+      final response = await _supabase
+          .from('coordinator_assignments')
+          .select()
+          .eq('is_active', true)
+          .order('grade_level');
+
+      print('📊 [Service] Query returned ${(response as List).length} records');
+
+      final assignments = <int, CoordinatorAssignment>{};
+      for (final json in response) {
+        print('   Raw JSON: $json');
+        final assignment = CoordinatorAssignment.fromJson(json);
+        assignments[assignment.gradeLevel] = assignment;
+        print(
+          '   Parsed: Grade ${assignment.gradeLevel} -> ${assignment.teacherName}',
+        );
+      }
+
+      print('✅ [Service] Returning ${assignments.length} assignments');
+      return assignments;
+    } catch (e) {
+      print('❌ [Service] Error loading all coordinator assignments: $e');
+      return {};
+    }
+  }
+
+  /// Check if a teacher is already assigned to another grade level
+  Future<int?> getTeacherCurrentGradeAssignment(String teacherId) async {
+    try {
+      print(
+        '🔍 [Service] Checking if teacher $teacherId is already assigned...',
+      );
+      final response = await _supabase
+          .from('coordinator_assignments')
+          .select('grade_level')
+          .eq('teacher_id', teacherId)
+          .eq('is_active', true)
+          .maybeSingle();
+
+      if (response != null) {
+        final gradeLevel = response['grade_level'] as int;
+        print('   ⚠️ Teacher is already assigned to Grade $gradeLevel');
+        return gradeLevel;
+      }
+
+      print('   ✅ Teacher is not assigned to any grade level');
+      return null;
+    } catch (e) {
+      print('❌ [Service] Error checking teacher assignment: $e');
+      return null;
+    }
+  }
+
+  /// Assign a coordinator to a grade level
+  Future<Map<String, dynamic>> assignCoordinator({
+    required String teacherId,
+    required String teacherName,
+    required int gradeLevel,
+    required String schoolYear,
+    String? assignedBy,
+  }) async {
+    try {
+      print('🔄 [Service] Starting coordinator assignment...');
+      print('   Teacher ID: $teacherId');
+      print('   Teacher Name: $teacherName');
+      print('   Grade Level: $gradeLevel');
+      print('   School Year: $schoolYear');
+      print('   Assigned By: $assignedBy');
+
+      // Check if teacher is already assigned to another grade level
+      final existingGrade = await getTeacherCurrentGradeAssignment(teacherId);
+      if (existingGrade != null && existingGrade != gradeLevel) {
+        print(
+          '❌ [Service] Teacher is already assigned to Grade $existingGrade',
+        );
+        return {
+          'success': false,
+          'error': 'already_assigned',
+          'existingGrade': existingGrade,
+          'message':
+              '$teacherName is already assigned to Grade $existingGrade. Please remove them first.',
+        };
+      }
+
+      // First, deactivate any existing assignment for this grade level
+      print(
+        '🔄 [Service] Deactivating existing assignments for grade $gradeLevel...',
+      );
+      final updateResult = await _supabase
+          .from('coordinator_assignments')
+          .update({'is_active': false})
+          .eq('grade_level', gradeLevel)
+          .eq('is_active', true);
+      print('✅ [Service] Deactivation complete: $updateResult');
+
+      // Create new assignment
+      print('🔄 [Service] Inserting new assignment...');
+      final insertData = {
+        'teacher_id': teacherId,
+        'teacher_name': teacherName,
+        'grade_level': gradeLevel,
+        'school_year': schoolYear,
+        'assigned_by': assignedBy,
+        'is_active': true,
+        'assigned_at': DateTime.now().toIso8601String(),
+      };
+      print('   Insert data: $insertData');
+
+      final insertResult = await _supabase
+          .from('coordinator_assignments')
+          .insert(insertData);
+      print('✅ [Service] Insert complete: $insertResult');
+
+      print(
+        '✅ [Service] Coordinator assigned: $teacherName to Grade $gradeLevel',
+      );
+      return {
+        'success': true,
+        'message': 'Grade $gradeLevel coordinator set to $teacherName',
+      };
+    } catch (e) {
+      print('❌ [Service] Error assigning coordinator: $e');
+      print('   Error type: ${e.runtimeType}');
+      if (e is Exception) {
+        print('   Exception details: $e');
+      }
+      return {
+        'success': false,
+        'error': 'exception',
+        'message': 'Failed to assign coordinator: ${e.toString()}',
+      };
+    }
+  }
+
+  /// Remove coordinator assignment for a grade level
+  Future<bool> removeCoordinator(int gradeLevel) async {
+    try {
+      await _supabase
+          .from('coordinator_assignments')
+          .update({'is_active': false})
+          .eq('grade_level', gradeLevel)
+          .eq('is_active', true);
+
+      print('✅ Coordinator removed from Grade $gradeLevel');
+      return true;
+    } catch (e) {
+      print('❌ Error removing coordinator: $e');
+      return false;
     }
   }
 
@@ -359,21 +516,21 @@ class GradeCoordinatorService extends ChangeNotifier {
     try {
       // Generate temporary password
       final tempPassword = _generateTempPassword();
-      
+
       // Update in auth system
       // This would call admin API to reset password
-      await _supabase.rpc('reset_student_password', params: {
-        'student_id': studentId,
-        'new_password': tempPassword,
-        'reset_by': _currentAssignment?.teacherId,
-      });
-      
-      // Log the action
-      await _logCoordinatorAction(
-        'password_reset',
-        {'student_id': studentId},
+      await _supabase.rpc(
+        'reset_student_password',
+        params: {
+          'student_id': studentId,
+          'new_password': tempPassword,
+          'reset_by': _currentAssignment?.teacherId,
+        },
       );
-      
+
+      // Log the action
+      await _logCoordinatorAction('password_reset', {'student_id': studentId});
+
       return true;
     } catch (e) {
       print('Error resetting student password: $e');
@@ -392,7 +549,7 @@ class GradeCoordinatorService extends ChangeNotifier {
       if (!await _canEnterGradesForCourse(courseId)) {
         throw Exception('No permission to enter grades for this course');
       }
-      
+
       // Process each grade entry
       // Note: This needs to be updated when Grade model is properly defined
       // For now, using direct database insert
@@ -407,17 +564,14 @@ class GradeCoordinatorService extends ChangeNotifier {
           'updated_at': DateTime.now().toIso8601String(),
         });
       }
-      
+
       // Log the action
-      await _logCoordinatorAction(
-        'bulk_grade_entry',
-        {
-          'course_id': courseId,
-          'quarter': quarter,
-          'student_count': studentGrades.length,
-        },
-      );
-      
+      await _logCoordinatorAction('bulk_grade_entry', {
+        'course_id': courseId,
+        'quarter': quarter,
+        'student_count': studentGrades.length,
+      });
+
       return true;
     } catch (e) {
       print('Error in bulk grade entry: $e');
@@ -441,16 +595,13 @@ class GradeCoordinatorService extends ChangeNotifier {
           })
           .eq('section_id', sectionId)
           .eq('quarter', quarter);
-      
+
       // Log the action
-      await _logCoordinatorAction(
-        'grade_verification',
-        {
-          'section_id': sectionId,
-          'quarter': quarter,
-        },
-      );
-      
+      await _logCoordinatorAction('grade_verification', {
+        'section_id': sectionId,
+        'quarter': quarter,
+      });
+
       return true;
     } catch (e) {
       print('Error verifying grades: $e');
@@ -467,28 +618,25 @@ class GradeCoordinatorService extends ChangeNotifier {
     try {
       final students = getStudentsBySection(sectionId);
       final attendanceData = <String, dynamic>{};
-      
+
       for (final student in students) {
         final records = await _attendanceService.getAttendanceRecords(
           studentId: student.id,
           startDate: startDate,
           endDate: endDate,
         );
-        
+
         final stats = _calculateAttendanceStats(records);
         attendanceData[student.id] = stats;
       }
-      
+
       // Log the action
-      await _logCoordinatorAction(
-        'attendance_review',
-        {
-          'section_id': sectionId,
-          'start_date': startDate.toIso8601String(),
-          'end_date': endDate.toIso8601String(),
-        },
-      );
-      
+      await _logCoordinatorAction('attendance_review', {
+        'section_id': sectionId,
+        'start_date': startDate.toIso8601String(),
+        'end_date': endDate.toIso8601String(),
+      });
+
       return attendanceData;
     } catch (e) {
       print('Error reviewing attendance: $e');
@@ -503,7 +651,7 @@ class GradeCoordinatorService extends ChangeNotifier {
   }) async {
     try {
       final comparison = <String, dynamic>{};
-      
+
       for (final section in _sections) {
         final sectionData = <String, dynamic>{
           'average_grade': section.averageGrade,
@@ -512,15 +660,17 @@ class GradeCoordinatorService extends ChangeNotifier {
           'excellent_count': section.excellentStudents,
           'student_count': section.studentCount,
         };
-        
+
         // Add subject-specific data if requested
         if (metrics.contains('subjects')) {
-          sectionData['subjects'] = await _getSubjectPerformance(section.sectionId);
+          sectionData['subjects'] = await _getSubjectPerformance(
+            section.sectionId,
+          );
         }
-        
+
         comparison[section.sectionId] = sectionData;
       }
-      
+
       return comparison;
     } catch (e) {
       print('Error generating section comparison: $e');
@@ -541,25 +691,26 @@ class GradeCoordinatorService extends ChangeNotifier {
         'generated_by': _currentAssignment?.teacherName,
         'generated_at': DateTime.now().toIso8601String(),
         'statistics': _gradeLevelStats?.toJson(),
-        'sections': _sections.map((s) => {
-          'id': s.sectionId,
-          'name': s.sectionName,
-          'adviser': s.adviserName,
-          'students': s.studentCount,
-          'average': s.averageGrade,
-          'attendance': s.attendanceRate,
-        }).toList(),
+        'sections': _sections
+            .map(
+              (s) => {
+                'id': s.sectionId,
+                'name': s.sectionName,
+                'adviser': s.adviserName,
+                'students': s.studentCount,
+                'average': s.averageGrade,
+                'attendance': s.attendanceRate,
+              },
+            )
+            .toList(),
       };
-      
+
       // Log the action
-      await _logCoordinatorAction(
-        'report_export',
-        {
-          'format': format,
-          'quarter': quarter,
-        },
-      );
-      
+      await _logCoordinatorAction('report_export', {
+        'format': format,
+        'quarter': quarter,
+      });
+
       return report;
     } catch (e) {
       print('Error exporting report: $e');
@@ -583,19 +734,16 @@ class GradeCoordinatorService extends ChangeNotifier {
         'created_by': _currentAssignment?.teacherId,
         'created_at': DateTime.now().toIso8601String(),
       });
-      
+
       // Send notifications
       // This would trigger notification service
-      
+
       // Log the action
-      await _logCoordinatorAction(
-        'announcement_sent',
-        {
-          'title': title,
-          'recipients': recipients,
-        },
-      );
-      
+      await _logCoordinatorAction('announcement_sent', {
+        'title': title,
+        'recipients': recipients,
+      });
+
       return true;
     } catch (e) {
       print('Error sending announcement: $e');
@@ -616,7 +764,7 @@ class GradeCoordinatorService extends ChangeNotifier {
     final present = records.where((r) => r.status == 'present').length;
     final late = records.where((r) => r.status == 'late').length;
     final absent = records.where((r) => r.status == 'absent').length;
-    
+
     return {
       'total': total,
       'present': present,
@@ -644,7 +792,10 @@ class GradeCoordinatorService extends ChangeNotifier {
   }
 
   /// Helper: Log coordinator action
-  Future<void> _logCoordinatorAction(String action, Map<String, dynamic> details) async {
+  Future<void> _logCoordinatorAction(
+    String action,
+    Map<String, dynamic> details,
+  ) async {
     try {
       await _supabase.from('coordinator_activity_log').insert({
         'coordinator_id': _currentAssignment?.teacherId,
@@ -659,7 +810,8 @@ class GradeCoordinatorService extends ChangeNotifier {
   }
 
   /// Check if user is a coordinator
-  bool get isCoordinator => _currentAssignment != null && _currentAssignment!.isActive;
+  bool get isCoordinator =>
+      _currentAssignment != null && _currentAssignment!.isActive;
 
   /// Get coordinator permissions
   Map<String, dynamic> get permissions => _currentAssignment?.permissions ?? {};

@@ -997,6 +997,80 @@ class _StudentProfileScreenState extends State<StudentProfileScreen>
               ),
             ),
           ),
+
+          const SizedBox(height: 24),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Parent access code',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Generate a code you can share with your parent/guardian to link to your account.',
+                    style: TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(4),
+                          color: Colors.grey.shade100,
+                          border: Border.all(color: Colors.grey.shade300),
+                        ),
+                        child: Text(
+                          _logic.parentAccessCode ?? 'No code generated yet',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      TextButton.icon(
+                        onPressed: () async {
+                          try {
+                            await _logic.generateParentAccessCode();
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Parent access code generated'),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                          } catch (_) {
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Failed to generate parent access code',
+                                ),
+                                backgroundColor: Colors.redAccent,
+                              ),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.refresh, size: 16),
+                        label: const Text(
+                          'Generate / Regenerate',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );

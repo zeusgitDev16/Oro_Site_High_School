@@ -10,10 +10,15 @@ class Classroom {
   final String? description;
   final int gradeLevel;
   final String schoolLevel;
+  final String schoolYear; // School year (e.g., "2024-2025")
+  final String? quarter; // Quarter for JHS (Q1, Q2, Q3, Q4)
+  final String? semester; // Semester for SHS (1st Sem, 2nd Sem)
+  final String? academicTrack; // Academic track for SHS (ABM, STEM, HUMSS, GAS)
   final int maxStudents;
   final int currentStudents;
   final bool isActive;
   final String? accessCode;
+  final String? advisoryTeacherId;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -24,10 +29,15 @@ class Classroom {
     this.description,
     required this.gradeLevel,
     required this.schoolLevel,
+    required this.schoolYear,
+    this.quarter,
+    this.semester,
+    this.academicTrack,
     required this.maxStudents,
     this.currentStudents = 0,
     this.isActive = true,
     this.accessCode,
+    this.advisoryTeacherId,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -46,10 +56,15 @@ class Classroom {
       description: json['description'] as String?,
       gradeLevel: gradeLevel,
       schoolLevel: schoolLevel,
+      schoolYear: json['school_year'] as String,
+      quarter: json['quarter'] as String?,
+      semester: json['semester'] as String?,
+      academicTrack: json['academic_track'] as String?,
       maxStudents: json['max_students'] as int,
       currentStudents: json['current_students'] as int? ?? 0,
       isActive: json['is_active'] as bool? ?? true,
       accessCode: json['access_code'] as String?,
+      advisoryTeacherId: json['advisory_teacher_id'] as String?,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
     );
@@ -64,10 +79,15 @@ class Classroom {
       'description': description,
       'grade_level': gradeLevel,
       'school_level': schoolLevel,
+      'school_year': schoolYear,
+      'quarter': quarter,
+      'semester': semester,
+      'academic_track': academicTrack,
       'max_students': maxStudents,
       'current_students': currentStudents,
       'is_active': isActive,
       'access_code': accessCode,
+      'advisory_teacher_id': advisoryTeacherId,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
@@ -102,10 +122,15 @@ class Classroom {
     String? description,
     int? gradeLevel,
     String? schoolLevel,
+    String? schoolYear,
+    String? quarter,
+    String? semester,
+    String? academicTrack,
     int? maxStudents,
     int? currentStudents,
     bool? isActive,
     String? accessCode,
+    String? advisoryTeacherId,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -116,10 +141,15 @@ class Classroom {
       description: description ?? this.description,
       gradeLevel: gradeLevel ?? this.gradeLevel,
       schoolLevel: schoolLevel ?? this.schoolLevel,
+      schoolYear: schoolYear ?? this.schoolYear,
+      quarter: quarter ?? this.quarter,
+      semester: semester ?? this.semester,
+      academicTrack: academicTrack ?? this.academicTrack,
       maxStudents: maxStudents ?? this.maxStudents,
       currentStudents: currentStudents ?? this.currentStudents,
       isActive: isActive ?? this.isActive,
       accessCode: accessCode ?? this.accessCode,
+      advisoryTeacherId: advisoryTeacherId ?? this.advisoryTeacherId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

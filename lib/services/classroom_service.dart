@@ -28,6 +28,11 @@ class ClassroomService {
     required int gradeLevel,
     required int maxStudents,
     required String schoolLevel,
+    required String schoolYear,
+    String? quarter,
+    String? semester,
+    String? academicTrack,
+    String? advisoryTeacherId,
   }) async {
     try {
       // Validate grade level
@@ -70,10 +75,15 @@ class ClassroomService {
             'description': description,
             'grade_level': gradeLevel,
             'school_level': schoolLevel,
+            'school_year': schoolYear,
+            'quarter': quarter,
+            'semester': semester,
+            'academic_track': academicTrack,
             'max_students': maxStudents,
             'current_students': 0,
             'is_active': true,
             'access_code': accessCode,
+            'advisory_teacher_id': advisoryTeacherId,
           })
           .select()
           .single();
@@ -154,6 +164,10 @@ class ClassroomService {
     int? maxStudents,
     bool? isActive,
     String? schoolLevel,
+    String? quarter,
+    String? semester,
+    String? academicTrack,
+    String? advisoryTeacherId,
   }) async {
     try {
       final updates = <String, dynamic>{};
@@ -173,6 +187,9 @@ class ClassroomService {
         updates['max_students'] = maxStudents;
       }
       if (isActive != null) updates['is_active'] = isActive;
+      if (advisoryTeacherId != null) {
+        updates['advisory_teacher_id'] = advisoryTeacherId;
+      }
       if (schoolLevel != null) {
         if (schoolLevel != Classroom.schoolLevelJhs &&
             schoolLevel != Classroom.schoolLevelShs) {
@@ -180,6 +197,9 @@ class ClassroomService {
         }
         updates['school_level'] = schoolLevel;
       }
+      if (quarter != null) updates['quarter'] = quarter;
+      if (semester != null) updates['semester'] = semester;
+      if (academicTrack != null) updates['academic_track'] = academicTrack;
 
       // Cross-field validation if both gradeLevel and schoolLevel are involved
       if (updates.containsKey('grade_level') ||

@@ -14,15 +14,15 @@ class TeacherService {
   /// Joins with profiles table to get email and full_name
   Future<List<Teacher>> getActiveTeachers() async {
     try {
-      print('🔍 TeacherService: Fetching active teachers...');
-      
+      // print('🔍 TeacherService: Fetching active teachers...');
+
       final response = await _supabase
           .from('teachers')
           .select('*, profiles!inner(email, full_name, phone)')
           .eq('is_active', true)
           .order('last_name');
 
-      print('✅ TeacherService: Received ${(response as List).length} teachers');
+      // print('✅ TeacherService: Received ${response.length} teachers');
 
       return (response as List).map((json) {
         // Merge teacher data with profile data
@@ -32,7 +32,7 @@ class TeacherService {
           teacherData['full_name'] = json['profiles']['full_name'];
           teacherData['phone'] = json['profiles']['phone'];
         }
-        print('📝 Teacher: ${teacherData['full_name'] ?? teacherData['first_name']} ${teacherData['last_name']}');
+        // print('📝 Teacher: ${teacherData['full_name'] ?? teacherData['first_name']} ${teacherData['last_name']}');
         return Teacher.fromMap(teacherData);
       }).toList();
     } catch (e) {
@@ -147,16 +147,22 @@ class TeacherService {
   }
 
   /// Get grade coordinators
+  /// Fetches teachers who have the grade_coordinator role (role_id = 6)
   Future<List<Teacher>> getGradeCoordinators() async {
     try {
+      // Use PostgREST syntax to filter on joined table
       final response = await _supabase
           .from('teachers')
-          .select('*, profiles!inner(email, full_name, phone)')
-          .eq('is_grade_coordinator', true)
+          .select('*, profiles!inner(email, full_name, phone, role_id)')
           .eq('is_active', true)
-          .order('coordinator_grade_level');
+          .order('last_name');
 
-      return (response as List).map((json) {
+      // Filter in Dart for teachers with role_id = 6
+      final coordinators = (response as List).where((json) {
+        return json['profiles'] != null && json['profiles']['role_id'] == 6;
+      }).toList();
+
+      return coordinators.map((json) {
         final teacherData = Map<String, dynamic>.from(json);
         if (json['profiles'] != null) {
           teacherData['email'] = json['profiles']['email'];
@@ -254,7 +260,9 @@ class TeacherService {
     try {
       final response = await _supabase
           .from('course_assignments')
-          .select('teacher_id, teachers!inner(*, profiles!inner(email, full_name, phone))')
+          .select(
+            'teacher_id, teachers!inner(*, profiles!inner(email, full_name, phone))',
+          )
           .eq('course_id', courseId)
           .eq('status', 'active');
 
@@ -264,7 +272,8 @@ class TeacherService {
           final teacherData = Map<String, dynamic>.from(item['teachers']);
           if (item['teachers']['profiles'] != null) {
             teacherData['email'] = item['teachers']['profiles']['email'];
-            teacherData['full_name'] = item['teachers']['profiles']['full_name'];
+            teacherData['full_name'] =
+                item['teachers']['profiles']['full_name'];
             teacherData['phone'] = item['teachers']['profiles']['phone'];
           }
           teachers.add(Teacher.fromMap(teacherData));
@@ -312,12 +321,12 @@ class TeacherService {
   // ============================================
 
   /// Update teacher information
-  Future<void> updateTeacher(String teacherId, Map<String, dynamic> updates) async {
+  Future<void> updateTeacher(
+    String teacherId,
+    Map<String, dynamic> updates,
+  ) async {
     try {
-      await _supabase
-          .from('teachers')
-          .update(updates)
-          .eq('id', teacherId);
+      await _supabase.from('teachers').update(updates).eq('id', teacherId);
     } catch (e) {
       print('Error updating teacher: $e');
       rethrow;

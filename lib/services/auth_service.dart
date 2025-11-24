@@ -99,9 +99,12 @@ class AuthService {
     bool requireAdmin = false,
   }) async {
     try {
+      print('═══════════════════════════════════════════════════════════');
       print('[AUTH] Starting Azure AD authentication...');
       print('[AUTH] Tenant ID: ${Environment.azureTenantId}');
       print('[AUTH] Client ID: ${Environment.azureClientId}');
+      print('[AUTH] Require Admin: $requireAdmin');
+      print('═══════════════════════════════════════════════════════════');
 
       // Dynamically get the current URL - works with ANY port
       final currentUrl = Uri.base.toString();
@@ -417,17 +420,45 @@ class AuthService {
     try {
       final user = session.user;
 
+      print('═══════════════════════════════════════════════════════════');
       print('🔍 DEBUG: Creating/updating profile');
+      print('═══════════════════════════════════════════════════════════');
       print('🔍 User ID: ${user.id}');
-      print('🔍 User Email: ${user.email ?? "NULL"}');
+      print('🔍 User Email: ${user.email ?? "❌ NULL"}');
+      print('🔍 User Phone: ${user.phone ?? "NULL"}');
+      print('🔍 User Created At: ${user.createdAt}');
       print(
         '🔍 Session Access Token: ${session.accessToken.substring(0, 50)}...',
       );
-      print('🔍 User Metadata: ${user.userMetadata}');
-      print('🔍 User App Metadata: ${user.appMetadata}');
-      print(
-        '🔍 User Identities: ${user.identities?.map((i) => {'provider': i.provider, 'id': i.id, 'identity_data': i.identityData}).toList()}',
-      );
+      print('═══════════════════════════════════════════════════════════');
+      print('🔍 User Metadata:');
+      print('   ${user.userMetadata}');
+      print('═══════════════════════════════════════════════════════════');
+      print('🔍 User App Metadata:');
+      print('   ${user.appMetadata}');
+      print('═══════════════════════════════════════════════════════════');
+      print('🔍 User Identities:');
+      if (user.identities != null && user.identities!.isNotEmpty) {
+        for (var i = 0; i < user.identities!.length; i++) {
+          final identity = user.identities![i];
+          print('   Identity #$i:');
+          print('     Provider: ${identity.provider}');
+          print('     ID: ${identity.id}');
+          print('     Created At: ${identity.createdAt}');
+          print('     Updated At: ${identity.updatedAt}');
+          print('     Identity Data:');
+          if (identity.identityData != null) {
+            identity.identityData!.forEach((key, value) {
+              print('       $key: $value');
+            });
+          } else {
+            print('       ❌ NULL');
+          }
+        }
+      } else {
+        print('   ❌ NULL or EMPTY');
+      }
+      print('═══════════════════════════════════════════════════════════');
 
       // Detect auth provider (e.g., 'google', 'azure', 'email')
       final authProvider = user.appMetadata['provider'] as String?;
