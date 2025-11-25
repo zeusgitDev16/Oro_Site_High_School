@@ -11,10 +11,8 @@ import 'package:oro_site_high_school/screens/teacher/messaging/messages_screen.d
 import 'package:oro_site_high_school/screens/teacher/messaging/notifications_screen.dart';
 import 'package:oro_site_high_school/screens/teacher/reports/reports_main_screen.dart';
 import 'package:oro_site_high_school/screens/teacher/profile/teacher_profile_screen.dart';
-import 'package:oro_site_high_school/screens/teacher/coordinator/coordinator_dashboard_screen.dart';
 import 'package:oro_site_high_school/screens/teacher/help/teacher_help_screen.dart';
 import 'package:oro_site_high_school/screens/admin/dialogs/logout_dialog.dart';
-import 'package:oro_site_high_school/screens/teacher/requests/my_requests_screen.dart';
 
 class TeacherDashboardScreen extends StatefulWidget {
   const TeacherDashboardScreen({super.key});
@@ -93,14 +91,13 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen>
                 _buildNavItem(Icons.grade, 'Grades', 3),
                 _buildNavItem(Icons.fact_check, 'Attendance', 4),
                 _buildNavItem(Icons.assignment, 'Assignments', 5),
-                _buildNavItem(Icons.inbox, 'My Requests', 6),
-                _buildNavItem(Icons.insert_chart, 'Reports', 7),
+                _buildNavItem(Icons.insert_chart, 'Reports', 6),
               ],
             ),
           ),
           const Divider(color: Colors.white24, height: 1),
-          _buildNavItem(Icons.person, 'Profile', 8),
-          _buildNavItem(Icons.help_outline, 'Help', 9),
+          _buildNavItem(Icons.person, 'Profile', 7),
+          _buildNavItem(Icons.help_outline, 'Help', 8),
         ],
       ),
     );
@@ -176,12 +173,6 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen>
               ),
             );
           } else if (index == 6) {
-            // My Requests
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const MyRequestsScreen()),
-            );
-          } else if (index == 7) {
             // Reports
             Navigator.push(
               context,
@@ -189,7 +180,7 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen>
                 builder: (context) => const ReportsMainScreen(),
               ),
             );
-          } else if (index == 8) {
+          } else if (index == 7) {
             // Profile
             Navigator.push(
               context,
@@ -197,7 +188,7 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen>
                 builder: (context) => const TeacherProfileScreen(),
               ),
             );
-          } else if (index == 9) {
+          } else if (index == 8) {
             // Help
             Navigator.push(
               context,
@@ -453,28 +444,6 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen>
                   '${data['attendanceRate']}',
                   Icons.fact_check,
                   Colors.purple,
-                ),
-                const Divider(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) =>
-                              const CoordinatorDashboardScreen(),
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.admin_panel_settings, size: 16),
-                    label: const Text('Coordinator Mode'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.purple,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                  ),
                 ),
               ],
             ),
