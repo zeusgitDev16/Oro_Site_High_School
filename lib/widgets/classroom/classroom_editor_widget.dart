@@ -3,10 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:oro_site_high_school/models/teacher.dart';
 import 'package:oro_site_high_school/models/classroom_subject.dart';
 import 'package:oro_site_high_school/services/classroom_subject_service.dart';
 import 'package:oro_site_high_school/services/teacher_service.dart';
+import 'package:oro_site_high_school/widgets/classroom/subject_resources_content.dart';
 
 /// Custom formatter to capitalize the first letter
 class CapitalizeFirstLetterFormatter extends TextInputFormatter {
@@ -1767,7 +1769,7 @@ class _AddSubjectDialogState extends State<_AddSubjectDialog> {
         height: dialogHeight,
         child: Column(
           children: [
-            // Header with title and close button
+            // Header with mode indicator and close button
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
@@ -1779,17 +1781,65 @@ class _AddSubjectDialogState extends State<_AddSubjectDialog> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    widget.isJHS
-                        ? 'Junior High School'
-                        : widget.isSHS
-                        ? 'Senior High School'
-                        : 'Add Subject',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                    ),
+                  Row(
+                    children: [
+                      Icon(
+                        widget.isCreateMode
+                            ? Icons.add_circle_outline
+                            : Icons.edit_outlined,
+                        size: 20,
+                        color: widget.isCreateMode
+                            ? Colors.green.shade700
+                            : Colors.blue.shade700,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        widget.isCreateMode
+                            ? 'Create Classroom'
+                            : 'Edit Classroom',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: widget.isCreateMode
+                              ? Colors.green.shade900
+                              : Colors.blue.shade900,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      // School level badge
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: widget.isJHS
+                              ? Colors.blue.shade50
+                              : Colors.purple.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: widget.isJHS
+                                ? Colors.blue.shade200
+                                : Colors.purple.shade200,
+                            width: 1,
+                          ),
+                        ),
+                        child: Text(
+                          widget.isJHS
+                              ? 'JHS'
+                              : widget.isSHS
+                              ? 'SHS'
+                              : '',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: widget.isJHS
+                                ? Colors.blue.shade700
+                                : Colors.purple.shade700,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   IconButton(
                     icon: const Icon(Icons.close, size: 20),
@@ -1892,99 +1942,85 @@ class _AddSubjectDialogState extends State<_AddSubjectDialog> {
   /// Build subject details view
   Widget _buildSubjectDetails(String subjectName) {
     final subjects = _existingSubjects[subjectName];
-    final subject = subjects != null && subjects.isNotEmpty
-        ? subjects.first
-        : null;
+    ClassroomSubject subject;
+
+    // If subject doesn't exist yet, create a temporary one for display
+    if (subjects == null || subjects.isEmpty) {
+      print(
+        '⚠️ [SUBJECT DETAILS] Subject "$subjectName" not in _existingSubjects, creating temporary subject',
+      );
+
+      final now = DateTime.now();
+      // Create a temporary subject for display purposes
+      subject = ClassroomSubject(
+        id: 'temp_${now.millisecondsSinceEpoch}',
+        classroomId: widget.classroomId ?? 'temp',
+        subjectName: subjectName,
+        teacherId: null,
+        parentSubjectId: null,
+        isActive: true,
+        createdAt: now,
+        updatedAt: now,
+      );
+
+      print('   Created temporary subject with ID: ${subject.id}');
+    } else {
+      subject = subjects.first;
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Subject header
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.blue.shade50,
-            border: Border(
-              bottom: BorderSide(color: Colors.blue.shade100, width: 1),
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.book, size: 20, color: Colors.blue.shade700),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      subjectName,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.blue.shade900,
-                      ),
-                    ),
-                    if (subject?.teacherId != null) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        'Teacher: ${_getTeacherName(subject!.teacherId!)}',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.blue.shade700,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        // Subject content area
+        // Subject resources content (Content 2) - ALWAYS RENDER
         Expanded(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Modules & Files',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade800,
+          child: FutureBuilder<String?>(
+            future: _getUserRoleOnce(),
+            builder: (context, snapshot) {
+              // Show loading only briefly
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(
+                  child: SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
                   ),
-                ),
-                const SizedBox(height: 12),
-                // Placeholder for modules
-                Expanded(
-                  child: Center(
-                    child: Text(
-                      'No modules added yet',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade500,
-                      ),
-                    ),
+                );
+              }
+
+              // Handle error case
+              if (snapshot.hasError) {
+                print(
+                  '⚠️ [ROLE FETCH] Error fetching user role: ${snapshot.error}',
+                );
+                return Center(
+                  child: Text(
+                    'Error loading user permissions',
+                    style: TextStyle(fontSize: 12, color: Colors.red.shade600),
                   ),
-                ),
-              ],
-            ),
+                );
+              }
+
+              final userRole = snapshot.data;
+              final isAdmin = _isAdminRole(userRole);
+
+              print('✅ [SUBJECT DETAILS] Rendering SubjectResourcesContent');
+              print('   Subject: ${subject.subjectName}');
+              print('   User Role: $userRole');
+              print('   Is Admin: $isAdmin');
+
+              return SubjectResourcesContent(
+                subject: subject,
+                classroomId: widget.classroomId ?? 'temp',
+                isCreateMode: widget.classroomId == null,
+                isAdmin: isAdmin,
+                currentUserId: Supabase.instance.client.auth.currentUser?.id,
+                userRole: userRole,
+              );
+            },
           ),
         ),
       ],
     );
-  }
-
-  /// Get teacher name by ID
-  String _getTeacherName(String teacherId) {
-    try {
-      final teacher = _availableTeachers.firstWhere((t) => t.id == teacherId);
-      return teacher.displayName;
-    } catch (e) {
-      return 'Unknown Teacher';
-    }
   }
 
   Widget _buildSubjectItem(String subject) {
@@ -2435,5 +2471,31 @@ class _AddSubjectDialogState extends State<_AddSubjectDialog> {
 
     print('🔍 [GET-SUBS] Total sub-subjects found: ${subSubjects.length}');
     return subSubjects;
+  }
+
+  /// Get user role once (simple, no caching needed - AuthGate already handles this)
+  Future<String?> _getUserRoleOnce() async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return null;
+
+      final response = await Supabase.instance.client
+          .from('profiles')
+          .select('role_id, roles(name)')
+          .eq('id', userId)
+          .maybeSingle();
+
+      return response?['roles']?['name'];
+    } catch (e) {
+      print('Error fetching user role: $e');
+      return null;
+    }
+  }
+
+  /// Simple check if user has admin-like permissions
+  bool _isAdminRole(String? userRole) {
+    if (userRole == null) return false;
+    final role = userRole.toLowerCase();
+    return role == 'admin' || role == 'ict_coordinator' || role == 'hybrid';
   }
 }

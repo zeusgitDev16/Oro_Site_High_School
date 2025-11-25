@@ -1,13 +1,20 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:oro_site_high_school/screens/admin/admin_dashboard_screen.dart';
 import 'package:oro_site_high_school/services/teacher_service.dart';
 import 'package:oro_site_high_school/services/grade_coordinator_service.dart';
 import 'package:oro_site_high_school/services/classroom_service.dart';
+import 'package:oro_site_high_school/services/classroom_subject_service.dart';
 import 'package:oro_site_high_school/services/school_year_service.dart';
+import 'package:oro_site_high_school/services/subject_resource_service.dart';
+import 'package:oro_site_high_school/services/temporary_resource_storage.dart';
 import 'package:oro_site_high_school/models/teacher.dart';
 import 'package:oro_site_high_school/models/classroom.dart';
+import 'package:oro_site_high_school/models/classroom_subject.dart';
 import 'package:oro_site_high_school/models/school_year_simple.dart';
+import 'package:oro_site_high_school/models/subject_resource.dart';
 import 'package:oro_site_high_school/widgets/classroom/classroom_editor_widget.dart';
 import 'package:oro_site_high_school/widgets/classroom/classroom_settings_sidebar.dart';
 import 'package:oro_site_high_school/widgets/classroom/classroom_left_sidebar_stateful.dart';
@@ -2618,6 +2625,255 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
     }
   }
 
+  /// Upload temporary subjects and resources to Supabase after classroom creation
+  Future<void> _uploadTemporarySubjectsAndResources(String classroomId) async {
+    try {
+      print(
+        '📤 [UPLOAD] Starting upload of temporary subjects and resources...',
+      );
+
+      // Step 1: Upload temporary subjects and build ID mapping
+      final subjectIdMapping = await _uploadTemporarySubjects(classroomId);
+
+      // Step 2: Upload temporary resources using the subject ID mapping
+      await _uploadTemporaryResources(classroomId, subjectIdMapping);
+
+      print('📤 [UPLOAD] ✅ Complete: All temporary data uploaded');
+    } catch (e) {
+      print('❌ [UPLOAD] Error uploading temporary data: $e');
+      // Don't throw - we don't want to fail classroom creation
+    }
+  }
+
+  /// Upload temporary subjects from SharedPreferences to database
+  Future<Map<String, String>> _uploadTemporarySubjects(
+    String classroomId,
+  ) async {
+    final subjectIdMapping = <String, String>{};
+
+    try {
+      print('📤 [SUBJECT UPLOAD] Starting upload of temporary subjects...');
+
+      final prefs = await SharedPreferences.getInstance();
+      final String? subjectsJson = prefs.getString('temp_classroom_subjects');
+
+      if (subjectsJson == null) {
+        print('📤 [SUBJECT UPLOAD] No temporary subjects to upload');
+        return subjectIdMapping;
+      }
+
+      final Map<String, dynamic> decoded = json.decode(subjectsJson);
+      final subjectService = ClassroomSubjectService();
+
+      int totalUploaded = 0;
+      int totalFailed = 0;
+
+      // First pass: Upload parent subjects (no parentSubjectId)
+      for (final entry in decoded.entries) {
+        final subjectName = entry.key;
+        final List<dynamic> subjectsList = entry.value;
+
+        for (final subjectJson in subjectsList) {
+          final tempSubject = ClassroomSubject.fromJson(subjectJson);
+
+          // Skip sub-subjects in first pass
+          if (tempSubject.parentSubjectId != null) continue;
+
+          try {
+            final newSubject = await subjectService.addSubject(
+              classroomId: classroomId,
+              subjectName: tempSubject.subjectName,
+              teacherId: tempSubject.teacherId,
+            );
+
+            // Map temp ID to real ID
+            subjectIdMapping[tempSubject.id] = newSubject.id;
+            totalUploaded++;
+
+            print('   ✅ Uploaded parent subject: ${tempSubject.subjectName}');
+          } catch (e) {
+            print('   ❌ Failed to upload ${tempSubject.subjectName}: $e');
+            totalFailed++;
+          }
+        }
+      }
+
+      // Second pass: Upload sub-subjects (with parentSubjectId)
+      for (final entry in decoded.entries) {
+        final List<dynamic> subjectsList = entry.value;
+
+        for (final subjectJson in subjectsList) {
+          final tempSubject = ClassroomSubject.fromJson(subjectJson);
+
+          // Only process sub-subjects in second pass
+          if (tempSubject.parentSubjectId == null) continue;
+
+          try {
+            // Get the real parent ID from mapping
+            final realParentId = subjectIdMapping[tempSubject.parentSubjectId];
+            if (realParentId == null) {
+              print(
+                '   ⚠️ No parent mapping for ${tempSubject.subjectName}, skipping',
+              );
+              totalFailed++;
+              continue;
+            }
+
+            final newSubject = await subjectService.addSubject(
+              classroomId: classroomId,
+              subjectName: tempSubject.subjectName,
+              teacherId: tempSubject.teacherId,
+              parentSubjectId: realParentId,
+            );
+
+            // Map temp ID to real ID
+            subjectIdMapping[tempSubject.id] = newSubject.id;
+            totalUploaded++;
+
+            print('   ✅ Uploaded sub-subject: ${tempSubject.subjectName}');
+          } catch (e) {
+            print('   ❌ Failed to upload ${tempSubject.subjectName}: $e');
+            totalFailed++;
+          }
+        }
+      }
+
+      print(
+        '📤 [SUBJECT UPLOAD] ✅ Complete: $totalUploaded uploaded, $totalFailed failed',
+      );
+
+      // Clear temporary subjects after successful upload
+      if (totalUploaded > 0) {
+        await prefs.remove('temp_classroom_subjects');
+        print('🗑️ [SUBJECT UPLOAD] Temporary subjects cleared');
+      }
+
+      return subjectIdMapping;
+    } catch (e) {
+      print('❌ [SUBJECT UPLOAD] Error uploading temporary subjects: $e');
+      return subjectIdMapping;
+    }
+  }
+
+  /// Upload temporary resources to Supabase after classroom creation
+  Future<void> _uploadTemporaryResources(
+    String classroomId,
+    Map<String, String> subjectIdMapping,
+  ) async {
+    try {
+      print('📤 [RESOURCE UPLOAD] Starting upload of temporary resources...');
+
+      final tempStorage = TemporaryResourceStorage();
+      final resourceService = SubjectResourceService();
+      final currentUser = _supabase.auth.currentUser;
+
+      if (currentUser == null) {
+        throw Exception('User not authenticated');
+      }
+
+      // Load all temporary resources
+      final resourcesBySubject = await tempStorage.getAllResources();
+
+      if (resourcesBySubject.isEmpty) {
+        print('📤 [RESOURCE UPLOAD] No temporary resources to upload');
+        return;
+      }
+
+      int totalUploaded = 0;
+      int totalFailed = 0;
+
+      // Upload resources for each subject
+      for (final entry in resourcesBySubject.entries) {
+        final tempSubjectId = entry.key;
+        final resources = entry.value;
+
+        // Get the real subject ID from the mapping
+        final realSubjectId = subjectIdMapping[tempSubjectId];
+        if (realSubjectId == null) {
+          print(
+            '⚠️ [RESOURCE UPLOAD] No mapping found for temp subject: $tempSubjectId',
+          );
+          totalFailed += resources.length;
+          continue;
+        }
+
+        print(
+          '📤 [RESOURCE UPLOAD] Uploading ${resources.length} resources for subject: $realSubjectId',
+        );
+
+        // Upload each resource
+        for (final tempResource in resources) {
+          try {
+            // Check if file still exists
+            final file = File(tempResource.filePath);
+            if (!await file.exists()) {
+              print(
+                '⚠️ [RESOURCE UPLOAD] File not found: ${tempResource.filePath}',
+              );
+              totalFailed++;
+              continue;
+            }
+
+            // Upload file to Supabase Storage
+            final fileUrl = await resourceService.uploadFile(
+              file: file,
+              classroomId: classroomId,
+              subjectId: realSubjectId,
+              quarter: tempResource.quarter,
+              resourceType: tempResource.resourceType,
+            );
+
+            // Create resource record in database
+            final resource = SubjectResource(
+              id: '',
+              subjectId: realSubjectId,
+              resourceName: tempResource.resourceName,
+              resourceType: tempResource.resourceType,
+              quarter: tempResource.quarter,
+              fileUrl: fileUrl,
+              fileName: tempResource.fileName,
+              fileSize: tempResource.fileSize,
+              fileType: tempResource.fileType,
+              version: 1,
+              isLatestVersion: true,
+              previousVersionId: null,
+              displayOrder: 0,
+              description: tempResource.description,
+              isActive: true,
+              createdAt: DateTime.now(),
+              updatedAt: DateTime.now(),
+              createdBy: currentUser.id,
+              uploadedBy: currentUser.id,
+            );
+
+            await resourceService.createResource(resource);
+            totalUploaded++;
+
+            print(
+              '   ✅ Uploaded: ${tempResource.resourceName} (Q${tempResource.quarter})',
+            );
+          } catch (e) {
+            print('   ❌ Failed to upload ${tempResource.resourceName}: $e');
+            totalFailed++;
+          }
+        }
+      }
+
+      print(
+        '📤 [RESOURCE UPLOAD] ✅ Complete: $totalUploaded uploaded, $totalFailed failed',
+      );
+
+      // Clear temporary resources after successful upload
+      if (totalUploaded > 0) {
+        await tempStorage.clearAll();
+        print('🗑️ [RESOURCE UPLOAD] Temporary resources cleared');
+      }
+    } catch (e) {
+      print('❌ [RESOURCE UPLOAD] Error uploading temporary resources: $e');
+      // Don't throw - we don't want to fail classroom creation if resource upload fails
+    }
+  }
+
   /// Save classroom (create new or update existing)
   Future<void> _saveClassroom() async {
     // Validate required fields
@@ -2683,6 +2939,11 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
           advisoryTeacherId: _selectedAdvisoryTeacher?.id,
         );
 
+        print('✅ Classroom created successfully: ${newClassroom.id}');
+
+        // Upload temporary subjects and resources to database
+        await _uploadTemporarySubjectsAndResources(newClassroom.id);
+
         // Add to local list
         setState(() {
           _allClassrooms.add(newClassroom);
@@ -2693,8 +2954,6 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
 
         // Clear draft after successful creation
         await _clearDraftClassroom();
-
-        print('✅ Classroom created successfully: ${newClassroom.id}');
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
