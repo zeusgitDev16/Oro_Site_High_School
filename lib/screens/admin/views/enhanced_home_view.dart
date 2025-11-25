@@ -3,6 +3,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:oro_site_high_school/services/backend_service.dart';
 import '../users/manage_users_screen.dart';
 
 class EnhancedHomeView extends StatefulWidget {
@@ -13,16 +14,42 @@ class EnhancedHomeView extends StatefulWidget {
 }
 
 class _EnhancedHomeViewState extends State<EnhancedHomeView> {
-  // Statistics data (would come from backend)
-  final int totalStudents = 1250;
-  final int totalTeachers = 45;
-  final int totalParents = 980;
-  final int activeCourses = 32;
-  final double attendanceRate = 92.5;
-  final double averageGrade = 85.3;
+  // Statistics data
+  int totalStudents = 0;
+  int totalTeachers = 0;
+  int totalParents = 0;
+  int activeCourses = 0;
+  double attendanceRate = 0.0;
+  double averageGrade = 0.0;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStats();
+  }
+
+  Future<void> _loadStats() async {
+    final stats = await BackendService().getSystemStats();
+    if (mounted) {
+      setState(() {
+        totalStudents = stats['totalStudents'] as int;
+        totalTeachers = stats['totalTeachers'] as int;
+        totalParents = stats['totalParents'] as int;
+        activeCourses = stats['activeCourses'] as int;
+        attendanceRate = stats['attendanceRate'] as double;
+        averageGrade = stats['averageGrade'] as double;
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
       body: SingleChildScrollView(

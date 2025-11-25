@@ -545,4 +545,53 @@ class AssignmentService {
       rethrow;
     }
   }
+
+  /// Get pending grading count for a teacher
+  Future<int> getPendingGradingCount(String teacherId) async {
+    try {
+      // Get assignments by this teacher
+      final assignments = await _supabase
+          .from('assignments')
+          .select('id')
+          .eq('teacher_id', teacherId);
+
+      if ((assignments as List).isEmpty) return 0;
+
+      final assignmentIds = assignments.map((a) => a['id']).toList();
+
+      // Get submitted submissions for these assignments
+      final response = await _supabase
+          .from('assignment_submissions')
+          .count()
+          .filter('assignment_id', 'in', assignmentIds)
+          .eq('status', 'submitted'); // submitted means pending grading
+
+      return response;
+    } catch (e) {
+      print('❌ Error getting pending grading count: $e');
+      return 0;
+    }
+  }
+
+  /// Get upcoming deadlines for a teacher's assignments
+  Future<List<Map<String, dynamic>>> getTeacherUpcomingDeadlines(
+    String teacherId,
+  ) async {
+    try {
+      final now = DateTime.now();
+      final response = await _supabase
+          .from('assignments')
+          .select()
+          .eq('teacher_id', teacherId)
+          .eq('is_active', true)
+          .gte('due_date', now.toIso8601String())
+          .order('due_date', ascending: true)
+          .limit(5);
+
+      return List<Map<String, dynamic>>.from(response as List);
+    } catch (e) {
+      print('❌ Error fetching teacher upcoming deadlines: $e');
+      return [];
+    }
+  }
 }

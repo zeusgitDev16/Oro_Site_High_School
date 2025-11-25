@@ -18,7 +18,7 @@ class _StudentCalendarWidgetState extends State<StudentCalendarWidget> {
   DateTime? _selectedDay;
 
   // Calendar events - will be populated from database
-  final Map<DateTime, List<String>> _mockEvents = {};
+  final Map<DateTime, List<String>> _events = {};
 
   @override
   void initState() {
@@ -36,7 +36,7 @@ class _StudentCalendarWidgetState extends State<StudentCalendarWidget> {
   }
 
   List<String> _getEventsForDay(DateTime day) {
-    return _mockEvents[DateTime.utc(day.year, day.month, day.day)] ?? [];
+    return _events[DateTime.utc(day.year, day.month, day.day)] ?? [];
   }
 
   void _onDaySelected(DateTime selectedDay, DateTime focusedDay) {

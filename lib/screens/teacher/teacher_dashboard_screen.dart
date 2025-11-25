@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:oro_site_high_school/flow/teacher/teacher_dashboard_logic.dart';
 import 'package:oro_site_high_school/screens/teacher/views/teacher_home_view.dart';
-import 'package:oro_site_high_school/screens/teacher/views/teacher_analytics_view.dart';
-import 'package:oro_site_high_school/screens/teacher/views/teacher_calendar_view.dart';
 import 'package:oro_site_high_school/screens/teacher/widgets/teacher_calendar_widget.dart';
 import 'package:oro_site_high_school/screens/teacher/courses/my_courses_screen.dart';
 import 'package:oro_site_high_school/screens/teacher/classroom/my_classroom_screen.dart';
@@ -26,20 +25,22 @@ class TeacherDashboardScreen extends StatefulWidget {
 
 class _TeacherDashboardScreenState extends State<TeacherDashboardScreen>
     with TickerProviderStateMixin {
+  final TeacherDashboardLogic _logic = TeacherDashboardLogic();
   int _sideNavIndex = 0;
   late TabController _tabController;
-  int _notificationUnreadCount = 5;
-  int _messageUnreadCount = 3;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 1, vsync: this);
+    _logic.loadTeacherProfile();
+    _logic.loadDashboardData();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _logic.dispose();
     super.dispose();
   }
 
@@ -223,11 +224,7 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen>
                 child: TabBar(
                   controller: _tabController,
                   isScrollable: true,
-                  tabs: const [
-                    Tab(text: 'Dashboard'),
-                    Tab(text: 'Analytics'),
-                    Tab(text: 'Schedule'),
-                  ],
+                  tabs: const [Tab(text: 'Dashboard')],
                 ),
               ),
               Container(
@@ -257,11 +254,7 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen>
       ),
       body: TabBarView(
         controller: _tabController,
-        children: const [
-          TeacherHomeView(),
-          TeacherAnalyticsView(),
-          TeacherCalendarView(),
-        ],
+        children: [TeacherHomeView(logic: _logic)],
       ),
     );
   }
@@ -276,92 +269,113 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              Stack(
-                children: [
-                  IconButton(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const NotificationsScreen(),
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.notifications_none),
-                    tooltip: 'Notifications',
-                  ),
-                  if (_notificationUnreadCount > 0)
-                    Positioned(
-                      right: 8,
-                      top: 8,
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: const BoxDecoration(
-                          color: Colors.red,
-                          shape: BoxShape.circle,
-                        ),
-                        constraints: const BoxConstraints(
-                          minWidth: 18,
-                          minHeight: 18,
-                        ),
-                        child: Text(
-                          '$_notificationUnreadCount',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
+              ListenableBuilder(
+                listenable: _logic,
+                builder: (context, _) {
+                  return Stack(
+                    children: [
+                      IconButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const NotificationsScreen(),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.notifications_none),
+                        tooltip: 'Notifications',
                       ),
-                    ),
-                ],
+                      if (_logic.notificationUnreadCount > 0)
+                        Positioned(
+                          right: 8,
+                          top: 8,
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: const BoxDecoration(
+                              color: Colors.red,
+                              shape: BoxShape.circle,
+                            ),
+                            constraints: const BoxConstraints(
+                              minWidth: 18,
+                              minHeight: 18,
+                            ),
+                            child: Text(
+                              '${_logic.notificationUnreadCount}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
               ),
-              Stack(
-                children: [
-                  IconButton(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const MessagesScreen(),
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.mail_outline),
-                    tooltip: 'Messages',
-                  ),
-                  if (_messageUnreadCount > 0)
-                    Positioned(
-                      right: 8,
-                      top: 8,
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: const BoxDecoration(
-                          color: Colors.blue,
-                          shape: BoxShape.circle,
-                        ),
-                        constraints: const BoxConstraints(
-                          minWidth: 18,
-                          minHeight: 18,
-                        ),
-                        child: Text(
-                          '$_messageUnreadCount',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
+              ListenableBuilder(
+                listenable: _logic,
+                builder: (context, _) {
+                  return Stack(
+                    children: [
+                      IconButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const MessagesScreen(),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.mail_outline),
+                        tooltip: 'Messages',
                       ),
-                    ),
-                ],
+                      if (_logic.messageUnreadCount > 0)
+                        Positioned(
+                          right: 8,
+                          top: 8,
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: const BoxDecoration(
+                              color: Colors.blue,
+                              shape: BoxShape.circle,
+                            ),
+                            constraints: const BoxConstraints(
+                              minWidth: 18,
+                              minHeight: 18,
+                            ),
+                            child: Text(
+                              '${_logic.messageUnreadCount}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
               ),
               const SizedBox(width: 16),
-              const Text(
-                'Maria Santos',
-                style: TextStyle(fontWeight: FontWeight.bold),
+              ListenableBuilder(
+                listenable: _logic,
+                builder: (context, _) {
+                  final teacherData = _logic.teacherData;
+                  final firstName = teacherData['firstName']?.toString() ?? '';
+                  final lastName = teacherData['lastName']?.toString() ?? '';
+                  final displayName = firstName.isEmpty && lastName.isEmpty
+                      ? 'Teacher'
+                      : '$firstName $lastName'.trim();
+                  return Text(
+                    displayName,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  );
+                },
               ),
               const SizedBox(width: 8),
               _buildProfileAvatarWithDropdown(),
@@ -385,56 +399,88 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen>
   }
 
   Widget _buildQuickStatsCard() {
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    return ListenableBuilder(
+      listenable: _logic,
+      builder: (context, _) {
+        final data = _logic.dashboardData;
+        return Card(
+          elevation: 1,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.analytics, color: Colors.blue.shade700),
-                const SizedBox(width: 8),
-                const Text(
-                  'Quick Stats',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                Row(
+                  children: [
+                    Icon(Icons.analytics, color: Colors.blue.shade700),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Quick Stats',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const Divider(height: 24),
+                _buildStatRow(
+                  'Courses',
+                  '${data['activeCourses']}',
+                  Icons.school,
+                  Colors.blue,
+                ),
+                const SizedBox(height: 8),
+                _buildStatRow(
+                  'Students',
+                  '${data['totalStudents']}',
+                  Icons.people,
+                  Colors.green,
+                ),
+                const SizedBox(height: 8),
+                _buildStatRow(
+                  'Assignments',
+                  '${data['pendingAssignments']}',
+                  Icons.assignment,
+                  Colors.orange,
+                ),
+                const SizedBox(height: 8),
+                _buildStatRow(
+                  'Attendance',
+                  '${data['attendanceRate']}',
+                  Icons.fact_check,
+                  Colors.purple,
+                ),
+                const Divider(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) =>
+                              const CoordinatorDashboardScreen(),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.admin_panel_settings, size: 16),
+                    label: const Text('Coordinator Mode'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.purple,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
                 ),
               ],
             ),
-            const Divider(height: 24),
-            _buildStatRow('Courses', '2', Icons.school, Colors.blue),
-            const SizedBox(height: 8),
-            _buildStatRow('Students', '35', Icons.people, Colors.green),
-            const SizedBox(height: 8),
-            _buildStatRow('Assignments', '8', Icons.assignment, Colors.orange),
-            const SizedBox(height: 8),
-            _buildStatRow('Pending Grades', '12', Icons.grade, Colors.red),
-            const Divider(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const CoordinatorDashboardScreen(),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.admin_panel_settings, size: 16),
-                label: const Text('Coordinator Mode'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.purple,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -458,31 +504,56 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen>
   }
 
   Widget _buildToDoCard() {
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    return ListenableBuilder(
+      listenable: _logic,
+      builder: (context, _) {
+        final upcomingClasses =
+            _logic.dashboardData['upcomingClasses'] as List? ?? [];
+
+        return Card(
+          elevation: 1,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.check_circle_outline, color: Colors.grey.shade600),
-                const SizedBox(width: 8),
-                const Text(
-                  'To-Do',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.check_circle_outline,
+                      color: Colors.grey.shade600,
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Upcoming Classes',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
                 ),
+                const Divider(height: 24),
+                if (upcomingClasses.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8.0),
+                    child: Text(
+                      'No upcoming classes today',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  )
+                else
+                  ...upcomingClasses
+                      .map((item) => _buildToDoItem(item.toString()))
+                      .toList(),
               ],
             ),
-            const Divider(height: 24),
-            _buildToDoItem('Grade Math 7 Quiz 3'),
-            _buildToDoItem('Upload Science 7 Module 4'),
-            _buildToDoItem('Create attendance session'),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -518,9 +589,17 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen>
                 builder: (context) => const TeacherProfileScreen(),
               ),
             ),
-            child: const CircleAvatar(
-              radius: 16,
-              child: Text('MS', style: TextStyle(fontSize: 12)),
+            child: ListenableBuilder(
+              listenable: _logic,
+              builder: (context, _) {
+                return CircleAvatar(
+                  radius: 16,
+                  child: Text(
+                    _logic.getInitials(),
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                );
+              },
             ),
           ),
           // Dropdown button beside avatar

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:oro_site_high_school/services/backend_service.dart';
 import 'package:oro_site_high_school/services/classroom_service.dart';
 import 'package:oro_site_high_school/services/assignment_service.dart';
+import 'package:oro_site_high_school/services/course_schedule_service.dart';
 
 /// Interactive logic for Student Dashboard
 /// Handles state management, navigation, and data operations
@@ -145,9 +146,33 @@ class StudentDashboardLogic extends ChangeNotifier {
     String classroomId,
   ) async {
     try {
-      // For now, return empty list as we need course schedule implementation
-      // TODO: Implement course schedule fetching for today
-      return [];
+      final classroomService = ClassroomService();
+      final courseScheduleService = CourseScheduleService();
+
+      // Get courses for this classroom
+      final courses = await classroomService.getClassroomCourses(classroomId);
+      if (courses.isEmpty) return [];
+
+      final courseIds = courses
+          .map((c) => int.tryParse(c.id) ?? 0)
+          .where((id) => id > 0)
+          .toList();
+
+      // Get today's schedules
+      final schedules = await courseScheduleService
+          .getUpcomingClassesForCourses(courseIds);
+
+      return schedules.map((s) {
+        final course = courses.firstWhere((c) => c.id == s.courseId.toString());
+        return {
+          'id': s.id,
+          'subject': course.title,
+          'time': '${s.startTime} - ${s.endTime}',
+          'teacher': 'Teacher', // TODO: Fetch teacher name
+          'room': s.roomNumber ?? 'TBA',
+          'status': 'upcoming', // TODO: Determine status based on time
+        };
+      }).toList();
     } catch (e) {
       debugPrint('Error fetching today classes: $e');
       return [];
