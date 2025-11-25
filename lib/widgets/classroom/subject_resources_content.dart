@@ -188,11 +188,20 @@ class _SubjectResourcesContentState extends State<SubjectResourcesContent> {
     );
 
     if (result != null && mounted) {
+      print('');
+      print('📥 [UPLOAD HANDLER] Received file data from dialog');
+      print('   Resource name: ${result['name']}');
+      print('   Original filename: ${result['originalFileName']}');
+      print('   Original file size: ${result['originalFileSize']} bytes');
+      print('   File path: ${(result['file'] as File).path}');
+
       await _uploadFile(
         resourceType,
         result['name'] as String,
         result['description'] as String?,
         result['file'] as File,
+        result['originalFileName'] as String?, // Pass the original filename
+        result['originalFileSize'] as int?, // Pass the original file size
       );
     }
   }
@@ -233,6 +242,8 @@ class _SubjectResourcesContentState extends State<SubjectResourcesContent> {
     String name,
     String? description,
     File file,
+    String? originalFileName, // Add parameter for original filename from picker
+    int? originalFileSize, // Add parameter for original file size from picker
   ) async {
     print('');
     print('═══════════════════════════════════════════════════════════');
@@ -242,6 +253,8 @@ class _SubjectResourcesContentState extends State<SubjectResourcesContent> {
     print('   Resource Name: "$name"');
     print('   Description: "$description"');
     print('   File Path: "${file.path}"');
+    print('   Original Filename (from picker): "$originalFileName"');
+    print('   Original File Size (from picker): "$originalFileSize" bytes');
     print('   Is Create Mode: ${widget.isCreateMode}');
     print('───────────────────────────────────────────────────────────');
 
@@ -258,16 +271,36 @@ class _SubjectResourcesContentState extends State<SubjectResourcesContent> {
       print('');
       print('🔍 [VALIDATION] Starting file validation...');
 
-      // Validate file - use platform-independent filename extraction
-      final fileName = _getFileName(file.path);
-      print('   Calling isValidFileType with: "$fileName"');
+      // CRITICAL: Use original filename from picker for validation
+      // The file.path might be a temporary path with UUID, but originalFileName
+      // contains the actual filename with correct extension
+      String fileNameForValidation;
 
-      final isValidType = _resourceService.isValidFileType(fileName);
+      if (originalFileName != null && originalFileName.isNotEmpty) {
+        // Use the original filename from the file picker (RELIABLE)
+        fileNameForValidation = originalFileName;
+        print(
+          '   ✅ Using original filename from picker: "$fileNameForValidation"',
+        );
+      } else {
+        // Fallback: Extract from path (for backward compatibility)
+        fileNameForValidation = _getFileName(file.path);
+        print(
+          '   ⚠️ Fallback: Extracted filename from path: "$fileNameForValidation"',
+        );
+      }
+
+      print('   Calling isValidFileType with: "$fileNameForValidation"');
+
+      final isValidType = _resourceService.isValidFileType(
+        fileNameForValidation,
+      );
       print('   Validation result: ${isValidType ? "✅ VALID" : "❌ INVALID"}');
 
       if (!isValidType) {
         print('');
         print('❌ [VALIDATION FAILED] File type is invalid!');
+        print('   Filename used for validation: "$fileNameForValidation"');
         print('   Throwing exception: "Invalid file type"');
         print('═══════════════════════════════════════════════════════════');
         throw Exception('Invalid file type');
@@ -277,7 +310,27 @@ class _SubjectResourcesContentState extends State<SubjectResourcesContent> {
       print('');
 
       print('🔍 [SIZE VALIDATION] Checking file size...');
-      final fileSize = await file.length();
+
+      // CRITICAL: Use original file size from picker if available
+      // Trying to read file.length() may fail with temporary paths
+      int fileSize;
+      if (originalFileSize != null) {
+        fileSize = originalFileSize;
+        print('   ✅ Using file size from picker: $fileSize bytes');
+      } else {
+        // Fallback: Try to read from file (for backward compatibility)
+        print('   ⚠️ Fallback: Reading file size from file.length()...');
+        try {
+          fileSize = await file.length();
+          print('   File size from file.length(): $fileSize bytes');
+        } catch (e) {
+          print('   ❌ Error reading file size: $e');
+          print('   Throwing exception: "Unable to read file size"');
+          print('═══════════════════════════════════════════════════════════');
+          throw Exception('Unable to read file size');
+        }
+      }
+
       print(
         '   File size: $fileSize bytes (${(fileSize / 1024 / 1024).toStringAsFixed(2)} MB)',
       );
@@ -302,7 +355,13 @@ class _SubjectResourcesContentState extends State<SubjectResourcesContent> {
         print('📝 [CREATE MODE] Saving to temporary storage...');
 
         // CREATE MODE: Save to temporary storage
-        final fileExtension = _getFileExtension(file.path);
+        // Use original filename for storage metadata
+        final fileNameToStore = originalFileName ?? _getFileName(file.path);
+        final fileExtension = originalFileName != null
+            ? originalFileName.split('.').last.toLowerCase()
+            : _getFileExtension(file.path);
+
+        print('   Filename to store: "$fileNameToStore"');
         print('   File extension: "$fileExtension"');
 
         final tempResource = TemporaryResource(
@@ -312,7 +371,7 @@ class _SubjectResourcesContentState extends State<SubjectResourcesContent> {
           resourceType: resourceType,
           quarter: _selectedQuarter,
           filePath: file.path,
-          fileName: fileName,
+          fileName: fileNameToStore, // Use original filename
           fileSize: fileSize,
           fileType: fileExtension,
           description: description,
@@ -320,6 +379,8 @@ class _SubjectResourcesContentState extends State<SubjectResourcesContent> {
         );
 
         print('   Temporary resource created');
+        print('   - fileName: ${tempResource.fileName}');
+        print('   - fileType: ${tempResource.fileType}');
         await _tempStorage.addResource(widget.subject.id, tempResource);
         print('   ✅ Saved to temporary storage');
         print('═══════════════════════════════════════════════════════════');
@@ -340,18 +401,28 @@ class _SubjectResourcesContentState extends State<SubjectResourcesContent> {
         print('☁️ [EDIT MODE] Uploading to storage and database...');
 
         // EDIT MODE: Upload file to storage and save to database
+        // Use original filename for storage and metadata
+        final fileNameToStore = originalFileName ?? _getFileName(file.path);
+        final fileExtension = originalFileName != null
+            ? originalFileName.split('.').last.toLowerCase()
+            : _getFileExtension(file.path);
+
+        print('   Filename to store: "$fileNameToStore"');
+        print('   File extension: "$fileExtension"');
         print('   Uploading file to Supabase storage...');
+
         final fileUrl = await _resourceService.uploadFile(
           file: file,
           classroomId: widget.classroomId,
           subjectId: widget.subject.id,
           quarter: _selectedQuarter,
           resourceType: resourceType,
+          fileName: fileNameToStore, // Pass original filename to service
         );
         print('   ✅ File uploaded to storage');
         print('   File URL: $fileUrl');
 
-        // Create resource record - use platform-independent filename extraction
+        // Create resource record - use original filename and validated file size
         print('   Creating resource record in database...');
         final resource = SubjectResource(
           id: '',
@@ -360,9 +431,9 @@ class _SubjectResourcesContentState extends State<SubjectResourcesContent> {
           resourceType: resourceType,
           quarter: _selectedQuarter,
           fileUrl: fileUrl,
-          fileName: _getFileName(file.path),
-          fileSize: await file.length(),
-          fileType: _getFileExtension(file.path),
+          fileName: fileNameToStore, // Use original filename
+          fileSize: fileSize, // Use the validated file size from above
+          fileType: fileExtension, // Use extracted extension
           version: 1,
           isLatestVersion: true,
           previousVersionId: null,
@@ -374,6 +445,11 @@ class _SubjectResourcesContentState extends State<SubjectResourcesContent> {
           createdBy: widget.currentUserId,
           uploadedBy: widget.currentUserId,
         );
+
+        print('   Resource metadata:');
+        print('   - fileName: ${resource.fileName}');
+        print('   - fileSize: ${resource.fileSize} bytes');
+        print('   - fileType: ${resource.fileType}');
 
         await _resourceService.createResource(resource);
         print('   ✅ Resource record created in database');

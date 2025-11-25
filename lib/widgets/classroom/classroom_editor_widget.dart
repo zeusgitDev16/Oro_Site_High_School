@@ -9,6 +9,7 @@ import 'package:oro_site_high_school/models/classroom_subject.dart';
 import 'package:oro_site_high_school/services/classroom_subject_service.dart';
 import 'package:oro_site_high_school/services/teacher_service.dart';
 import 'package:oro_site_high_school/widgets/classroom/subject_resources_content.dart';
+import 'package:oro_site_high_school/widgets/classroom/subject_list_content.dart';
 
 /// Custom formatter to capitalize the first letter
 class CapitalizeFirstLetterFormatter extends TextInputFormatter {
@@ -126,7 +127,7 @@ class ClassroomEditorConfig {
 ///   },
 /// )
 /// ```
-class ClassroomEditorWidget extends StatelessWidget {
+class ClassroomEditorWidget extends StatefulWidget {
   /// Configuration for permissions and behavior
   final ClassroomEditorConfig config;
 
@@ -192,172 +193,233 @@ class ClassroomEditorWidget extends StatelessWidget {
   });
 
   @override
+  State<ClassroomEditorWidget> createState() => _ClassroomEditorWidgetState();
+}
+
+class _ClassroomEditorWidgetState extends State<ClassroomEditorWidget> {
+  /// PHASE 3: Callback to refresh SubjectListContent
+  VoidCallback? _refreshSubjectList;
+
+  @override
   Widget build(BuildContext context) {
     return Container(
       color: Colors.white,
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(16), // Reduced from 24 to 16
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Settings Indicators (upper right corner)
-          if (selectedSchoolLevel != null ||
-              selectedGradeLevel != null ||
-              selectedQuarter != null ||
-              selectedSemester != null ||
-              selectedAcademicTrack != null)
+          if (widget.selectedSchoolLevel != null ||
+              widget.selectedGradeLevel != null ||
+              widget.selectedQuarter != null ||
+              widget.selectedSemester != null ||
+              widget.selectedAcademicTrack != null)
             _buildSettingsIndicators(),
 
-          // Classroom Title Section
-          if (config.showTitleField) ...[
-            Row(
+          // Compact form section at the top
+          _buildCompactFormSection(),
+
+          // PHASE 1: Subject List Preview (Content 1)
+          // Shows subjects with Content 2 in CREATE mode (temporary storage)
+          // This is a preview - actual save happens when Create button is clicked
+          const SizedBox(height: 12), // Reduced spacing
+          Expanded(
+            child: SubjectListContent(
+              classroomId:
+                  widget.classroomId, // null in CREATE mode, ID in EDIT mode
+              // PHASE 3: Pass refresh callback
+              onRefreshReady: (refresh) {
+                _refreshSubjectList = refresh;
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Build compact form section with all inputs in a horizontal row
+  Widget _buildCompactFormSection() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Classroom Title Section
+        if (widget.config.showTitleField) ...[
+          Expanded(
+            flex: 2,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Text(
+                      'Classroom Title*',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Tooltip(
+                      message:
+                          'Enter only the section name (e.g., "Diamond", "Sapphire").\nDo not include grade levels or numbers.',
+                      child: Icon(
+                        Icons.help_outline,
+                        size: 14,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                CupertinoTextField(
+                  controller: widget.titleController,
+                  placeholder: 'Enter classroom title',
+                  style: const TextStyle(fontSize: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  textCapitalization: TextCapitalization.sentences,
+                  inputFormatters: [CapitalizeFirstLetterFormatter()],
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  enabled: widget.config.canEdit,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+        ],
+
+        // Advisory Teacher Selector
+        if (widget.config.showAdvisorySelector) ...[
+          Expanded(
+            flex: 2,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Classroom Title*',
+                  'Advisory Teacher',
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 11,
                     fontWeight: FontWeight.bold,
                     color: Colors.black87,
                   ),
                 ),
-                const SizedBox(width: 8),
-                Tooltip(
-                  message:
-                      'Enter only the section name (e.g., "Diamond", "Sapphire").\nDo not include grade levels or numbers.',
-                  child: Icon(
-                    Icons.help_outline,
-                    size: 16,
-                    color: Colors.grey.shade600,
+                const SizedBox(height: 6),
+                CompositedTransformTarget(
+                  link: widget.layerLink,
+                  child: GestureDetector(
+                    key: widget.buttonKey,
+                    onTap: widget.config.canAssignAdvisory
+                        ? widget.onToggleMenu
+                        : null,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        border: Border.all(
+                          color: widget.isMenuOpen
+                              ? CupertinoColors.activeBlue
+                              : Colors.grey.shade300,
+                          width: widget.isMenuOpen ? 1.5 : 1,
+                        ),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              widget.selectedAdvisoryTeacher?.displayName ??
+                                  'Select advisory teacher',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: widget.selectedAdvisoryTeacher != null
+                                    ? Colors.black
+                                    : Colors.grey.shade600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Icon(
+                            widget.isMenuOpen
+                                ? Icons.arrow_drop_up
+                                : Icons.arrow_drop_down,
+                            size: 16,
+                            color: Colors.grey.shade700,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Container(
-              width: 400,
-              child: CupertinoTextField(
-                controller: titleController,
-                placeholder: 'Enter classroom title',
-                style: const TextStyle(fontSize: 14),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 12,
-                ),
-                textCapitalization: TextCapitalization.sentences,
-                inputFormatters: [CapitalizeFirstLetterFormatter()],
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade300),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                enabled: config.canEdit,
-              ),
-            ),
-            const SizedBox(height: 8),
-          ],
+          ),
+          const SizedBox(width: 12),
+        ],
 
-          // Advisory Teacher Selector
-          if (config.showAdvisorySelector) ...[
-            const SizedBox(height: 16),
-            const Text(
-              'Advisory Teacher',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
+        // Add Subjects Button
+        Expanded(
+          flex: 1,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Add Subjects',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
               ),
-            ),
-            const SizedBox(height: 6),
-            // Small Cupertino-style button that opens overlay
-            CompositedTransformTarget(
-              link: layerLink,
-              child: GestureDetector(
-                key: buttonKey,
-                onTap: config.canAssignAdvisory ? onToggleMenu : null,
+              const SizedBox(height: 6),
+              InkWell(
+                onTap: () {
+                  _openAddSubjectDialog(context, widget.classroomId);
+                },
+                borderRadius: BorderRadius.circular(6),
                 child: Container(
-                  width: 200,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 10,
-                    vertical: 6,
+                    vertical: 8,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.white,
-                    border: Border.all(
-                      color: isMenuOpen
-                          ? CupertinoColors.activeBlue
-                          : Colors.grey.shade300,
-                      width: isMenuOpen ? 1.5 : 1,
-                    ),
+                    color: Colors.green.shade50,
                     borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.green.shade300, width: 1),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Expanded(
-                        child: Text(
-                          selectedAdvisoryTeacher?.displayName ??
-                              'Select advisory teacher',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: selectedAdvisoryTeacher != null
-                                ? Colors.black
-                                : Colors.grey.shade600,
-                          ),
-                          overflow: TextOverflow.ellipsis,
+                      Icon(Icons.add, size: 14, color: Colors.green.shade700),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Add',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.green.shade700,
                         ),
-                      ),
-                      const SizedBox(width: 6),
-                      Icon(
-                        isMenuOpen
-                            ? Icons.arrow_drop_up
-                            : Icons.arrow_drop_down,
-                        size: 18,
-                        color: Colors.grey.shade700,
                       ),
                     ],
                   ),
                 ),
               ),
-            ),
-          ],
-
-          // Add Subjects Section
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              const Text(
-                'Add Subjects',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(width: 6),
-              InkWell(
-                onTap: () {
-                  _openAddSubjectDialog(context, classroomId);
-                },
-                borderRadius: BorderRadius.circular(3),
-                child: Container(
-                  padding: const EdgeInsets.all(3),
-                  decoration: BoxDecoration(
-                    color: Colors.green.shade50,
-                    borderRadius: BorderRadius.circular(3),
-                    border: Border.all(
-                      color: Colors.green.shade200,
-                      width: 0.5,
-                    ),
-                  ),
-                  child: Icon(
-                    Icons.add,
-                    size: 10,
-                    color: Colors.green.shade700,
-                  ),
-                ),
-              ),
             ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -369,54 +431,54 @@ class ClassroomEditorWidget extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
           // School Level Indicator
-          if (selectedSchoolLevel != null)
+          if (widget.selectedSchoolLevel != null)
             _buildIndicatorChip(
-              label: selectedSchoolLevel == 'Junior High School'
+              label: widget.selectedSchoolLevel == 'Junior High School'
                   ? 'JHS'
                   : 'SHS',
-              color: selectedSchoolLevel == 'Junior High School'
+              color: widget.selectedSchoolLevel == 'Junior High School'
                   ? Colors.blue.shade700
                   : Colors.purple.shade700,
-              tooltip: selectedSchoolLevel!,
+              tooltip: widget.selectedSchoolLevel!,
             ),
 
           // Grade Level Indicator
-          if (selectedGradeLevel != null) ...[
+          if (widget.selectedGradeLevel != null) ...[
             const SizedBox(width: 8),
             _buildIndicatorChip(
-              label: 'Grade $selectedGradeLevel',
+              label: 'Grade ${widget.selectedGradeLevel}',
               color: Colors.green.shade700,
-              tooltip: 'Grade Level: $selectedGradeLevel',
+              tooltip: 'Grade Level: ${widget.selectedGradeLevel}',
             ),
           ],
 
           // Quarter Indicator (JHS)
-          if (selectedQuarter != null) ...[
+          if (widget.selectedQuarter != null) ...[
             const SizedBox(width: 8),
             _buildIndicatorChip(
-              label: selectedQuarter!,
+              label: widget.selectedQuarter!,
               color: Colors.orange.shade700,
-              tooltip: 'Quarter: $selectedQuarter',
+              tooltip: 'Quarter: ${widget.selectedQuarter}',
             ),
           ],
 
           // Semester Indicator (SHS)
-          if (selectedSemester != null) ...[
+          if (widget.selectedSemester != null) ...[
             const SizedBox(width: 8),
             _buildIndicatorChip(
-              label: selectedSemester!,
+              label: widget.selectedSemester!,
               color: Colors.teal.shade700,
-              tooltip: 'Semester: $selectedSemester',
+              tooltip: 'Semester: ${widget.selectedSemester}',
             ),
           ],
 
           // Academic Track Indicator (SHS)
-          if (selectedAcademicTrack != null) ...[
+          if (widget.selectedAcademicTrack != null) ...[
             const SizedBox(width: 8),
             _buildIndicatorChip(
-              label: selectedAcademicTrack!,
+              label: widget.selectedAcademicTrack!,
               color: Colors.indigo.shade700,
-              tooltip: 'Academic Track: $selectedAcademicTrack',
+              tooltip: 'Academic Track: ${widget.selectedAcademicTrack}',
             ),
           ],
         ],
@@ -452,15 +514,16 @@ class ClassroomEditorWidget extends StatelessWidget {
   }
 
   /// Open add subject dialog based on school level
-  void _openAddSubjectDialog(BuildContext context, String? classroomId) {
+  /// PHASE 3: Now triggers refresh after dialog closes
+  void _openAddSubjectDialog(BuildContext context, String? classroomId) async {
     // Determine if JHS or SHS based on selectedSchoolLevel
-    final bool isJHS = selectedSchoolLevel == 'Junior High School';
-    final bool isSHS = selectedSchoolLevel == 'Senior High School';
+    final bool isJHS = widget.selectedSchoolLevel == 'Junior High School';
+    final bool isSHS = widget.selectedSchoolLevel == 'Senior High School';
 
     // Determine if we're in CREATE mode (no classroom ID) or EDIT mode (has classroom ID)
     final bool isCreateMode = classroomId == null;
 
-    showDialog(
+    await showDialog(
       context: context,
       builder: (BuildContext context) {
         return _AddSubjectDialog(
@@ -471,6 +534,14 @@ class ClassroomEditorWidget extends StatelessWidget {
         );
       },
     );
+
+    // PHASE 3: Refresh subject list after dialog closes
+    print('🔄 [PHASE 3] Add Subject Dialog closed, triggering refresh...');
+    if (_refreshSubjectList != null) {
+      _refreshSubjectList!();
+    } else {
+      print('⚠️ [PHASE 3] Refresh callback not available yet');
+    }
   }
 }
 

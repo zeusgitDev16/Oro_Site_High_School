@@ -34,6 +34,9 @@ class _FileUploadDialogState extends State<FileUploadDialog> {
     super.dispose();
   }
 
+  String? _originalFileName; // Store the original filename from file picker
+  int? _originalFileSize; // Store the original file size from file picker
+
   Future<void> _pickFile() async {
     try {
       final result = await FilePicker.platform.pickFiles(
@@ -51,15 +54,31 @@ class _FileUploadDialogState extends State<FileUploadDialog> {
       );
 
       if (result != null && result.files.single.path != null) {
+        print('');
+        print('📁 [FILE PICKER] File selected');
+        print('   Original filename: ${result.files.single.name}');
+        print('   File path: ${result.files.single.path}');
+        print('   File size: ${result.files.single.size} bytes');
+
         setState(() {
           _selectedFile = File(result.files.single.path!);
-          // Auto-fill name if empty
+          // Store the original filename from the picker (this is reliable)
+          _originalFileName = result.files.single.name;
+          // Store the original file size from the picker (this is reliable)
+          _originalFileSize = result.files.single.size;
+
+          // Auto-fill name if empty (remove extension)
           if (_nameController.text.isEmpty) {
-            _nameController.text = result.files.single.name.split('.').first;
+            final nameWithoutExt = result.files.single.name.split('.').first;
+            _nameController.text = nameWithoutExt;
           }
         });
+
+        print('   Stored original filename: $_originalFileName');
+        print('   Stored original file size: $_originalFileSize bytes');
       }
     } catch (e) {
+      print('❌ [FILE PICKER] Error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -92,11 +111,20 @@ class _FileUploadDialogState extends State<FileUploadDialog> {
       return;
     }
 
-    // Return the data to parent
+    print('');
+    print('✅ [FILE PICKER] Returning file data to parent');
+    print('   Resource name: ${_nameController.text.trim()}');
+    print('   Original filename: $_originalFileName');
+    print('   Original file size: $_originalFileSize bytes');
+    print('   File path: ${_selectedFile!.path}');
+
+    // Return the data to parent, including the original filename and file size
     Navigator.of(context).pop({
       'name': _nameController.text.trim(),
       'description': _descriptionController.text.trim(),
       'file': _selectedFile,
+      'originalFileName': _originalFileName, // Pass the original filename
+      'originalFileSize': _originalFileSize, // Pass the original file size
     });
   }
 
@@ -229,7 +257,7 @@ class _FileUploadDialogState extends State<FileUploadDialog> {
                     Expanded(
                       child: Text(
                         _selectedFile != null
-                            ? _selectedFile!.path.split('/').last
+                            ? _originalFileName ?? 'Unknown file'
                             : 'Click to select file',
                         style: TextStyle(
                           fontSize: 11,

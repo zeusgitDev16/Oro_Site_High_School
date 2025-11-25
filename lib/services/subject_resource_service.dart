@@ -204,17 +204,30 @@ class SubjectResourceService {
     String? fileName,
   }) async {
     try {
-      // Use platform-independent filename extraction
+      print('');
+      print('📤 [SERVICE] uploadFile called');
+      print(
+        '   fileName parameter: ${fileName ?? "(null - will extract from path)"}',
+      );
+      print('   file.path: ${file.path}');
+
+      // CRITICAL: Use the provided fileName if available (from file picker)
+      // Otherwise fallback to extracting from path (backward compatibility)
       final originalFileName = fileName ?? _getFileName(file.path);
+      print('   Original filename to use: "$originalFileName"');
+
+      // Add timestamp prefix to prevent filename conflicts in storage
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final uniqueFileName = '${timestamp}_$originalFileName';
+      print('   Unique filename for storage: "$uniqueFileName"');
 
       // Build storage path: {resource_type}/{classroom_id}/{subject_id}/q{quarter}/{filename}
       final storagePath =
           '${resourceType.folderName}/$classroomId/$subjectId/q$quarter/$uniqueFileName';
 
-      print('📤 Uploading file to: $storagePath');
+      print('   Storage path: $storagePath');
       print('   File size: ${file.lengthSync()} bytes');
+      print('   Uploading to Supabase Storage...');
 
       // Upload file to Supabase Storage
       await _supabase.storage.from(_bucketName).upload(storagePath, file);
