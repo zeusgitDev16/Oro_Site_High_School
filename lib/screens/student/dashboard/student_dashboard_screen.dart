@@ -40,6 +40,11 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
         _logic.setTabIndex(_tabController.index);
       }
     });
+
+    // Load student profile immediately when dashboard is created
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _logic.loadStudentProfile();
+    });
   }
 
   @override
@@ -391,8 +396,13 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
                 listenable: _logic,
                 builder: (context, _) {
                   final studentData = _logic.studentData;
+                  final firstName = studentData['firstName']?.toString() ?? '';
+                  final lastName = studentData['lastName']?.toString() ?? '';
+                  final displayName = firstName.isEmpty && lastName.isEmpty
+                      ? 'Student'
+                      : '$firstName $lastName'.trim();
                   return Text(
-                    '${studentData['firstName']} ${studentData['lastName']}',
+                    displayName,
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   );
                 },
@@ -512,8 +522,17 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
               listenable: _logic,
               builder: (context, _) {
                 final studentData = _logic.studentData;
-                final initials =
-                    '${studentData['firstName'][0]}${studentData['lastName'][0]}';
+                final initials = () {
+                  final firstName = studentData['firstName']?.toString() ?? '';
+                  final lastName = studentData['lastName']?.toString() ?? '';
+                  if (firstName.isEmpty && lastName.isEmpty) {
+                    return 'S'; // Default to 'S' for Student
+                  }
+                  final firstInitial = firstName.isNotEmpty ? firstName[0] : '';
+                  final lastInitial = lastName.isNotEmpty ? lastName[0] : '';
+                  return '$firstInitial$lastInitial'.toUpperCase();
+                }();
+
                 return CircleAvatar(
                   radius: 16,
                   backgroundColor: Colors.green,
