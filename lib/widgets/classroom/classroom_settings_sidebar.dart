@@ -6,30 +6,29 @@ import 'package:flutter/services.dart';
 ///
 /// This widget provides the right sidebar for classroom settings including:
 /// - School Level selection (JHS/SHS)
-/// - Quarter/Semester indicators
 /// - Grade Level selection
+/// - Academic Track selection (for SHS)
 /// - Student Limit input
+///
+/// **Note:** Quarter/Semester selectors have been removed as quarters are now
+/// managed per-subject in Content 2 (SubjectResourcesContent).
 ///
 /// **Usage Example:**
 /// ```dart
 /// ClassroomSettingsSidebar(
 ///   selectedSchoolLevel: _selectedSchoolLevel,
-///   selectedQuarter: _selectedQuarter,
-///   selectedSemester: _selectedSemester,
 ///   selectedGradeLevel: _selectedGradeLevel,
+///   selectedAcademicTrack: _selectedAcademicTrack,
 ///   maxStudents: _maxStudents,
 ///   canEdit: true, // Based on user role
 ///   onSchoolLevelChanged: (value) {
 ///     setState(() => _selectedSchoolLevel = value);
 ///   },
-///   onQuarterChanged: (value) {
-///     setState(() => _selectedQuarter = value);
-///   },
-///   onSemesterChanged: (value) {
-///     setState(() => _selectedSemester = value);
-///   },
 ///   onGradeLevelChanged: (value) {
 ///     setState(() => _selectedGradeLevel = value);
+///   },
+///   onAcademicTrackChanged: (value) {
+///     setState(() => _selectedAcademicTrack = value);
 ///   },
 ///   onMaxStudentsChanged: (value) {
 ///     setState(() => _maxStudents = value);
@@ -40,10 +39,16 @@ class ClassroomSettingsSidebar extends StatelessWidget {
   /// Currently selected school level (Junior High School or Senior High School)
   final String selectedSchoolLevel;
 
-  /// Currently selected quarter (1-4) for JHS, null if not selected
+  /// [DEPRECATED] Currently selected quarter (1-4) for JHS, null if not selected
+  /// This parameter is kept for backward compatibility but is no longer used in the UI.
+  /// Quarters are now managed per-subject in Content 2.
+  @Deprecated('Quarters are now managed per-subject in Content 2')
   final int? selectedQuarter;
 
-  /// Currently selected semester (1-2) for SHS, null if not selected
+  /// [DEPRECATED] Currently selected semester (1-2) for SHS, null if not selected
+  /// This parameter is kept for backward compatibility but is no longer used in the UI.
+  /// Semesters are now managed per-subject in Content 2.
+  @Deprecated('Semesters are now managed per-subject in Content 2')
   final int? selectedSemester;
 
   /// Currently selected grade level (7-12), null if not selected
@@ -61,11 +66,15 @@ class ClassroomSettingsSidebar extends StatelessWidget {
   /// Callback when school level changes
   final ValueChanged<String> onSchoolLevelChanged;
 
-  /// Callback when quarter changes
-  final ValueChanged<int?> onQuarterChanged;
+  /// [DEPRECATED] Callback when quarter changes
+  /// This parameter is kept for backward compatibility but is no longer used.
+  @Deprecated('Quarters are now managed per-subject in Content 2')
+  final ValueChanged<int?>? onQuarterChanged;
 
-  /// Callback when semester changes
-  final ValueChanged<int?> onSemesterChanged;
+  /// [DEPRECATED] Callback when semester changes
+  /// This parameter is kept for backward compatibility but is no longer used.
+  @Deprecated('Semesters are now managed per-subject in Content 2')
+  final ValueChanged<int?>? onSemesterChanged;
 
   /// Callback when grade level changes
   final ValueChanged<int?> onGradeLevelChanged;
@@ -79,15 +88,19 @@ class ClassroomSettingsSidebar extends StatelessWidget {
   const ClassroomSettingsSidebar({
     super.key,
     required this.selectedSchoolLevel,
-    required this.selectedQuarter,
-    required this.selectedSemester,
+    @Deprecated('Quarters are now managed per-subject in Content 2')
+    this.selectedQuarter,
+    @Deprecated('Semesters are now managed per-subject in Content 2')
+    this.selectedSemester,
     required this.selectedGradeLevel,
     this.selectedAcademicTrack,
     required this.maxStudents,
     required this.canEdit,
     required this.onSchoolLevelChanged,
-    required this.onQuarterChanged,
-    required this.onSemesterChanged,
+    @Deprecated('Quarters are now managed per-subject in Content 2')
+    this.onQuarterChanged,
+    @Deprecated('Semesters are now managed per-subject in Content 2')
+    this.onSemesterChanged,
     required this.onGradeLevelChanged,
     required this.onAcademicTrackChanged,
     required this.onMaxStudentsChanged,
@@ -158,11 +171,11 @@ class ClassroomSettingsSidebar extends StatelessWidget {
                       ? (String? newValue) {
                           if (newValue != null) {
                             onSchoolLevelChanged(newValue);
-                            // Reset quarter/semester when school level changes
+                            // Reset quarter/semester when school level changes (for backward compatibility)
                             if (newValue == 'Senior High School') {
-                              onQuarterChanged(null);
+                              onQuarterChanged?.call(null);
                             } else {
-                              onSemesterChanged(null);
+                              onSemesterChanged?.call(null);
                             }
                           }
                         }
@@ -171,133 +184,6 @@ class ClassroomSettingsSidebar extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 16),
-
-            // Quarter/Semester Indicators
-            if (selectedSchoolLevel == 'Junior High School') ...[
-              const Text(
-                'Quarter',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: List.generate(4, (index) {
-                  final quarter = index + 1;
-                  final isSelected = selectedQuarter == quarter;
-
-                  return GestureDetector(
-                    onTap: canEdit
-                        ? () {
-                            onQuarterChanged(isSelected ? null : quarter);
-                          }
-                        : null,
-                    child: MouseRegion(
-                      cursor: canEdit
-                          ? SystemMouseCursors.click
-                          : SystemMouseCursors.basic,
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? Colors.blue.shade100
-                              : Colors.grey.shade100,
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(
-                            color: isSelected
-                                ? Colors.blue.shade400
-                                : Colors.grey.shade300,
-                            width: isSelected ? 2 : 1,
-                          ),
-                        ),
-                        child: Text(
-                          'Q$quarter',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: isSelected
-                                ? Colors.blue.shade700
-                                : Colors.grey.shade600,
-                            fontWeight: isSelected
-                                ? FontWeight.w600
-                                : FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                }),
-              ),
-            ],
-
-            if (selectedSchoolLevel == 'Senior High School') ...[
-              const Text(
-                'Semester',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: List.generate(2, (index) {
-                  final semester = index + 1;
-                  final isSelected = selectedSemester == semester;
-
-                  return GestureDetector(
-                    onTap: canEdit
-                        ? () {
-                            onSemesterChanged(isSelected ? null : semester);
-                          }
-                        : null,
-                    child: MouseRegion(
-                      cursor: canEdit
-                          ? SystemMouseCursors.click
-                          : SystemMouseCursors.basic,
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? Colors.blue.shade100
-                              : Colors.grey.shade100,
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(
-                            color: isSelected
-                                ? Colors.blue.shade400
-                                : Colors.grey.shade300,
-                            width: isSelected ? 2 : 1,
-                          ),
-                        ),
-                        child: Text(
-                          '${semester}st Sem',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: isSelected
-                                ? Colors.blue.shade700
-                                : Colors.grey.shade600,
-                            fontWeight: isSelected
-                                ? FontWeight.w600
-                                : FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                }),
-              ),
-            ],
 
             // Academic Track (only for SHS)
             if (selectedSchoolLevel == 'Senior High School') ...[

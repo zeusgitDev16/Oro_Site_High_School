@@ -3080,8 +3080,8 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
   Widget _buildRightSidebar() {
     return ClassroomSettingsSidebar(
       selectedSchoolLevel: _selectedSchoolLevel,
-      selectedQuarter: _selectedQuarter,
-      selectedSemester: _selectedSemester,
+      // Note: selectedQuarter and selectedSemester removed from UI
+      // They are still stored in database for backward compatibility
       selectedGradeLevel: _selectedGradeLevel,
       selectedAcademicTrack: _selectedAcademicTrack,
       maxStudents: _maxStudents,
@@ -3098,18 +3098,6 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
           _selectedGradeLevel = null;
         });
         _saveDraftClassroom(); // Save draft when school level changes
-      },
-      onQuarterChanged: (value) {
-        setState(() {
-          _selectedQuarter = value;
-        });
-        _saveDraftClassroom(); // Save draft when quarter changes
-      },
-      onSemesterChanged: (value) {
-        setState(() {
-          _selectedSemester = value;
-        });
-        _saveDraftClassroom(); // Save draft when semester changes
       },
       onGradeLevelChanged: (value) {
         setState(() {
