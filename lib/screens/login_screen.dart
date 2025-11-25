@@ -1,13 +1,46 @@
 import 'package:flutter/material.dart';
 import 'package:oro_site_high_school/services/auth_service.dart';
+import 'package:oro_site_high_school/services/backend_service.dart';
 import 'package:oro_site_high_school/backend/config/environment.dart';
 import 'admin/admin_dashboard_screen.dart';
 import 'teacher/teacher_dashboard_screen.dart';
 import 'student/dashboard/student_dashboard_screen.dart';
 import 'parent/dashboard/parent_dashboard_screen.dart';
 
-class LoginScreen extends StatelessWidget {
+class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  int _teacherCount = 0;
+  bool _isLoadingStats = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStats();
+  }
+
+  Future<void> _loadStats() async {
+    try {
+      final stats = await BackendService().getSystemStats();
+      if (mounted) {
+        setState(() {
+          _teacherCount = stats['totalTeachers'] as int;
+          _isLoadingStats = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingStats = false;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -250,11 +283,14 @@ class LoginScreen extends StatelessWidget {
   Widget _buildStatsSection() {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 48),
-      child: const Row(
+      child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          StatItem(count: '19,167', label: 'Courses'),
-          StatItem(count: '2,109', label: 'Teachers'),
+          const StatItem(count: '0', label: 'Courses'),
+          StatItem(
+            count: _isLoadingStats ? '...' : _teacherCount.toString(),
+            label: 'Teachers',
+          ),
         ],
       ),
     );
