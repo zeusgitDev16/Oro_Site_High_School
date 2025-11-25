@@ -17,22 +17,16 @@ class _StudentCalendarWidgetState extends State<StudentCalendarWidget> {
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
 
-  // Mock data for student events
-  final Map<DateTime, List<String>> _mockEvents = {
-    DateTime.utc(2024, 12, 20): ['Math Quiz 4', 'Science Project Due'],
-    DateTime.utc(2024, 12, 22): ['English Essay Submission', 'MAPEH Performance Task'],
-    DateTime.utc(2024, 12, 25): ['Christmas Break Starts'],
-    DateTime.utc(2025, 1, 2): ['Classes Resume'],
-    DateTime.utc(2025, 1, 15): ['Quarterly Exam - Math'],
-    DateTime.utc(2025, 1, 16): ['Quarterly Exam - Science'],
-    DateTime.utc(2025, 1, 17): ['Quarterly Exam - English'],
-  };
+  // Calendar events - will be populated from database
+  final Map<DateTime, List<String>> _mockEvents = {};
 
   @override
   void initState() {
     super.initState();
     _selectedDay = _focusedDay;
-    _selectedEvents = ValueNotifier(_getEventsForDay(_selectedDay!));
+    // Safely initialize with empty list if no events
+    final events = _getEventsForDay(_selectedDay!);
+    _selectedEvents = ValueNotifier(events);
   }
 
   @override
@@ -67,15 +61,16 @@ class _StudentCalendarWidgetState extends State<StudentCalendarWidget> {
           children: [
             Row(
               children: [
-                Icon(Icons.calendar_today, color: Colors.green.shade700, size: 20),
+                Icon(
+                  Icons.calendar_today,
+                  color: Colors.green.shade700,
+                  size: 20,
+                ),
                 const SizedBox(width: 8),
                 const Expanded(
                   child: Text(
                     'Calendar',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                 ),
                 IconButton(
@@ -173,10 +168,7 @@ class _StudentCalendarWidgetState extends State<StudentCalendarWidget> {
                 const SizedBox(width: 8),
                 const Text(
                   'Events',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
@@ -204,6 +196,10 @@ class _StudentCalendarWidgetState extends State<StudentCalendarWidget> {
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: value.length,
                   itemBuilder: (context, index) {
+                    // Safety check to prevent range errors
+                    if (index >= value.length) {
+                      return const SizedBox.shrink();
+                    }
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 4),
                       child: Row(

@@ -134,6 +134,7 @@ class _MyAssignmentsScreenState extends State<MyAssignmentsScreen> {
           .select()
           .eq('teacher_id', userId)
           .eq('is_published', false)
+          .isFilter('course_id', null)
           .order('created_at', ascending: false);
       final List<Map<String, dynamic>> list = List<Map<String, dynamic>>.from(
         response as List,
@@ -951,62 +952,43 @@ class _MyAssignmentsScreenState extends State<MyAssignmentsScreen> {
             content = Map<String, dynamic>.from(a['content'] as Map);
           }
         } catch (_) {}
+        // Normalize grading tags: prefer DB columns, then fall back to meta
         final String? component =
             a['component']?.toString() ??
             content?['meta']?['component']?.toString();
-        final int? quarterNo = int.tryParse(
-          (a['quarter_no'] ?? content?['meta']?['quarter_no'])?.toString() ??
-              '',
-        );
+        final int? quarterNo = a['quarter_no'] != null
+            ? int.tryParse(a['quarter_no'].toString())
+            : int.tryParse((content?['meta']?['quarter_no'])?.toString() ?? '');
 
-        bool isFirstCourse = true;
+        // Always create assignments bound to the current classroom + selected courses.
         for (final courseId in selectedCourseIds) {
-          if (isFirstCourse) {
-            // Update the original assignment to publish into the first selected course
-            await _assignmentService.updateAssignment(
-              assignmentId: assignmentId,
-              isPublished: true,
-              courseId: courseId,
-              component: component,
-              quarterNo: quarterNo,
-            );
-            // Ensure the publish flag is set at DB level (idempotent)
-            try {
-              await _supabase
-                  .from('assignments')
-                  .update({'is_published': true})
-                  .eq('id', assignmentId);
-            } catch (_) {}
-            // Remove from local pool immediately (no refresh required)
-            setState(() {
-              _assignments.removeWhere(
-                (x) => x['id'].toString() == assignmentId,
-              );
-              _selectedForDistribution.remove(assignmentId);
-              if (_selectedAssignmentId == assignmentId) {
-                _selectedAssignmentId = null;
-              }
-            });
-            isFirstCourse = false;
-          } else {
-            // Clone for additional courses
-            await _assignmentService.createAssignment(
-              classroomId: classroom.id,
-              teacherId: uid,
-              title: title,
-              description: description,
-              assignmentType: type,
-              totalPoints: totalPoints,
-              dueDate: dueDate,
-              allowLateSubmissions: allowLate,
-              content: content,
-              courseId: courseId,
-              isPublished: true,
-              component: component,
-              quarterNo: quarterNo,
-            );
-          }
+          await _assignmentService.createAssignment(
+            classroomId: classroom.id,
+            teacherId: uid,
+            title: title,
+            description: description,
+            assignmentType: type,
+            totalPoints: totalPoints,
+            dueDate: dueDate,
+            allowLateSubmissions: allowLate,
+            content: content,
+            courseId: courseId,
+            isPublished: true,
+            component: component,
+            quarterNo: quarterNo,
+          );
         }
+
+        // Keep the original draft as a template in the unpublished pool.
+        // Do NOT publish or mutate it here; only the per-course clones above
+        // are published instances. This prevents duplicate entries in the
+        // classroom view and duplicate drafts when unpublishing.
+        setState(() {
+          _selectedForDistribution.remove(assignmentId);
+          if (_selectedAssignmentId == assignmentId) {
+            _selectedAssignmentId = null;
+          }
+        });
       }
 
       // 6) Refresh and confirm

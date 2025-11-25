@@ -41,10 +41,10 @@ class _StudentHomeViewState extends State<StudentHomeView> {
     // Prime controllers from any existing logic data
     _initialiseProfileFieldsFromLogic();
 
-    // Load dashboard data and profile after the first frame is built
+    // Load dashboard data after the first frame is built
+    // Note: Student profile is already loaded in StudentDashboardScreen.initState()
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await widget.logic.loadDashboardData();
-      await widget.logic.loadStudentProfile();
       if (!mounted) return;
       _initialiseProfileFieldsFromLogic();
     });
@@ -52,24 +52,28 @@ class _StudentHomeViewState extends State<StudentHomeView> {
 
   @override
   Widget build(BuildContext context) {
-    return RefreshIndicator(
-      onRefresh: () async {
-        await widget.logic.refreshDashboard();
-        await widget.logic.loadStudentProfile();
+    return ListenableBuilder(
+      listenable: widget.logic,
+      builder: (context, child) {
+        return RefreshIndicator(
+          onRefresh: () async {
+            await widget.logic.refreshDashboard();
+          },
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildWelcomeBanner(),
+                const SizedBox(height: 24),
+                _buildQuickStats(),
+                const SizedBox(height: 24),
+                _buildMainContent(),
+              ],
+            ),
+          ),
+        );
       },
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildWelcomeBanner(),
-            const SizedBox(height: 24),
-            _buildQuickStats(),
-            const SizedBox(height: 24),
-            _buildMainContent(),
-          ],
-        ),
-      ),
     );
   }
 
@@ -164,26 +168,20 @@ class _StudentHomeViewState extends State<StudentHomeView> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${studentData['firstName']} ${studentData['lastName']}',
+                      () {
+                        final firstName =
+                            studentData['firstName']?.toString().trim() ?? '';
+                        final lastName =
+                            studentData['lastName']?.toString().trim() ?? '';
+                        if (firstName.isEmpty && lastName.isEmpty) {
+                          return 'Student'; // Fallback if no name loaded yet
+                        }
+                        return '$firstName $lastName'.trim();
+                      }(),
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 28,
                         fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Grade ${studentData['gradeLevel']} - ${studentData['section']}',
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 14,
-                      ),
-                    ),
-                    Text(
-                      'LRN: ${studentData['lrn']}',
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 12,
                       ),
                     ),
                   ],
@@ -199,8 +197,6 @@ class _StudentHomeViewState extends State<StudentHomeView> {
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          _buildProfileSummaryCard(),
         ],
       ),
     );

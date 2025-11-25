@@ -214,25 +214,40 @@ class _StudentAssignmentWorkScreenState
       await _persistAnswers();
     }
 
-    // Auto-grade for quiz-like types
+    // Submit via server-side logic
     final type = (a['assignment_type'] ?? '').toString();
     int? autoScore;
     int? autoMax;
-    if (type == 'quiz' ||
-        type == 'multiple_choice' ||
-        type == 'identification' ||
-        type == 'matching_type') {
-      final result = _autoGrade(a);
-      autoScore = result.item1;
-      autoMax = result.item2;
-    }
 
-    await _submissionService.submitSubmission(
-      assignmentId: a['id'].toString(),
-      studentId: sub['student_id'].toString(),
-      score: autoScore,
-      maxScore: autoMax,
-    );
+    try {
+      if (type == 'quiz' ||
+          type == 'multiple_choice' ||
+          type == 'identification' ||
+          type == 'matching_type') {
+        // Objective types: delegate scoring to RPC
+        final result = await _submissionService.autoGradeAndSubmit(
+          assignmentId: a['id'].toString(),
+        );
+        autoScore = (result['score'] as num?)?.toInt();
+        autoMax = (result['max_score'] as num?)?.toInt();
+      } else {
+        // Non-objective types: just mark as submitted (score/max_score stay null)
+        await _submissionService.submitSubmission(
+          assignmentId: a['id'].toString(),
+          studentId: sub['student_id'].toString(),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to submit: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
 
     if (mounted) {
       // Show quick confirmation and return to classroom view

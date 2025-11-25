@@ -2,6 +2,8 @@
 // Centralized service for all backend operations
 // Replaces mock data with real Supabase connections
 
+import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -178,7 +180,8 @@ class BackendService {
   ///
   /// [updates] should use database column names (snake_case), e.g.
   /// 'lrn', 'birth_date', 'gender', 'address', 'guardian_name',
-  /// 'guardian_contact'.
+  /// and other allowed self-service fields such as 'school_level', 'track', 'strand',
+  /// or 'parent_access_code'.
   Future<bool> updateStudentProfile(
     String studentId,
     Map<String, dynamic> updates,
@@ -205,6 +208,49 @@ class BackendService {
       return false;
     }
   }
+
+  /// Generate or regenerate a parent access code for the given student.
+  /// Returns the new code as a string.
+  Future<String?> generateParentAccessCode(String studentId) async {
+    try {
+      if (_useMockData) {
+        // Simple mock: fixed code for development.
+        return 'Ab1#Xy';
+      }
+
+      final code = _generateParentAccessCodeValue();
+
+      final response = await _supabase
+          .from('students')
+          .update({
+            'parent_access_code': code,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', studentId)
+          .select('parent_access_code')
+          .single();
+
+      return response['parent_access_code'] as String?;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error generating parent access code: $e');
+      }
+      return null;
+    }
+  }
+
+  String _generateParentAccessCodeValue() {
+    const chars =
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#%*';
+    final random = Random();
+    final codeChars = List.generate(
+      6,
+      (index) => chars[random.nextInt(chars.length)],
+    ).join();
+    return codeChars;
+  }
+
+  // ==================== TEACHER OPERATIONS ====================
 
   // ==================== TEACHER OPERATIONS ====================
 

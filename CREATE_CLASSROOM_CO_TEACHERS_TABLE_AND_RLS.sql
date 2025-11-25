@@ -20,11 +20,11 @@ alter table public.classroom_teachers enable row level security;
 
 -- 3) RLS policies on classroom_teachers
 -- 3a) Teacher can see their own co-teacher memberships
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'ct_select_own_memberships'
+    WHERE policyname = 'ct_select_own_memberships'
       AND schemaname = 'public'
       AND tablename = 'classroom_teachers'
   ) THEN
@@ -35,14 +35,14 @@ BEGIN
       using (teacher_id = auth.uid());
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- 3b) Teacher can join a classroom as co-teacher (self-insert)
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'ct_insert_self_join'
+    WHERE policyname = 'ct_insert_self_join'
       AND schemaname = 'public'
       AND tablename = 'classroom_teachers'
   ) THEN
@@ -60,14 +60,14 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- 3c) Optional: Owner can view all co-teachers of their classrooms
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'ct_owner_select_memberships'
+    WHERE policyname = 'ct_owner_select_memberships'
       AND schemaname = 'public'
       AND tablename = 'classroom_teachers'
   ) THEN
@@ -84,17 +84,17 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- 4) Ensure classrooms RLS allows co-teachers to view classrooms they joined
 -- This supports embedding: from('classroom_teachers').select('classroom_id, classrooms(*)')
 alter table public.classrooms enable row level security;
 
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'classrooms_select_co_teachers'
+    WHERE policyname = 'classrooms_select_co_teachers'
       AND schemaname = 'public'
       AND tablename = 'classrooms'
   ) THEN
@@ -112,6 +112,6 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- End of script

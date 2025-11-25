@@ -12,12 +12,10 @@ class FileUploadService {
   static const String _bucketName = 'course_files';
 
   /// Pick files from device
-  Future<List<PlatformFile>?> pickFiles({
-    bool allowMultiple = true,
-  }) async {
+  Future<List<PlatformFile>?> pickFiles({bool allowMultiple = true}) async {
     try {
       print('📁 FileUploadService: Opening file picker...');
-      
+
       final result = await FilePicker.platform.pickFiles(
         allowMultiple: allowMultiple,
         type: FileType.any,
@@ -54,7 +52,7 @@ class FileUploadService {
 
       // Upload to Supabase Storage
       final bytes = file.bytes ?? await File(file.path!).readAsBytes();
-      
+
       await _supabase.storage
           .from(_bucketName)
           .uploadBinary(
@@ -108,7 +106,9 @@ class FileUploadService {
       };
 
       // Use appropriate table based on file type
-      final tableName = fileType == 'module' ? 'course_modules' : 'course_assignments';
+      final tableName = fileType == 'module'
+          ? 'course_modules'
+          : 'course_assignments';
 
       final response = await _supabase
           .from(tableName)
@@ -167,7 +167,7 @@ class FileUploadService {
     String? fileType, // null = all, 'module' or 'assignment'
   }) async {
     try {
-      print('📚 FileUploadService: Fetching files for course $courseId...');
+      // print('📚 FileUploadService: Fetching files for course $courseId...');
 
       final List<CourseFile> allFiles = [];
       final courseIdInt = int.parse(courseId); // Convert to int for query
@@ -183,9 +183,9 @@ class FileUploadService {
         final modules = (modulesResponse as List)
             .map((json) => CourseFile.fromJson(json, 'module'))
             .toList();
-        
+
         allFiles.addAll(modules);
-        print('✅ FileUploadService: Found ${modules.length} module(s)');
+        // print('✅ FileUploadService: Found ${modules.length} module(s)');
       }
 
       // Fetch assignments if needed
@@ -199,12 +199,12 @@ class FileUploadService {
         final assignments = (assignmentsResponse as List)
             .map((json) => CourseFile.fromJson(json, 'assignment'))
             .toList();
-        
+
         allFiles.addAll(assignments);
-        print('✅ FileUploadService: Found ${assignments.length} assignment(s)');
+        // print('✅ FileUploadService: Found ${assignments.length} assignment(s)');
       }
 
-      print('✅ FileUploadService: Total ${allFiles.length} file(s)');
+      // print('✅ FileUploadService: Total ${allFiles.length} file(s)');
 
       return allFiles;
     } catch (e) {
@@ -226,25 +226,22 @@ class FileUploadService {
       final uri = Uri.parse(fileUrl);
       final pathSegments = uri.pathSegments;
       final bucketIndex = pathSegments.indexOf(_bucketName);
-      
+
       if (bucketIndex != -1 && bucketIndex < pathSegments.length - 1) {
         final filePath = pathSegments.sublist(bucketIndex + 1).join('/');
-        
+
         // Delete from storage
-        await _supabase.storage
-            .from(_bucketName)
-            .remove([filePath]);
-        
+        await _supabase.storage.from(_bucketName).remove([filePath]);
+
         print('✅ FileUploadService: File deleted from storage');
       }
 
       // Delete record from appropriate table
-      final tableName = fileType == 'module' ? 'course_modules' : 'course_assignments';
-      
-      await _supabase
-          .from(tableName)
-          .delete()
-          .eq('id', fileId);
+      final tableName = fileType == 'module'
+          ? 'course_modules'
+          : 'course_assignments';
+
+      await _supabase.from(tableName).delete().eq('id', fileId);
 
       print('✅ FileUploadService: File record deleted from $tableName');
     } catch (e) {

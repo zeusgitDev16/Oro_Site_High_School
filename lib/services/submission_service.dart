@@ -120,6 +120,34 @@ class SubmissionService {
         .eq('student_id', studentId);
   }
 
+  /// Auto-grade and submit a student's objective assignment using
+  /// the server-side RPC. Returns the updated submission row.
+  Future<Map<String, dynamic>> autoGradeAndSubmit({
+    required String assignmentId,
+  }) async {
+    final result = await _supabase.rpc(
+      'auto_grade_and_submit_assignment',
+      params: {'p_assignment_id': assignmentId},
+    );
+
+    if (result == null) {
+      throw Exception('Auto-grade RPC returned null');
+    }
+
+    if (result is List) {
+      if (result.isEmpty) {
+        throw Exception('Auto-grade RPC returned no rows');
+      }
+      return Map<String, dynamic>.from(result.first as Map);
+    }
+
+    if (result is Map) {
+      return Map<String, dynamic>.from(result);
+    }
+
+    throw Exception('Unexpected auto-grade RPC response');
+  }
+
   /// Update/override the score for a student's submission (manual grading)
   /// Also marks the submission as graded and timestamps it, so UI can reclassify
   /// from "to grade" to "completed" immediately without a manual refresh.

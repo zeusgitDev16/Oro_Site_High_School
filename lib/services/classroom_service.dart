@@ -28,6 +28,11 @@ class ClassroomService {
     required int gradeLevel,
     required int maxStudents,
     required String schoolLevel,
+    required String schoolYear,
+    String? quarter,
+    String? semester,
+    String? academicTrack,
+    String? advisoryTeacherId,
   }) async {
     try {
       // Validate grade level
@@ -70,10 +75,15 @@ class ClassroomService {
             'description': description,
             'grade_level': gradeLevel,
             'school_level': schoolLevel,
+            'school_year': schoolYear,
+            'quarter': quarter,
+            'semester': semester,
+            'academic_track': academicTrack,
             'max_students': maxStudents,
             'current_students': 0,
             'is_active': true,
             'access_code': accessCode,
+            'advisory_teacher_id': advisoryTeacherId,
           })
           .select()
           .single();
@@ -154,6 +164,10 @@ class ClassroomService {
     int? maxStudents,
     bool? isActive,
     String? schoolLevel,
+    String? quarter,
+    String? semester,
+    String? academicTrack,
+    String? advisoryTeacherId,
   }) async {
     try {
       final updates = <String, dynamic>{};
@@ -173,6 +187,9 @@ class ClassroomService {
         updates['max_students'] = maxStudents;
       }
       if (isActive != null) updates['is_active'] = isActive;
+      if (advisoryTeacherId != null) {
+        updates['advisory_teacher_id'] = advisoryTeacherId;
+      }
       if (schoolLevel != null) {
         if (schoolLevel != Classroom.schoolLevelJhs &&
             schoolLevel != Classroom.schoolLevelShs) {
@@ -180,6 +197,9 @@ class ClassroomService {
         }
         updates['school_level'] = schoolLevel;
       }
+      if (quarter != null) updates['quarter'] = quarter;
+      if (semester != null) updates['semester'] = semester;
+      if (academicTrack != null) updates['academic_track'] = academicTrack;
 
       // Cross-field validation if both gradeLevel and schoolLevel are involved
       if (updates.containsKey('grade_level') ||
@@ -352,23 +372,23 @@ class ClassroomService {
     }
   }
 
-  /// Decrement student count
+  /// Decrement student count using live enrollment rows
+  ///
+  /// This mirrors the logic in [joinClassroom]: it derives the count from
+  /// `classroom_students` instead of trusting a potentially stale
+  /// `current_students` value. This keeps things idempotent and resilient
+  /// against race conditions.
   Future<void> decrementStudentCount(String classroomId) async {
     try {
-      // Get current classroom
-      final classroom = await getClassroomById(classroomId);
-      if (classroom == null) {
-        throw Exception('Classroom not found');
-      }
-
-      // Decrement count (don't go below 0)
-      final newCount = classroom.currentStudents > 0
-          ? classroom.currentStudents - 1
-          : 0;
+      final rows = await _supabase
+          .from('classroom_students')
+          .select('student_id')
+          .eq('classroom_id', classroomId);
+      final updatedCount = (rows as List).length;
 
       await _supabase
           .from('classrooms')
-          .update({'current_students': newCount})
+          .update({'current_students': updatedCount})
           .eq('id', classroomId);
     } catch (e) {
       print('❌ Error decrementing student count: $e');
@@ -557,8 +577,13 @@ class ClassroomService {
           .eq('student_id', studentId)
           .maybeSingle();
 
+      print(
+        '🔎 existingEnrollment check: classroomId=${classroom.id}, '
+        'studentId=$studentId, found=${existingEnrollment != null}',
+      );
+
       if (existingEnrollment != null) {
-        print('❌ Student already enrolled in classroom');
+        print('❌ Student already enrolled in classroom (pre-insert check).');
         return {
           'success': false,
           'message': 'You are already enrolled in this classroom.',
@@ -576,18 +601,25 @@ class ClassroomService {
 
       print('✅ Student enrolled successfully');
 
-      // Update student count based on live enrollments (avoids race conditions)
-      final newEnrollments = await _supabase
-          .from('classroom_students')
-          .select('student_id')
-          .eq('classroom_id', classroom.id);
-      final updatedCount = (newEnrollments as List).length;
-      await _supabase
-          .from('classrooms')
-          .update({'current_students': updatedCount})
-          .eq('id', classroom.id);
-
-      print('✅ Student count updated to $updatedCount');
+      // Update student count based on live enrollments (avoids race conditions).
+      // This is a best-effort update only; if RLS blocks the UPDATE on classrooms,
+      // we still treat the join as successful because enrollment already succeeded.
+      try {
+        final newEnrollments = await _supabase
+            .from('classroom_students')
+            .select('student_id')
+            .eq('classroom_id', classroom.id);
+        final updatedCount = (newEnrollments as List).length;
+        await _supabase
+            .from('classrooms')
+            .update({'current_students': updatedCount})
+            .eq('id', classroom.id);
+        print('✅ Student count updated to $updatedCount');
+      } catch (e) {
+        print(
+          '⚠️ Student joined, but could not update classroom current_students: $e',
+        );
+      }
 
       return {
         'success': true,
@@ -596,6 +628,27 @@ class ClassroomService {
       };
     } catch (e) {
       print('❌ Error joining classroom: $e');
+
+      // Normalize duplicate-enrollment unique constraint into an idempotent,
+      // user-friendly response. This specifically targets the
+      // `classroom_students_classroom_id_student_id_key` error (code 23505)
+      // that occurs when a student is already enrolled in the classroom.
+      final isDup = _isDuplicateEnrollmentError(e);
+      print(
+        '🔁 joinClassroom catch; isDuplicateEnrollmentError=$isDup; '
+        'errorType=${e.runtimeType}',
+      );
+      if (isDup) {
+        print(
+          'ℹ️ Duplicate enrollment detected; treating as already enrolled.',
+        );
+        return {
+          'success': false,
+          'message': 'Student is already enrolled in this classroom.',
+          'alreadyJoined': true,
+        };
+      }
+
       print('❌ Stack trace: ${StackTrace.current}');
       return {
         'success': false,
@@ -603,6 +656,26 @@ class ClassroomService {
             'An error occurred while joining the classroom. Please try again. Error: $e',
       };
     }
+  }
+
+  bool _isDuplicateEnrollmentError(Object e) {
+    // Prefer structured PostgrestException inspection when available.
+    if (e is PostgrestException) {
+      final message = e.message ?? '';
+      final details = e.details?.toString() ?? '';
+      if (e.code == '23505' &&
+          (message.contains('classroom_students_classroom_id_student_id_key') ||
+              details.contains(
+                'classroom_students_classroom_id_student_id_key',
+              ))) {
+        return true;
+      }
+    }
+
+    // Fallback: string-based detection to stay robust across SDK versions.
+    final text = e.toString();
+    return text.contains('23505') &&
+        text.contains('classroom_students_classroom_id_student_id_key');
   }
 
   /// Allow a teacher to join a classroom using the access code (co-teacher)
@@ -772,35 +845,43 @@ class ClassroomService {
     }
   }
 
-  /// Get enrollment counts for a list of classrooms
+  /// Get enrollment counts for a list of classrooms.
+  ///
+  /// This intentionally reads directly from the `classroom_students` table so
+  /// that counts always reflect the same source of truth used by
+  /// `joinClassroom`, `leaveClassroom`, and `getClassroomStudents`.
   Future<Map<String, int>> getEnrollmentCountsForClassrooms(
     List<String> classroomIds,
   ) async {
     if (classroomIds.isEmpty) return {};
-    try {
-      final response = await _supabase
-          .from('classroom_students')
-          .select('classroom_id')
-          .inFilter('classroom_id', classroomIds);
 
-      final counts = <String, int>{};
-      for (final row in (response as List)) {
-        final id = row['classroom_id'] as String;
-        counts[id] = (counts[id] ?? 0) + 1;
+    final counts = <String, int>{};
+
+    try {
+      for (final id in classroomIds) {
+        final response = await _supabase
+            .from('classroom_students')
+            .select('student_id')
+            .eq('classroom_id', id);
+        counts[id] = (response as List).length;
       }
       return counts;
     } catch (e) {
-      print('❌ Error fetching enrollment counts: $e');
-      return {};
+      print('❌ Error fetching enrollment counts from classroom_students: $e');
+      return counts;
     }
   }
 
   /// Get all students enrolled in a classroom
+  ///
+  /// Prefer the `get_classroom_students_with_profile` RPC so that visibility
+  /// is enforced server-side. Falls back to direct select for environments
+  /// where the RPC is not yet deployed.
   Future<List<Map<String, dynamic>>> getClassroomStudents(
     String classroomId,
   ) async {
     try {
-      // Prefer secure RPC that enforces owner/co-teacher visibility server-side.
+      // Prefer secure RPC that can enforce visibility server-side if available
       try {
         final rows = await _supabase.rpc(
           'get_classroom_students_with_profile',
@@ -826,7 +907,13 @@ class ClassroomService {
           .eq('classroom_id', classroomId)
           .order('enrolled_at', ascending: false);
 
-      return (response as List).map((item) {
+      final rows = (response as List);
+      print(
+        '📚 getClassroomStudents($classroomId) returned ${rows.length} '
+        'rows (classroom_students x profiles!inner).',
+      );
+
+      return rows.map((item) {
         final profile = item['profiles'];
         return {
           'student_id': item['student_id'],

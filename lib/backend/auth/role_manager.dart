@@ -5,13 +5,7 @@
 import '../config/supabase_config.dart';
 
 /// User roles in the system
-enum UserRole {
-  admin,
-  teacher,
-  coordinator,
-  student,
-  parent,
-}
+enum UserRole { admin, teacher, coordinator, student, parent }
 
 /// Permission types
 enum Permission {
@@ -21,42 +15,42 @@ enum Permission {
   updateUser,
   deleteUser,
   resetPassword,
-  
+
   // Course management
   createCourse,
   readCourse,
   updateCourse,
   deleteCourse,
   assignTeacher,
-  
+
   // Grade management
   createGrade,
   readGrade,
   updateGrade,
   deleteGrade,
   verifyGrade,
-  
+
   // Attendance management
   createAttendance,
   readAttendance,
   updateAttendance,
   deleteAttendance,
   scanQR,
-  
+
   // Announcement management
   createAnnouncement,
   readAnnouncement,
   updateAnnouncement,
   deleteAnnouncement,
-  
+
   // Message management
   sendMessage,
   readMessage,
-  
+
   // Report generation
   generateReport,
   exportData,
-  
+
   // System settings
   manageSettings,
   viewAnalytics,
@@ -76,7 +70,7 @@ class RoleManager {
       // Full system access
       ...Permission.values,
     },
-    
+
     UserRole.coordinator: {
       // Grade coordinator permissions
       Permission.readUser,
@@ -98,7 +92,7 @@ class RoleManager {
       Permission.exportData,
       Permission.viewAnalytics,
     },
-    
+
     UserRole.teacher: {
       // Teacher permissions
       Permission.readUser,
@@ -117,7 +111,7 @@ class RoleManager {
       Permission.readMessage,
       Permission.generateReport,
     },
-    
+
     UserRole.student: {
       // Student permissions
       Permission.readUser,
@@ -128,7 +122,7 @@ class RoleManager {
       Permission.sendMessage,
       Permission.readMessage,
     },
-    
+
     UserRole.parent: {
       // Parent permissions
       Permission.readUser,
@@ -151,7 +145,6 @@ class RoleManager {
           .single();
 
       return response['roles']?['name'];
-      
     } catch (e) {
       print('Error fetching user role: $e');
       return null;
@@ -162,7 +155,7 @@ class RoleManager {
   Future<UserRole?> getUserRoleEnum(String userId) async {
     final roleName = await getUserRole(userId);
     if (roleName == null) return null;
-    
+
     return _parseRole(roleName);
   }
 
@@ -188,12 +181,15 @@ class RoleManager {
   Future<bool> hasPermission(String userId, Permission permission) async {
     final role = await getUserRoleEnum(userId);
     if (role == null) return false;
-    
+
     return _rolePermissions[role]?.contains(permission) ?? false;
   }
 
   /// Check multiple permissions
-  Future<bool> hasAllPermissions(String userId, List<Permission> permissions) async {
+  Future<bool> hasAllPermissions(
+    String userId,
+    List<Permission> permissions,
+  ) async {
     for (final permission in permissions) {
       if (!await hasPermission(userId, permission)) {
         return false;
@@ -203,7 +199,10 @@ class RoleManager {
   }
 
   /// Check if user has any of the permissions
-  Future<bool> hasAnyPermission(String userId, List<Permission> permissions) async {
+  Future<bool> hasAnyPermission(
+    String userId,
+    List<Permission> permissions,
+  ) async {
     for (final permission in permissions) {
       if (await hasPermission(userId, permission)) {
         return true;
@@ -221,7 +220,7 @@ class RoleManager {
   bool canAccessFeature(UserRole role, String feature) {
     final featurePermissions = _getFeaturePermissions(feature);
     final rolePerms = getRolePermissions(role);
-    
+
     return featurePermissions.any((perm) => rolePerms.contains(perm));
   }
 
@@ -229,13 +228,29 @@ class RoleManager {
   List<Permission> _getFeaturePermissions(String feature) {
     switch (feature) {
       case 'user_management':
-        return [Permission.createUser, Permission.updateUser, Permission.deleteUser];
+        return [
+          Permission.createUser,
+          Permission.updateUser,
+          Permission.deleteUser,
+        ];
       case 'course_management':
-        return [Permission.createCourse, Permission.updateCourse, Permission.deleteCourse];
+        return [
+          Permission.createCourse,
+          Permission.updateCourse,
+          Permission.deleteCourse,
+        ];
       case 'grade_management':
-        return [Permission.createGrade, Permission.updateGrade, Permission.verifyGrade];
+        return [
+          Permission.createGrade,
+          Permission.updateGrade,
+          Permission.verifyGrade,
+        ];
       case 'attendance_management':
-        return [Permission.createAttendance, Permission.updateAttendance, Permission.scanQR];
+        return [
+          Permission.createAttendance,
+          Permission.updateAttendance,
+          Permission.scanQR,
+        ];
       case 'announcements':
         return [Permission.createAnnouncement, Permission.updateAnnouncement];
       case 'messaging':
@@ -262,13 +277,13 @@ class RoleManager {
       'reports',
       'settings',
     ];
-    
+
     for (final feature in allFeatures) {
       if (canAccessFeature(role, feature)) {
         features.add(feature);
       }
     }
-    
+
     return features;
   }
 
@@ -281,9 +296,8 @@ class RoleManager {
           .eq('teacher_id', userId)
           .eq('is_active', true)
           .maybeSingle();
-      
+
       return response != null;
-      
     } catch (e) {
       print('Error checking coordinator status: $e');
       return false;
@@ -299,9 +313,8 @@ class RoleManager {
           .eq('teacher_id', userId)
           .eq('is_active', true)
           .single();
-      
+
       return response['grade_level'];
-      
     } catch (e) {
       print('Error fetching coordinator grade level: $e');
       return null;
@@ -317,9 +330,8 @@ class RoleManager {
           .eq('teacher_id', userId)
           .eq('is_active', true)
           .maybeSingle();
-      
+
       return response != null;
-      
     } catch (e) {
       print('Error checking adviser status: $e');
       return false;
@@ -335,9 +347,8 @@ class RoleManager {
           .eq('teacher_id', userId)
           .eq('is_active', true)
           .single();
-      
+
       return response;
-      
     } catch (e) {
       print('Error fetching adviser section: $e');
       return null;
@@ -353,20 +364,19 @@ class RoleManager {
           .select('id')
           .eq('name', newRole)
           .single();
-      
+
       final roleId = roleResponse['id'];
-      
+
       // Update profile
       await _client
           .from('profiles')
           .update({'role_id': roleId})
           .eq('id', userId);
-      
-      print('✅ User role updated to $newRole');
+
+      print('[INFO] User role updated to $newRole');
       return true;
-      
     } catch (e) {
-      print('❌ Error updating user role: $e');
+      print('[ERROR] Error updating user role: $e');
       return false;
     }
   }
@@ -377,16 +387,15 @@ class RoleManager {
       final response = await _client
           .from('profiles')
           .select('role_id, roles(name)');
-      
+
       final stats = <String, int>{};
-      
+
       for (final profile in response) {
         final roleName = profile['roles']?['name'] ?? 'unknown';
         stats[roleName] = (stats[roleName] ?? 0) + 1;
       }
-      
+
       return stats;
-      
     } catch (e) {
       print('Error fetching role statistics: $e');
       return {};

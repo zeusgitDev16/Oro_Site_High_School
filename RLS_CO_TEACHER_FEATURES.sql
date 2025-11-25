@@ -15,11 +15,11 @@
 -- =============================
 alter table if exists public.classrooms enable row level security;
 
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'classrooms_select_co_teachers'
+    WHERE policyname = 'classrooms_select_co_teachers'
       AND schemaname = 'public'
       AND tablename = 'classrooms'
   ) THEN
@@ -37,7 +37,7 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- =============================================
 -- CLASSROOM_COURSES (manage subjects in classroom)
@@ -45,11 +45,11 @@ END $$;
 alter table if exists public.classroom_courses enable row level security;
 
 -- SELECT
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'classroom_courses_select_memberships'
+    WHERE policyname = 'classroom_courses_select_memberships'
       AND schemaname = 'public'
       AND tablename = 'classroom_courses'
   ) THEN
@@ -71,14 +71,14 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- INSERT (allow owner or co-teacher to add a course to the classroom)
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'classroom_courses_insert_memberships'
+    WHERE policyname = 'classroom_courses_insert_memberships'
       AND schemaname = 'public'
       AND tablename = 'classroom_courses'
   ) THEN
@@ -100,14 +100,14 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- UPDATE (optional, mirror SELECT rules)
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'classroom_courses_update_memberships'
+    WHERE policyname = 'classroom_courses_update_memberships'
       AND schemaname = 'public'
       AND tablename = 'classroom_courses'
   ) THEN
@@ -141,14 +141,14 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- DELETE (allow owner or co-teacher)
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'classroom_courses_delete_memberships'
+    WHERE policyname = 'classroom_courses_delete_memberships'
       AND schemaname = 'public'
       AND tablename = 'classroom_courses'
   ) THEN
@@ -170,7 +170,7 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- =====================
 -- ASSIGNMENTS (4 tabs)
@@ -178,11 +178,11 @@ END $$;
 alter table if exists public.assignments enable row level security;
 
 -- SELECT
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'assignments_select_memberships'
+    WHERE policyname = 'assignments_select_memberships'
       AND schemaname = 'public'
       AND tablename = 'assignments'
   ) THEN
@@ -204,14 +204,14 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- INSERT
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'assignments_insert_memberships'
+    WHERE policyname = 'assignments_insert_memberships'
       AND schemaname = 'public'
       AND tablename = 'assignments'
   ) THEN
@@ -233,14 +233,14 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- UPDATE
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'assignments_update_memberships'
+    WHERE policyname = 'assignments_update_memberships'
       AND schemaname = 'public'
       AND tablename = 'assignments'
   ) THEN
@@ -274,14 +274,14 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- DELETE
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'assignments_delete_memberships'
+    WHERE policyname = 'assignments_delete_memberships'
       AND schemaname = 'public'
       AND tablename = 'assignments'
   ) THEN
@@ -303,7 +303,7 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- ======================
 -- ANNOUNCEMENTS (4 tabs)
@@ -311,11 +311,11 @@ END $$;
 alter table if exists public.announcements enable row level security;
 
 -- SELECT
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'announcements_select_memberships'
+    WHERE policyname = 'announcements_select_memberships'
       AND schemaname = 'public'
       AND tablename = 'announcements'
   ) THEN
@@ -326,7 +326,7 @@ BEGIN
       using (
         exists (
           select 1 from public.classrooms c
-          where c.id = classroom_id
+          where c.id::text = classroom_id
             and (c.teacher_id = auth.uid()
                  or exists (
                    select 1 from public.classroom_teachers ct
@@ -337,14 +337,14 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- INSERT
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'announcements_insert_memberships'
+    WHERE policyname = 'announcements_insert_memberships'
       AND schemaname = 'public'
       AND tablename = 'announcements'
   ) THEN
@@ -355,7 +355,7 @@ BEGIN
       with check (
         exists (
           select 1 from public.classrooms c
-          where c.id = classroom_id
+          where c.id::text = classroom_id
             and (c.teacher_id = auth.uid()
                  or exists (
                    select 1 from public.classroom_teachers ct
@@ -366,14 +366,14 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- UPDATE
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'announcements_update_memberships'
+    WHERE policyname = 'announcements_update_memberships'
       AND schemaname = 'public'
       AND tablename = 'announcements'
   ) THEN
@@ -384,7 +384,7 @@ BEGIN
       using (
         exists (
           select 1 from public.classrooms c
-          where c.id = classroom_id
+          where c.id::text = classroom_id
             and (c.teacher_id = auth.uid()
                  or exists (
                    select 1 from public.classroom_teachers ct
@@ -396,7 +396,7 @@ BEGIN
       with check (
         exists (
           select 1 from public.classrooms c
-          where c.id = classroom_id
+          where c.id::text = classroom_id
             and (c.teacher_id = auth.uid()
                  or exists (
                    select 1 from public.classroom_teachers ct
@@ -407,14 +407,14 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- DELETE
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'announcements_delete_memberships'
+    WHERE policyname = 'announcements_delete_memberships'
       AND schemaname = 'public'
       AND tablename = 'announcements'
   ) THEN
@@ -425,7 +425,7 @@ BEGIN
       using (
         exists (
           select 1 from public.classrooms c
-          where c.id = classroom_id
+          where c.id::text = classroom_id
             and (c.teacher_id = auth.uid()
                  or exists (
                    select 1 from public.classroom_teachers ct
@@ -436,7 +436,7 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- ============================
 -- ANNOUNCEMENT_REPLIES (4 tabs)
@@ -444,11 +444,11 @@ END $$;
 alter table if exists public.announcement_replies enable row level security;
 
 -- SELECT (allowed if member of the parent announcement's classroom)
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'announcement_replies_select_memberships'
+    WHERE policyname = 'announcement_replies_select_memberships'
       AND schemaname = 'public'
       AND tablename = 'announcement_replies'
   ) THEN
@@ -459,26 +459,26 @@ BEGIN
       using (
         exists (
           select 1 from public.announcements a
-          join public.classrooms c on c.id = a.classroom_id
+          join public.classrooms c on c.id::text = a.classroom_id
           where a.id = announcement_replies.announcement_id
             and (c.teacher_id = auth.uid()
                  or exists (
                    select 1 from public.classroom_teachers ct
-                   where ct.classroom_id = a.classroom_id
+                   where ct.classroom_id = c.id
                      and ct.teacher_id = auth.uid()
                  ))
         )
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- INSERT (author must be current user and member of the parent classroom)
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'announcement_replies_insert_memberships'
+    WHERE policyname = 'announcement_replies_insert_memberships'
       AND schemaname = 'public'
       AND tablename = 'announcement_replies'
   ) THEN
@@ -487,29 +487,29 @@ BEGIN
       on public.announcement_replies
       for insert
       with check (
-        author_id = auth.uid()
+        author_id_uuid = auth.uid()
         and exists (
           select 1 from public.announcements a
-          join public.classrooms c on c.id = a.classroom_id
+          join public.classrooms c on c.id::text = a.classroom_id
           where a.id = announcement_id
             and (c.teacher_id = auth.uid()
                  or exists (
                    select 1 from public.classroom_teachers ct
-                   where ct.classroom_id = a.classroom_id
+                   where ct.classroom_id = c.id
                      and ct.teacher_id = auth.uid()
                  ))
         )
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- DELETE (author OR owner/co-teacher of the parent classroom)
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'announcement_replies_delete_memberships'
+    WHERE policyname = 'announcement_replies_delete_memberships'
       AND schemaname = 'public'
       AND tablename = 'announcement_replies'
   ) THEN
@@ -518,22 +518,22 @@ BEGIN
       on public.announcement_replies
       for delete
       using (
-        announcement_replies.author_id = auth.uid()
+        announcement_replies.author_id_uuid = auth.uid()
         or exists (
           select 1 from public.announcements a
-          join public.classrooms c on c.id = a.classroom_id
+          join public.classrooms c on c.id::text = a.classroom_id
           where a.id = announcement_replies.announcement_id
             and (c.teacher_id = auth.uid()
                  or exists (
                    select 1 from public.classroom_teachers ct
-                   where ct.classroom_id = a.classroom_id
+                   where ct.classroom_id = c.id
                      and ct.teacher_id = auth.uid()
                  ))
         )
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- ======================
 -- COURSE_MODULES (modules)
@@ -541,11 +541,11 @@ END $$;
 alter table if exists public.course_modules enable row level security;
 
 -- SELECT (member of any classroom that links to this course)
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'course_modules_select_memberships'
+    WHERE policyname = 'course_modules_select_memberships'
       AND schemaname = 'public'
       AND tablename = 'course_modules'
   ) THEN
@@ -568,14 +568,14 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- INSERT
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'course_modules_insert_memberships'
+    WHERE policyname = 'course_modules_insert_memberships'
       AND schemaname = 'public'
       AND tablename = 'course_modules'
   ) THEN
@@ -598,14 +598,14 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- UPDATE
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'course_modules_update_memberships'
+    WHERE policyname = 'course_modules_update_memberships'
       AND schemaname = 'public'
       AND tablename = 'course_modules'
   ) THEN
@@ -641,14 +641,14 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- DELETE
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'course_modules_delete_memberships'
+    WHERE policyname = 'course_modules_delete_memberships'
       AND schemaname = 'public'
       AND tablename = 'course_modules'
   ) THEN
@@ -671,7 +671,7 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- ===========================
 -- COURSE_ASSIGNMENTS (helper)
@@ -679,11 +679,11 @@ END $$;
 alter table if exists public.course_assignments enable row level security;
 
 -- SELECT / INSERT / UPDATE / DELETE share same membership logic as course_modules
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'course_assignments_select_memberships'
+    WHERE policyname = 'course_assignments_select_memberships'
       AND schemaname = 'public'
       AND tablename = 'course_assignments'
   ) THEN
@@ -706,13 +706,13 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'course_assignments_insert_memberships'
+    WHERE policyname = 'course_assignments_insert_memberships'
       AND schemaname = 'public'
       AND tablename = 'course_assignments'
   ) THEN
@@ -735,13 +735,13 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'course_assignments_update_memberships'
+    WHERE policyname = 'course_assignments_update_memberships'
       AND schemaname = 'public'
       AND tablename = 'course_assignments'
   ) THEN
@@ -777,13 +777,13 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
-DO $$
+DO $rls$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE polname = 'course_assignments_delete_memberships'
+    WHERE policyname = 'course_assignments_delete_memberships'
       AND schemaname = 'public'
       AND tablename = 'course_assignments'
   ) THEN
@@ -806,6 +806,6 @@ BEGIN
       );
     $$;
   END IF;
-END $$;
+END $rls$;
 
 -- End of script

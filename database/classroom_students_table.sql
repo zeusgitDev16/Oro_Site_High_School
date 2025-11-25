@@ -38,15 +38,16 @@ CREATE POLICY "Students can unenroll themselves"
     FOR DELETE
     USING (auth.uid() = student_id);
 
--- Policy: Teachers can view enrollments in their classrooms
+-- Policy: Teachers can view classroom enrollments (non-recursive: no classrooms reference)
 CREATE POLICY "Teachers can view classroom enrollments"
     ON classroom_students
     FOR SELECT
     USING (
         EXISTS (
-            SELECT 1 FROM classrooms
-            WHERE classrooms.id = classroom_students.classroom_id
-            AND classrooms.teacher_id = auth.uid()
+            SELECT 1
+            FROM profiles
+            WHERE profiles.id = auth.uid()
+              AND profiles.role = 'teacher'
         )
     );
 

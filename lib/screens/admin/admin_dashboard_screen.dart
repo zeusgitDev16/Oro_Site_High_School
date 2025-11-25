@@ -16,6 +16,7 @@ import 'package:oro_site_high_school/screens/admin/widgets/reports_popup.dart';
 import 'package:oro_site_high_school/screens/admin/messages/messages_screen.dart';
 import 'package:oro_site_high_school/screens/admin/notifications/notifications_screen.dart';
 import 'package:oro_site_high_school/services/notification_service.dart';
+import 'package:oro_site_high_school/screens/admin/classrooms_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -120,9 +121,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               children: [
                 _buildNavItem(Icons.home, 'Home', 0),
                 _buildNavItem(Icons.school, 'Courses', 1),
-                _buildNavItem(Icons.person_search, 'Users', 2),
-                _buildNavItem(Icons.library_books, 'Resources', 3),
-                _buildNavItem(Icons.insert_chart, 'Reports', 4),
+                _buildNavItem(Icons.class_, 'Classrooms', 2),
+                _buildNavItem(Icons.person_search, 'Users', 3),
+                _buildNavItem(Icons.library_books, 'Resources', 4),
+                _buildNavItem(Icons.insert_chart, 'Reports', 5),
               ],
             ),
           ),
@@ -160,24 +162,30 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         ),
         onTap: () {
           if (index == 1) {
-            // Navigate to simple Courses screen
+            // Navigate to Courses screen
             Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (context) => const CoursesScreen(),
-              ),
+              MaterialPageRoute(builder: (context) => const CoursesScreen()),
             );
             return;
           }
           if (index == 2) {
-            _showUsersPopup();
+            // Navigate to Classrooms screen
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const ClassroomsScreen()),
+            );
             return;
           }
           if (index == 3) {
-            _showResourcesPopup();
+            _showUsersPopup();
             return;
           }
           if (index == 4) {
+            _showResourcesPopup();
+            return;
+          }
+          if (index == 5) {
             _showReportsPopup();
             return;
           }
@@ -186,9 +194,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           if (index == 10) {
             Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (context) => const HelpScreen(),
-              ),
+              MaterialPageRoute(builder: (context) => const HelpScreen()),
             );
           } else {
             setState(() {

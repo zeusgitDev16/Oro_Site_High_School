@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:oro_site_high_school/flow/student/student_dashboard_logic.dart';
 import 'package:oro_site_high_school/screens/student/views/student_home_view.dart';
-import 'package:oro_site_high_school/screens/student/views/student_analytics_view.dart';
-import 'package:oro_site_high_school/screens/student/views/student_schedule_view.dart';
 import 'package:oro_site_high_school/screens/student/assignments/student_assignments_screen.dart';
 import 'package:oro_site_high_school/screens/student/grades/student_grades_screen.dart';
 import 'package:oro_site_high_school/screens/student/attendance/student_attendance_screen.dart';
@@ -35,12 +33,17 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
   void initState() {
     super.initState();
     _logic = StudentDashboardLogic();
-    _tabController = TabController(length: 3, vsync: this);
-    
+    _tabController = TabController(length: 1, vsync: this);
+
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
         _logic.setTabIndex(_tabController.index);
       }
+    });
+
+    // Load student profile immediately when dashboard is created
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _logic.loadStudentProfile();
     });
   }
 
@@ -236,7 +239,6 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
     );
   }
 
-  
   Widget _buildCenterContent() {
     return Scaffold(
       appBar: AppBar(
@@ -250,11 +252,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
                 child: TabBar(
                   controller: _tabController,
                   isScrollable: true,
-                  tabs: const [
-                    Tab(text: 'Dashboard'),
-                    Tab(text: 'Analytics'),
-                    Tab(text: 'Schedule'),
-                  ],
+                  tabs: const [Tab(text: 'Dashboard')],
                 ),
               ),
               Container(
@@ -284,11 +282,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
       ),
       body: TabBarView(
         controller: _tabController,
-        children: [
-          StudentHomeView(logic: _logic),
-          const StudentAnalyticsView(),
-          const StudentScheduleView(),
-        ],
+        children: [StudentHomeView(logic: _logic)],
       ),
     );
   }
@@ -313,7 +307,8 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => const StudentNotificationsScreen(),
+                              builder: (context) =>
+                                  const StudentNotificationsScreen(),
                             ),
                           );
                         },
@@ -359,7 +354,8 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => const StudentMessagesScreen(),
+                              builder: (context) =>
+                                  const StudentMessagesScreen(),
                             ),
                           );
                         },
@@ -400,8 +396,13 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
                 listenable: _logic,
                 builder: (context, _) {
                   final studentData = _logic.studentData;
+                  final firstName = studentData['firstName']?.toString() ?? '';
+                  final lastName = studentData['lastName']?.toString() ?? '';
+                  final displayName = firstName.isEmpty && lastName.isEmpty
+                      ? 'Student'
+                      : '$firstName $lastName'.trim();
                   return Text(
-                    '${studentData['firstName']} ${studentData['lastName']}',
+                    displayName,
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   );
                 },
@@ -444,10 +445,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
                 const SizedBox(width: 8),
                 const Text(
                   'Quick Actions',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
@@ -524,7 +522,17 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
               listenable: _logic,
               builder: (context, _) {
                 final studentData = _logic.studentData;
-                final initials = '${studentData['firstName'][0]}${studentData['lastName'][0]}';
+                final initials = () {
+                  final firstName = studentData['firstName']?.toString() ?? '';
+                  final lastName = studentData['lastName']?.toString() ?? '';
+                  if (firstName.isEmpty && lastName.isEmpty) {
+                    return 'S'; // Default to 'S' for Student
+                  }
+                  final firstInitial = firstName.isNotEmpty ? firstName[0] : '';
+                  final lastInitial = lastName.isNotEmpty ? lastName[0] : '';
+                  return '$firstInitial$lastInitial'.toUpperCase();
+                }();
+
                 return CircleAvatar(
                   radius: 16,
                   backgroundColor: Colors.green,

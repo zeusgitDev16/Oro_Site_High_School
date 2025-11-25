@@ -62,11 +62,148 @@ class ProfileService {
           .order('created_at', ascending: false)
           .range((page - 1) * limit, page * limit - 1);
 
-      return (response as List).map((json) => Profile.fromMap(json)).toList();
+      final data = response as List;
+      print(
+        'getAllUsers: fetched \\${data.length} rows (page: \\${page}, limit: \\${limit})',
+      );
+
+      return data.map((json) => Profile.fromMap(json)).toList();
     } catch (e) {
       print('Error fetching users: $e');
       throw Exception('Failed to fetch users: $e');
     }
+  }
+
+  /// Get active student profiles for the Add Member dialog, backed by the
+  /// `students` table. This avoids relying on `profiles` RLS when listing
+  /// candidates, while still using `profiles.id` as the primary key.
+  Future<List<Profile>> getAllStudentsForClassroomAdd({
+    int page = 1,
+    int limit = 200,
+  }) async {
+    try {
+      final response = await _supabase
+          .from('students')
+          .select(
+            'id, first_name, middle_name, last_name, email, contact_number, is_active, created_at, updated_at',
+          )
+          .eq('is_active', true)
+          .order('created_at', ascending: false)
+          .range((page - 1) * limit, page * limit - 1);
+
+      final data = response as List;
+
+      return data.map((row) {
+        final map = row as Map<String, dynamic>;
+
+        final parts = <String>[];
+        void addPart(String? value) {
+          if (value != null && value.trim().isNotEmpty) {
+            parts.add(value.trim());
+          }
+        }
+
+        addPart(map['first_name'] as String?);
+        addPart(map['middle_name'] as String?);
+        addPart(map['last_name'] as String?);
+
+        final fullName = parts.join(' ').trim();
+
+        return Profile(
+          id: map['id'] as String,
+          createdAt: _safeParseDateTime(map['created_at']),
+          updatedAt: map['updated_at'] != null
+              ? _safeParseDateTime(map['updated_at'])
+              : null,
+          fullName: fullName.isNotEmpty
+              ? fullName
+              : (map['email'] as String?) ?? 'Student',
+          roleId: UserRole.student.id,
+          roleName: 'student',
+          avatarUrl: null,
+          email: map['email'] as String?,
+          phone: map['contact_number'] as String?,
+          isActive: map['is_active'] as bool? ?? true,
+        );
+      }).toList();
+    } catch (e) {
+      print('Error fetching students for classroom Add Member dialog: $e');
+      return <Profile>[];
+    }
+  }
+
+  /// Get active teacher/coordinator profiles for the Add Member dialog,
+  /// backed by the `teachers` table.
+  Future<List<Profile>> getAllTeachersForClassroomAdd({
+    int page = 1,
+    int limit = 200,
+  }) async {
+    try {
+      final response = await _supabase
+          .from('teachers')
+          .select(
+            'id, first_name, middle_name, last_name, is_active, is_grade_coordinator, created_at, updated_at',
+          )
+          .eq('is_active', true)
+          .order('created_at', ascending: false)
+          .range((page - 1) * limit, page * limit - 1);
+
+      final data = response as List;
+
+      return data.map((row) {
+        final map = row as Map<String, dynamic>;
+
+        final parts = <String>[];
+        void addPart(String? value) {
+          if (value != null && value.trim().isNotEmpty) {
+            parts.add(value.trim());
+          }
+        }
+
+        addPart(map['first_name'] as String?);
+        addPart(map['middle_name'] as String?);
+        addPart(map['last_name'] as String?);
+
+        final fullName = parts.join(' ').trim();
+
+        // Derive a coarse role hint only for filtering/labels in the dialog.
+        var roleName = 'teacher';
+        var roleId = UserRole.teacher.id;
+        final isCoordinator = map['is_grade_coordinator'] as bool? ?? false;
+        if (isCoordinator) {
+          roleName = 'grade_coordinator';
+          roleId = UserRole.coordinator.id;
+        }
+
+        return Profile(
+          id: map['id'] as String,
+          createdAt: _safeParseDateTime(map['created_at']),
+          updatedAt: map['updated_at'] != null
+              ? _safeParseDateTime(map['updated_at'])
+              : null,
+          fullName: fullName.isNotEmpty ? fullName : 'Teacher',
+          roleId: roleId,
+          roleName: roleName,
+          avatarUrl: null,
+          email: null, // Email stays in profiles; omitted to avoid extra joins.
+          phone: null,
+          isActive: map['is_active'] as bool? ?? true,
+        );
+      }).toList();
+    } catch (e) {
+      print('Error fetching teachers for classroom Add Member dialog: $e');
+      return <Profile>[];
+    }
+  }
+
+  DateTime _safeParseDateTime(dynamic value) {
+    if (value is String) {
+      return DateTime.tryParse(value) ?? DateTime.now();
+    }
+    if (value is DateTime) {
+      return value;
+    }
+    return DateTime.now();
   }
 
   /// Search users

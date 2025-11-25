@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:oro_site_high_school/services/backend_service.dart';
+import 'package:oro_site_high_school/services/classroom_service.dart';
+import 'package:oro_site_high_school/services/assignment_service.dart';
 
 /// Interactive logic for Student Dashboard
 /// Handles state management, navigation, and data operations
@@ -28,13 +30,13 @@ class StudentDashboardLogic extends ChangeNotifier {
 
   // Student data (mock defaults, will be replaced by real data when available)
   Map<String, dynamic> _studentData = {
-    'id': 'student123',
-    'firstName': 'Juan',
-    'lastName': 'Dela Cruz',
-    'lrn': '123456789012',
-    'gradeLevel': 7,
-    'section': 'Diamond',
-    'adviser': 'Maria Santos',
+    'id': '',
+    'firstName': '',
+    'lastName': '',
+    'lrn': '',
+    'gradeLevel': null,
+    'section': '',
+    'adviser': '',
     'birthDate': null,
     'gender': null,
     'address': '',
@@ -47,105 +49,18 @@ class StudentDashboardLogic extends ChangeNotifier {
 
   Map<String, dynamic> get studentData => _studentData;
 
-  // Mock dashboard data
+  // Dashboard data - will be populated from database
   final Map<String, dynamic> _dashboardData = {
-    'todayClasses': [
-      {
-        'subject': 'Mathematics 7',
-        'time': '7:00 AM - 8:00 AM',
-        'teacher': 'Maria Santos',
-        'room': 'Room 201',
-      },
-      {
-        'subject': 'Science 7',
-        'time': '8:00 AM - 9:00 AM',
-        'teacher': 'Juan Cruz',
-        'room': 'Room 202',
-      },
-      {
-        'subject': 'English 7',
-        'time': '9:00 AM - 10:00 AM',
-        'teacher': 'Ana Reyes',
-        'room': 'Room 203',
-      },
-    ],
-    'upcomingAssignments': [
-      {
-        'id': 1,
-        'title': 'Math Quiz 3: Integers',
-        'dueDate': '2024-01-15T23:59:00',
-        'course': 'Mathematics 7',
-        'status': 'not_started',
-        'pointsPossible': 50,
-      },
-      {
-        'id': 2,
-        'title': 'Science Project: Solar System',
-        'dueDate': '2024-01-18T23:59:00',
-        'course': 'Science 7',
-        'status': 'in_progress',
-        'pointsPossible': 100,
-      },
-      {
-        'id': 3,
-        'title': 'English Essay: My Hero',
-        'dueDate': '2024-01-20T23:59:00',
-        'course': 'English 7',
-        'status': 'not_started',
-        'pointsPossible': 75,
-      },
-    ],
-    'recentAnnouncements': [
-      {
-        'id': 1,
-        'title': 'Midterm Exam Schedule Released',
-        'date': '2024-01-10T08:00:00',
-        'author': 'Principal Office',
-        'type': 'school_wide',
-        'priority': 'high',
-      },
-      {
-        'id': 2,
-        'title': 'Math 7 Module 4 Available',
-        'date': '2024-01-12T10:30:00',
-        'author': 'Maria Santos',
-        'type': 'course_specific',
-        'course': 'Mathematics 7',
-      },
-      {
-        'id': 3,
-        'title': 'Science Fair Registration Open',
-        'date': '2024-01-13T14:00:00',
-        'author': 'Science Department',
-        'type': 'school_wide',
-      },
-    ],
-    'recentGrades': [
-      {
-        'id': 1,
-        'assignmentTitle': 'Math Quiz 2',
-        'course': 'Mathematics 7',
-        'pointsEarned': 45,
-        'pointsPossible': 50,
-        'percentage': 90,
-        'dateGraded': '2024-01-08',
-      },
-      {
-        'id': 2,
-        'assignmentTitle': 'Science Lab Report 1',
-        'course': 'Science 7',
-        'pointsEarned': 38,
-        'pointsPossible': 40,
-        'percentage': 95,
-        'dateGraded': '2024-01-09',
-      },
-    ],
+    'todayClasses': [],
+    'upcomingAssignments': [],
+    'recentAnnouncements': [],
+    'recentGrades': [],
     'attendanceSummary': {
-      'totalDays': 20,
-      'present': 18,
-      'late': 1,
-      'absent': 1,
-      'percentage': 90.0,
+      'totalDays': 0,
+      'present': 0,
+      'late': 0,
+      'absent': 0,
+      'percentage': 0.0,
     },
   };
 
@@ -167,19 +82,189 @@ class StudentDashboardLogic extends ChangeNotifier {
     _isLoadingDashboard = true;
     notifyListeners();
 
-    // Simulate API call
-    await Future.delayed(const Duration(milliseconds: 500));
+    try {
+      // Get current student ID
+      final studentId = _studentData['id'] as String?;
+      if (studentId == null || studentId.isEmpty) {
+        debugPrint('Cannot load dashboard: student ID is null');
+        _isLoadingDashboard = false;
+        notifyListeners();
+        return;
+      }
 
-    // In real implementation, this would call:
-    // - EnrollmentService.getEnrollmentsByStudent(studentId)
-    // - AssignmentService.getUpcomingAssignments(courseIds)
-    // - AnnouncementService.getRecentAnnouncements(courseIds)
-    // - GradeService.getRecentGrades(studentId)
-    // - AttendanceService.getAttendanceSummary(studentId)
-    // - CalendarEventService.getTodayEvents(studentId)
+      // Fetch student's classrooms
+      final classroomService = ClassroomService();
+      final classrooms = await classroomService.getStudentClassrooms(studentId);
 
-    _isLoadingDashboard = false;
-    notifyListeners();
+      if (classrooms.isEmpty) {
+        debugPrint('No classrooms found for student');
+        _dashboardData['todayClasses'] = [];
+        _dashboardData['upcomingAssignments'] = [];
+        _dashboardData['recentAnnouncements'] = [];
+        _dashboardData['recentGrades'] = [];
+        _dashboardData['attendanceSummary'] = {
+          'percentage': 0.0,
+          'present': 0,
+          'absent': 0,
+          'late': 0,
+        };
+        _isLoadingDashboard = false;
+        notifyListeners();
+        return;
+      }
+
+      // Get the first active classroom (students typically have one main classroom)
+      final classroom = classrooms.first;
+      final classroomId = classroom.id;
+
+      // Fetch data in parallel
+      final results = await Future.wait([
+        _fetchTodayClasses(classroomId),
+        _fetchUpcomingAssignments(classroomId),
+        _fetchRecentAnnouncements(),
+        _fetchRecentGrades(studentId),
+        _fetchAttendanceSummary(studentId),
+      ]);
+
+      _dashboardData['todayClasses'] = results[0];
+      _dashboardData['upcomingAssignments'] = results[1];
+      _dashboardData['recentAnnouncements'] = results[2];
+      _dashboardData['recentGrades'] = results[3];
+      _dashboardData['attendanceSummary'] = results[4];
+
+      _isLoadingDashboard = false;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error loading dashboard data: $e');
+      _isLoadingDashboard = false;
+      notifyListeners();
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchTodayClasses(
+    String classroomId,
+  ) async {
+    try {
+      // For now, return empty list as we need course schedule implementation
+      // TODO: Implement course schedule fetching for today
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching today classes: $e');
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchUpcomingAssignments(
+    String classroomId,
+  ) async {
+    try {
+      final assignmentService = AssignmentService();
+      final assignments = await assignmentService.getUpcomingAssignments(
+        classroomId,
+      );
+
+      // Transform to match expected format
+      return assignments.map((a) {
+        return {
+          'id': a['id'],
+          'title': a['title'] ?? 'Untitled Assignment',
+          'dueDate': a['due_date'],
+          'course': a['course_name'] ?? 'Unknown Course',
+          'status': 'not_started', // Default status
+          'pointsPossible': a['max_score'] ?? 0,
+        };
+      }).toList();
+    } catch (e) {
+      debugPrint('Error fetching upcoming assignments: $e');
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchRecentAnnouncements() async {
+    try {
+      final announcements = await _backendService.getAnnouncements();
+
+      // Get the 5 most recent announcements
+      final recent = announcements.take(5).toList();
+
+      return recent.map((a) {
+        return {
+          'id': a['id'],
+          'title': a['title'] ?? 'Untitled Announcement',
+          'message': a['message'] ?? a['content'] ?? '',
+          'date': a['created_at'],
+          'priority': a['priority'] ?? 'normal',
+        };
+      }).toList();
+    } catch (e) {
+      debugPrint('Error fetching recent announcements: $e');
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchRecentGrades(
+    String studentId,
+  ) async {
+    try {
+      final grades = await _backendService.getStudentGrades(studentId);
+
+      // Get the 5 most recent grades
+      final recent = grades.take(5).toList();
+
+      return recent.map((g) {
+        final score = g['grade'] ?? g['score'] ?? 0;
+        final maxScore = g['max_score'] ?? 100;
+        final percentage = maxScore > 0 ? (score / maxScore * 100) : 0;
+
+        return {
+          'id': g['id'],
+          'course': g['course_name'] ?? 'Unknown Course',
+          'assignment': g['assignment_name'] ?? 'Grade',
+          'score': score,
+          'maxScore': maxScore,
+          'percentage': percentage,
+          'date': g['created_at'] ?? g['graded_at'],
+        };
+      }).toList();
+    } catch (e) {
+      debugPrint('Error fetching recent grades: $e');
+      return [];
+    }
+  }
+
+  Future<Map<String, dynamic>> _fetchAttendanceSummary(String studentId) async {
+    try {
+      // Get attendance records for the current month
+      final now = DateTime.now();
+      final startOfMonth = DateTime(now.year, now.month, 1);
+
+      final records = await _backendService.getAttendanceRecords(
+        studentId: studentId,
+        startDate: startOfMonth,
+        endDate: now,
+      );
+
+      if (records.isEmpty) {
+        return {'percentage': 0.0, 'present': 0, 'absent': 0, 'late': 0};
+      }
+
+      final present = records.where((r) => r['status'] == 'present').length;
+      final late = records.where((r) => r['status'] == 'late').length;
+      final absent = records.where((r) => r['status'] == 'absent').length;
+      final total = records.length;
+
+      final percentage = total > 0 ? ((present + late) / total * 100) : 0.0;
+
+      return {
+        'percentage': percentage,
+        'present': present,
+        'absent': absent,
+        'late': late,
+      };
+    } catch (e) {
+      debugPrint('Error fetching attendance summary: $e');
+      return {'percentage': 0.0, 'present': 0, 'absent': 0, 'late': 0};
+    }
   }
 
   Future<void> refreshDashboard() async {
@@ -193,43 +278,47 @@ class StudentDashboardLogic extends ChangeNotifier {
   /// anything goes wrong.
   Future<void> loadStudentProfile() async {
     try {
+      debugPrint('Loading student profile...');
       final student = await _backendService.getCurrentStudent();
+
       if (student == null) {
+        debugPrint('No student data returned from getCurrentStudent()');
+        notifyListeners(); // Still notify even if no data
         return;
       }
+
+      debugPrint(
+        'Student data loaded: ${student['first_name']} ${student['last_name']}',
+      );
 
       final dbGradeLevel = student['grade_level'];
       final derivedSchoolLevel = _deriveSchoolLevel(dbGradeLevel);
 
       _studentData = {
-        'id': student['id'] as String? ?? _studentData['id'],
-        'firstName':
-            (student['first_name'] ?? _studentData['firstName']) as String,
-        'lastName':
-            (student['last_name'] ?? _studentData['lastName']) as String,
-        'lrn': (student['lrn'] ?? _studentData['lrn']) as String,
-        'gradeLevel': dbGradeLevel ?? _studentData['gradeLevel'],
-        'section':
-            student['section_name'] ??
-            student['section'] ??
-            _studentData['section'],
-        'adviser': _studentData['adviser'],
+        'id': student['id'] as String? ?? '',
+        'firstName': (student['first_name'] as String?) ?? '',
+        'lastName': (student['last_name'] as String?) ?? '',
+        'lrn': (student['lrn'] as String?) ?? '',
+        'gradeLevel': dbGradeLevel,
+        'section': student['section_name'] ?? student['section'] ?? '',
+        'adviser': '', // Not available in student table
         'birthDate': student['birth_date'],
         'gender': student['gender'],
-        'address': student['address'],
-        'guardianName': student['guardian_name'],
-        'guardianContact': student['guardian_contact'],
-        'schoolLevel':
-            student['school_level'] ??
-            _studentData['schoolLevel'] ??
-            derivedSchoolLevel,
-        'track': student['track'] ?? _studentData['track'],
-        'strand': student['strand'] ?? _studentData['strand'],
+        'address': student['address'] ?? '',
+        'guardianName': student['guardian_name'] ?? '',
+        'guardianContact': student['guardian_contact'] ?? '',
+        'schoolLevel': student['school_level'] ?? derivedSchoolLevel,
+        'track': student['track'],
+        'strand': student['strand'],
       };
 
+      debugPrint(
+        'Student data updated: firstName=${_studentData['firstName']}, lastName=${_studentData['lastName']}',
+      );
       notifyListeners();
     } catch (e) {
       debugPrint('Error loading student profile: $e');
+      notifyListeners(); // Still notify even on error
     }
   }
 

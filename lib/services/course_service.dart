@@ -11,21 +11,19 @@ class CourseService {
   /// Fetch all active courses
   Future<List<Course>> fetchCourses() async {
     try {
-      print('📚 CourseService: Fetching courses...');
-      
+      // print('📚 CourseService: Fetching courses...');
+
       final response = await _supabase
           .from('courses')
           .select()
           .eq('is_active', true)
           .order('created_at', ascending: false);
 
-      print('✅ CourseService: Received ${response.length} courses');
-      
-      return (response as List)
-          .map((json) => Course.fromJson(json))
-          .toList();
+      // print('✅ CourseService: Received ${response.length} courses');
+
+      return (response as List).map((json) => Course.fromJson(json)).toList();
     } catch (e) {
-      print('❌ CourseService: Error fetching courses: $e');
+      // print('❌ CourseService: Error fetching courses: $e');
       rethrow;
     }
   }
@@ -37,7 +35,7 @@ class CourseService {
   }) async {
     try {
       print('📚 CourseService: Creating course: $title');
-      
+
       final now = DateTime.now();
       final courseData = {
         'title': title,
@@ -54,7 +52,7 @@ class CourseService {
           .single();
 
       print('✅ CourseService: Course created successfully');
-      
+
       return Course.fromJson(response);
     } catch (e) {
       print('❌ CourseService: Error creating course: $e');
@@ -73,11 +71,11 @@ class CourseService {
   }) async {
     try {
       print('📚 CourseService: Updating course: $id');
-      
+
       final updateData = <String, dynamic>{
         'updated_at': DateTime.now().toIso8601String(),
       };
-      
+
       if (title != null) updateData['title'] = title;
       if (description != null) updateData['description'] = description;
 
@@ -89,7 +87,7 @@ class CourseService {
           .single();
 
       print('✅ CourseService: Course updated successfully');
-      
+
       return Course.fromJson(response);
     } catch (e) {
       print('❌ CourseService: Error updating course: $e');
@@ -100,8 +98,8 @@ class CourseService {
   /// Delete a course (soft delete - set is_active to false)
   Future<void> deleteCourse(String id) async {
     try {
-      print('📚 CourseService: Deleting course: $id');
-      
+      // print('📚 CourseService: Deleting course: $id');
+
       await _supabase
           .from('courses')
           .update({
@@ -110,9 +108,9 @@ class CourseService {
           })
           .eq('id', id);
 
-      print('✅ CourseService: Course deleted successfully');
+      // print('✅ CourseService: Course deleted successfully');
     } catch (e) {
-      print('❌ CourseService: Error deleting course: $e');
+      // print('❌ CourseService: Error deleting course: $e');
       rethrow;
     }
   }
@@ -121,7 +119,7 @@ class CourseService {
   Future<Course?> getCourseById(String id) async {
     try {
       print('📚 CourseService: Fetching course: $id');
-      
+
       final response = await _supabase
           .from('courses')
           .select()
@@ -146,14 +144,14 @@ class CourseService {
   Future<List<String>> getCourseTeachers(String courseId) async {
     try {
       print('📚 CourseService: Fetching teachers for course: $courseId');
-      
+
       final response = await _supabase
           .from('course_teachers')
           .select('teacher_id')
           .eq('course_id', int.parse(courseId)); // Convert to int
 
       print('✅ CourseService: Found ${response.length} teachers');
-      
+
       return (response as List)
           .map((item) => item['teacher_id'].toString())
           .toList();
@@ -170,7 +168,7 @@ class CourseService {
   }) async {
     try {
       print('📚 CourseService: Adding teacher $teacherId to course $courseId');
-      
+
       // Check if teacher is already assigned
       final existing = await _supabase
           .from('course_teachers')
@@ -178,12 +176,12 @@ class CourseService {
           .eq('course_id', int.parse(courseId))
           .eq('teacher_id', teacherId)
           .maybeSingle();
-      
+
       if (existing != null) {
         print('⚠️ CourseService: Teacher already assigned to this course');
         return; // Already assigned, skip insertion
       }
-      
+
       await _supabase.from('course_teachers').insert({
         'course_id': int.parse(courseId), // Convert to int
         'teacher_id': teacherId,
@@ -206,8 +204,10 @@ class CourseService {
     required String teacherId,
   }) async {
     try {
-      print('📚 CourseService: Removing teacher $teacherId from course $courseId');
-      
+      print(
+        '📚 CourseService: Removing teacher $teacherId from course $courseId',
+      );
+
       await _supabase
           .from('course_teachers')
           .delete()

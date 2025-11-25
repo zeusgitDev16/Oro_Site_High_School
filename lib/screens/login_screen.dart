@@ -74,10 +74,7 @@ class LoginScreen extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Colors.orange.shade600,
-            Colors.orange.shade800,
-          ],
+          colors: [Colors.orange.shade600, Colors.orange.shade800],
         ),
       ),
       child: Container(
@@ -227,10 +224,7 @@ class LoginScreen extends StatelessWidget {
                       const SizedBox(height: 4),
                       const Text(
                         'Electronic Learning Management System',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey,
-                        ),
+                        style: TextStyle(fontSize: 14, color: Colors.grey),
                       ),
                       const SizedBox(height: 12),
                       ElevatedButton(
@@ -302,15 +296,15 @@ class _LoginDialogState extends State<LoginDialog> {
     }
 
     setState(() => _isLoading = true);
-    
+
     final success = await _authService.signIn(
       context: context,
       email: _emailController.text.trim(),
       password: _passwordController.text,
     );
-    
+
     setState(() => _isLoading = false);
-    
+
     if (success && mounted) {
       // Close the dialog on successful login
       Navigator.of(context).pop();
@@ -320,14 +314,14 @@ class _LoginDialogState extends State<LoginDialog> {
 
   Future<void> _handleQuickLogin(String userType) async {
     setState(() => _isLoading = true);
-    
+
     final success = await _authService.quickLogin(
       context: context,
       userType: userType,
     );
-    
+
     setState(() => _isLoading = false);
-    
+
     if (success && mounted) {
       Navigator.of(context).pop();
       // AuthGate will handle navigation based on role
@@ -337,14 +331,14 @@ class _LoginDialogState extends State<LoginDialog> {
   Future<void> _handleAdminLogin() async {
     // Admin login uses Azure AD with admin verification
     setState(() => _isLoading = true);
-    
+
     final success = await _authService.signInWithAzure(
       context,
       requireAdmin: true, // This ensures only admins can login
     );
-    
+
     setState(() => _isLoading = false);
-    
+
     if (success && mounted) {
       Navigator.of(context).pop();
       // AuthGate will handle navigation to admin dashboard
@@ -354,14 +348,14 @@ class _LoginDialogState extends State<LoginDialog> {
   Future<void> _handleAzureLogin() async {
     // Regular Azure login for any user type
     setState(() => _isLoading = true);
-    
+
     final success = await _authService.signInWithAzure(
       context,
       requireAdmin: false, // Any user type can login
     );
-    
+
     setState(() => _isLoading = false);
-    
+
     if (success && mounted) {
       Navigator.of(context).pop();
       // AuthGate will handle navigation based on role
@@ -401,20 +395,31 @@ class _LoginDialogState extends State<LoginDialog> {
           ),
           const SizedBox(height: 16),
         ],
-        
-        // Email/Password Login
+
+        // Parent Google Login (reusing the email entry point visually)
         OutlinedButton.icon(
-          icon: const Icon(Icons.email),
-          label: const Text('Log in with Email'),
-          onPressed: () {
-            setState(() => _showEmailLogin = true);
-          },
+          icon: const Icon(Icons.family_restroom),
+          label: const Text('Parent login (Google)'),
+          onPressed: _isLoading
+              ? null
+              : () async {
+                  setState(() => _isLoading = true);
+                  final success = await _authService.signInWithGoogleForParent(
+                    context,
+                  );
+                  setState(() => _isLoading = false);
+                  if (success && mounted) {
+                    // Dialog will typically close after OAuth redirect completes
+                    // AuthGate will handle routing based on the parent role
+                    Navigator.of(context).pop();
+                  }
+                },
           style: OutlinedButton.styleFrom(
             minimumSize: const Size(double.infinity, 48),
           ),
         ),
         const SizedBox(height: 16),
-        
+
         // Admin Login - Uses Azure AD with admin verification
         ElevatedButton.icon(
           onPressed: _isLoading ? null : _handleAdminLogin,
@@ -422,7 +427,9 @@ class _LoginDialogState extends State<LoginDialog> {
           label: const Text('Admin log in (Office 365)'),
           style: ElevatedButton.styleFrom(
             minimumSize: const Size(double.infinity, 48),
-            backgroundColor: const Color(0xFF1976D2), // Blue color matching other buttons
+            backgroundColor: const Color(
+              0xFF1976D2,
+            ), // Blue color matching other buttons
             foregroundColor: Colors.white,
           ),
         ),
@@ -541,9 +548,7 @@ class _LoginDialogState extends State<LoginDialog> {
         backgroundColor: color,
         foregroundColor: Colors.white,
         minimumSize: const Size(double.infinity, 56),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     );
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../services/profile_service.dart';
 import '../../../models/profile.dart';
+import 'dialogs/edit_user_dialog.dart';
 
 class ManageUsersScreen extends StatefulWidget {
   const ManageUsersScreen({super.key});
@@ -9,10 +10,11 @@ class ManageUsersScreen extends StatefulWidget {
   State<ManageUsersScreen> createState() => _ManageUsersScreenState();
 }
 
-class _ManageUsersScreenState extends State<ManageUsersScreen> with SingleTickerProviderStateMixin {
+class _ManageUsersScreenState extends State<ManageUsersScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final _profileService = ProfileService();
-  
+
   String _searchQuery = '';
   List<Profile> _allUsers = [];
   Map<String, int> _userCounts = {};
@@ -122,7 +124,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> with SingleTicker
   Future<void> _deactivateUser(Profile user) async {
     try {
       await _profileService.deactivateUser(user.id);
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -131,7 +133,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> with SingleTicker
           ),
         );
       }
-      
+
       _loadUsers();
       _loadUserCounts();
     } catch (e) {
@@ -149,8 +151,11 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> with SingleTicker
   /// Reset user password
   Future<void> _resetPassword(Profile user) async {
     try {
-      final newPassword = await _profileService.resetUserPassword(user.id, null);
-      
+      final newPassword = await _profileService.resetUserPassword(
+        user.id,
+        null,
+      );
+
       if (mounted) {
         showDialog(
           context: context,
@@ -162,7 +167,10 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> with SingleTicker
               children: [
                 Text('Password for ${user.displayName} has been reset.'),
                 const SizedBox(height: 16),
-                const Text('New Password:', style: TextStyle(fontWeight: FontWeight.bold)),
+                const Text(
+                  'New Password:',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
                 const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.all(12),
@@ -217,7 +225,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> with SingleTicker
   @override
   Widget build(BuildContext context) {
     final totalCount = _userCounts.values.fold(0, (sum, count) => sum + count);
-    
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Manage All Users'),
@@ -240,26 +248,19 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> with SingleTicker
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : _errorMessage != null
-                    ? _buildErrorWidget()
-                    : TabBarView(
-                        controller: _tabController,
-                        children: [
-                          _buildUserList(_allUsers),
-                          _buildUserList(_allUsers),
-                          _buildUserList(_allUsers),
-                          _buildUserList(_allUsers),
-                          _buildUserList(_allUsers),
-                        ],
-                      ),
+                ? _buildErrorWidget()
+                : TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _buildUserList(_allUsers),
+                      _buildUserList(_allUsers),
+                      _buildUserList(_allUsers),
+                      _buildUserList(_allUsers),
+                      _buildUserList(_allUsers),
+                    ],
+                  ),
           ),
         ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.pushNamed(context, '/add-user');
-        },
-        icon: const Icon(Icons.person_add),
-        label: const Text('Add User'),
       ),
     );
   }
@@ -273,10 +274,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> with SingleTicker
           const SizedBox(height: 16),
           Text(_errorMessage ?? 'An error occurred'),
           const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: _loadUsers,
-            child: const Text('Retry'),
-          ),
+          ElevatedButton(onPressed: _loadUsers, child: const Text('Retry')),
         ],
       ),
     );
@@ -361,7 +359,10 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> with SingleTicker
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SizedBox(height: 4),
-                  Text(user.email ?? 'No email', style: const TextStyle(fontSize: 12)),
+                  Text(
+                    user.email ?? 'No email',
+                    style: const TextStyle(fontSize: 12),
+                  ),
                   const SizedBox(height: 4),
                   Row(
                     children: [
@@ -370,7 +371,9 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> with SingleTicker
                           user.roleDisplayName,
                           style: const TextStyle(fontSize: 11),
                         ),
-                        backgroundColor: _getRoleColor(user.roleDisplayName).withOpacity(0.2),
+                        backgroundColor: _getRoleColor(
+                          user.roleDisplayName,
+                        ).withOpacity(0.2),
                         padding: EdgeInsets.zero,
                       ),
                       const SizedBox(width: 8),
@@ -382,7 +385,10 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> with SingleTicker
                       const SizedBox(width: 4),
                       Text(
                         user.isActive ? 'Active' : 'Inactive',
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
                       ),
                     ],
                   ),
@@ -395,16 +401,6 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> with SingleTicker
               ),
               trailing: PopupMenuButton(
                 itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: 'view',
-                    child: Row(
-                      children: [
-                        Icon(Icons.visibility, size: 18),
-                        SizedBox(width: 8),
-                        Text('View Profile'),
-                      ],
-                    ),
-                  ),
                   const PopupMenuItem(
                     value: 'edit',
                     child: Row(
@@ -432,7 +428,10 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> with SingleTicker
                         children: [
                           Icon(Icons.block, size: 18, color: Colors.orange),
                           SizedBox(width: 8),
-                          Text('Deactivate', style: TextStyle(color: Colors.orange)),
+                          Text(
+                            'Deactivate',
+                            style: TextStyle(color: Colors.orange),
+                          ),
                         ],
                       ),
                     )
@@ -441,9 +440,16 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> with SingleTicker
                       value: 'activate',
                       child: Row(
                         children: [
-                          Icon(Icons.check_circle, size: 18, color: Colors.green),
+                          Icon(
+                            Icons.check_circle,
+                            size: 18,
+                            color: Colors.green,
+                          ),
                           SizedBox(width: 8),
-                          Text('Activate', style: TextStyle(color: Colors.green)),
+                          Text(
+                            'Activate',
+                            style: TextStyle(color: Colors.green),
+                          ),
                         ],
                       ),
                     ),
@@ -489,16 +495,21 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> with SingleTicker
       case 'activate':
         _activateUser(user);
         break;
-      case 'view':
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('View profile for ${user.displayName}')),
-        );
-        break;
       case 'edit':
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Edit ${user.displayName}')),
-        );
+        _showEditUserDialog(user);
         break;
+    }
+  }
+
+  Future<void> _showEditUserDialog(Profile user) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => EditUserDialog(user: user),
+    );
+
+    if (result == true) {
+      _loadUsers();
+      _loadUserCounts();
     }
   }
 
@@ -530,7 +541,9 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> with SingleTicker
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Deactivate User'),
-        content: Text('Are you sure you want to deactivate "${user.displayName}"?'),
+        content: Text(
+          'Are you sure you want to deactivate "${user.displayName}"?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -541,7 +554,10 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> with SingleTicker
               Navigator.pop(context);
               _deactivateUser(user);
             },
-            child: const Text('Deactivate', style: TextStyle(color: Colors.orange)),
+            child: const Text(
+              'Deactivate',
+              style: TextStyle(color: Colors.orange),
+            ),
           ),
         ],
       ),
@@ -551,7 +567,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> with SingleTicker
   Future<void> _activateUser(Profile user) async {
     try {
       await _profileService.activateUser(user.id);
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -560,7 +576,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> with SingleTicker
           ),
         );
       }
-      
+
       _loadUsers();
       _loadUserCounts();
     } catch (e) {

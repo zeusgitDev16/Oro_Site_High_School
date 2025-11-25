@@ -3272,9 +3272,14 @@ class _TeacherAttendanceScreenState extends State<TeacherAttendanceScreen> {
                     itemBuilder: (context, index) {
                       final classroom = _classrooms[index];
                       final isSelected = _selectedClassroom?.id == classroom.id;
-                      final count =
+                      final baseCount =
                           _enrollmentCounts[classroom.id] ??
                           classroom.currentStudents;
+                      // Use live roster count for the selected classroom as a
+                      // safe, RLS-resilient enhancement so the sidebar count
+                      // always reflects the actual students fetched on the
+                      // right panel.
+                      final count = isSelected ? _students.length : baseCount;
                       return Container(
                         margin: const EdgeInsets.symmetric(
                           horizontal: 8,
