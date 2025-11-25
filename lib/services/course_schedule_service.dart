@@ -48,14 +48,18 @@ class CourseScheduleService {
     required List<Map<String, dynamic>> schedules,
   }) async {
     try {
-      final scheduleData = schedules.map((schedule) => {
-            'course_id': courseId,
-            'day_of_week': schedule['dayOfWeek'] as String,
-            'start_time': schedule['startTime'] as String,
-            'end_time': schedule['endTime'] as String,
-            'room_number': schedule['roomNumber'] as String?,
-            'is_active': schedule['isActive'] as bool? ?? true,
-          }).toList();
+      final scheduleData = schedules
+          .map(
+            (schedule) => {
+              'course_id': courseId,
+              'day_of_week': schedule['dayOfWeek'] as String,
+              'start_time': schedule['startTime'] as String,
+              'end_time': schedule['endTime'] as String,
+              'room_number': schedule['roomNumber'] as String?,
+              'is_active': schedule['isActive'] as bool? ?? true,
+            },
+          )
+          .toList();
 
       final response = await _supabase
           .from('course_schedules')
@@ -171,9 +175,7 @@ class CourseScheduleService {
   }
 
   /// Get all schedules (for admin view)
-  Future<List<CourseSchedule>> getAllSchedules({
-    bool activeOnly = true,
-  }) async {
+  Future<List<CourseSchedule>> getAllSchedules({bool activeOnly = true}) async {
     try {
       var query = _supabase.from('course_schedules').select();
 
@@ -246,10 +248,7 @@ class CourseScheduleService {
   /// Delete schedule
   Future<void> deleteSchedule(int scheduleId) async {
     try {
-      await _supabase
-          .from('course_schedules')
-          .delete()
-          .eq('id', scheduleId);
+      await _supabase.from('course_schedules').delete().eq('id', scheduleId);
     } catch (e) {
       print('Error deleting schedule: $e');
       rethrow;
@@ -314,12 +313,7 @@ class CourseScheduleService {
   }
 
   /// Check if two time ranges overlap
-  bool _timesOverlap(
-    String start1,
-    String end1,
-    String start2,
-    String end2,
-  ) {
+  bool _timesOverlap(String start1, String end1, String start2, String end2) {
     final s1 = _timeToMinutes(start1);
     final e1 = _timeToMinutes(end1);
     final s2 = _timeToMinutes(start2);
@@ -375,7 +369,8 @@ class CourseScheduleService {
         if (schedule.roomNumber != null) {
           (stats['rooms'] as Set<String>).add(schedule.roomNumber!);
         }
-        stats['total_hours'] = (stats['total_hours'] as double) +
+        stats['total_hours'] =
+            (stats['total_hours'] as double) +
             (schedule.durationMinutes / 60.0);
       }
 
@@ -405,7 +400,8 @@ class CourseScheduleService {
       for (final schedule in schedules) {
         (stats['days_used'] as Set<String>).add(schedule.dayOfWeek);
         (stats['courses'] as Set<int>).add(schedule.courseId);
-        stats['total_hours_per_week'] = (stats['total_hours_per_week'] as double) +
+        stats['total_hours_per_week'] =
+            (stats['total_hours_per_week'] as double) +
             (schedule.durationMinutes / 60.0);
       }
 
@@ -450,6 +446,44 @@ class CourseScheduleService {
     } catch (e) {
       print('Error getting schedules count by day: $e');
       return {};
+    }
+  }
+
+  /// Get upcoming classes for a list of courses (for teacher dashboard)
+  Future<List<CourseSchedule>> getUpcomingClassesForCourses(
+    List<int> courseIds,
+  ) async {
+    try {
+      if (courseIds.isEmpty) return [];
+
+      // Get today's day of week
+      final now = DateTime.now();
+      final days = [
+        'Monday',
+        'Tuesday',
+        'Wednesday',
+        'Thursday',
+        'Friday',
+        'Saturday',
+        'Sunday',
+      ];
+      final today = days[now.weekday - 1];
+
+      // Fetch schedules for these courses for today
+      final response = await _supabase
+          .from('course_schedules')
+          .select()
+          .filter('course_id', 'in', courseIds)
+          .eq('day_of_week', today)
+          .eq('is_active', true)
+          .order('start_time');
+
+      return (response as List)
+          .map((item) => CourseSchedule.fromMap(item))
+          .toList();
+    } catch (e) {
+      print('Error fetching upcoming classes: $e');
+      return [];
     }
   }
 }

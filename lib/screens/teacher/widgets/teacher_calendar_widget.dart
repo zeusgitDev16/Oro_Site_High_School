@@ -15,12 +15,8 @@ class _TeacherCalendarWidgetState extends State<TeacherCalendarWidget> {
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
 
-  // Mock data for events
-  final Map<DateTime, List<String>> _mockEvents = {
-    DateTime.utc(2024, 5, 20): ['Math 7 Class', 'Advisory Meeting'],
-    DateTime.utc(2024, 5, 22): ['Science 7 Class', 'Grade Submission Deadline'],
-    DateTime.utc(2024, 6, 1): ['Faculty Meeting', 'Parent-Teacher Conference'],
-  };
+  // Events map
+  final Map<DateTime, List<String>> _events = {};
 
   @override
   void initState() {
@@ -36,7 +32,7 @@ class _TeacherCalendarWidgetState extends State<TeacherCalendarWidget> {
   }
 
   List<String> _getEventsForDay(DateTime day) {
-    return _mockEvents[DateTime.utc(day.year, day.month, day.day)] ?? [];
+    return _events[DateTime.utc(day.year, day.month, day.day)] ?? [];
   }
 
   void _onDaySelected(DateTime selectedDay, DateTime focusedDay) {
@@ -64,7 +60,10 @@ class _TeacherCalendarWidgetState extends State<TeacherCalendarWidget> {
                 Expanded(
                   child: Text(
                     DateFormat.yMMMMd().format(_focusedDay),
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
                 IconButton(
@@ -88,20 +87,39 @@ class _TeacherCalendarWidgetState extends State<TeacherCalendarWidget> {
               onDaySelected: _onDaySelected,
               eventLoader: _getEventsForDay,
               calendarStyle: const CalendarStyle(
-                todayDecoration: BoxDecoration(color: Colors.blueAccent, shape: BoxShape.circle),
-                selectedDecoration: BoxDecoration(color: Colors.deepOrange, shape: BoxShape.circle),
+                todayDecoration: BoxDecoration(
+                  color: Colors.blueAccent,
+                  shape: BoxShape.circle,
+                ),
+                selectedDecoration: BoxDecoration(
+                  color: Colors.deepOrange,
+                  shape: BoxShape.circle,
+                ),
                 defaultTextStyle: TextStyle(fontSize: 12),
-                weekendTextStyle: TextStyle(fontSize: 12, color: Colors.redAccent),
+                weekendTextStyle: TextStyle(
+                  fontSize: 12,
+                  color: Colors.redAccent,
+                ),
                 outsideTextStyle: TextStyle(fontSize: 12, color: Colors.grey),
               ),
               daysOfWeekStyle: const DaysOfWeekStyle(
-                weekdayStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                weekendStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.redAccent),
+                weekdayStyle: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+                weekendStyle: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.redAccent,
+                ),
               ),
               headerStyle: const HeaderStyle(
                 formatButtonVisible: false,
                 titleCentered: true,
-                titleTextStyle: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                titleTextStyle: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               calendarBuilders: CalendarBuilders(
                 markerBuilder: (context, date, events) {
@@ -110,7 +128,10 @@ class _TeacherCalendarWidgetState extends State<TeacherCalendarWidget> {
                       right: 1,
                       bottom: 1,
                       child: Container(
-                        decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.redAccent),
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.redAccent,
+                        ),
                         width: 7.0,
                         height: 7.0,
                       ),
@@ -121,7 +142,10 @@ class _TeacherCalendarWidgetState extends State<TeacherCalendarWidget> {
               ),
             ),
             const Divider(height: 24),
-            const Text('Events', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const Text(
+              'Events',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
             ValueListenableBuilder<List<String>>(
               valueListenable: _selectedEvents,
@@ -136,8 +160,15 @@ class _TeacherCalendarWidgetState extends State<TeacherCalendarWidget> {
                   itemBuilder: (context, index) {
                     return ListTile(
                       dense: true,
-                      leading: const Icon(Icons.event, size: 16, color: Colors.blue),
-                      title: Text(value[index], style: const TextStyle(fontSize: 13)),
+                      leading: const Icon(
+                        Icons.event,
+                        size: 16,
+                        color: Colors.blue,
+                      ),
+                      title: Text(
+                        value[index],
+                        style: const TextStyle(fontSize: 13),
+                      ),
                     );
                   },
                 );

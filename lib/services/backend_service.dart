@@ -696,4 +696,104 @@ class BackendService {
       },
     ];
   }
+
+  /// Get system statistics for admin dashboard
+  Future<Map<String, dynamic>> getSystemStats() async {
+    try {
+      // User counts
+      final studentsCount = await _supabase
+          .from('profiles')
+          .count()
+          .eq('role_id', 4); // 4 is Student
+
+      final teachersCount = await _supabase
+          .from('profiles')
+          .count()
+          .eq('role_id', 3); // 3 is Teacher
+
+      final parentsCount = await _supabase
+          .from('profiles')
+          .count()
+          .eq('role_id', 5); // 5 is Parent
+
+      // Course count
+      final coursesCount = await _supabase
+          .from('courses')
+          .count()
+          .eq('is_active', true);
+
+      // Attendance Rate (simplified: average of session attendance rates)
+      // This is expensive, so we might want to cache or simplify
+      // For now, let's just get the last 100 sessions
+      final sessions = await _supabase
+          .from('attendance_sessions')
+          .select('present_count, total_students')
+          .eq('status', 'completed')
+          .order('created_at', ascending: false)
+          .limit(100);
+
+      double attendanceRate = 0.0;
+      if ((sessions as List).isNotEmpty) {
+        double totalRate = 0;
+        int count = 0;
+        for (final session in sessions) {
+          final present = session['present_count'] as int? ?? 0;
+          final total = session['total_students'] as int? ?? 0;
+          if (total > 0) {
+            totalRate += (present / total);
+            count++;
+          }
+        }
+        if (count > 0) {
+          attendanceRate = (totalRate / count) * 100;
+        }
+      }
+
+      // Average Grade (simplified: average of last 100 submissions)
+      final submissions = await _supabase
+          .from('assignment_submissions')
+          .select('score, max_score')
+          .eq('status', 'graded')
+          .order('graded_at', ascending: false)
+          .limit(100);
+
+      double averageGrade = 0.0;
+      if ((submissions as List).isNotEmpty) {
+        double totalPercentage = 0;
+        int count = 0;
+        for (final sub in submissions) {
+          final score = sub['score'] as num? ?? 0;
+          final maxScore = sub['max_score'] as num? ?? 0;
+          if (maxScore > 0) {
+            totalPercentage += (score / maxScore);
+            count++;
+          }
+        }
+        if (count > 0) {
+          averageGrade = (totalPercentage / count) * 100;
+        }
+      }
+
+      return {
+        'totalStudents': studentsCount,
+        'totalTeachers': teachersCount,
+        'totalParents': parentsCount,
+        'activeCourses': coursesCount,
+        'attendanceRate': attendanceRate,
+        'averageGrade': averageGrade,
+      };
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error fetching system stats: $e');
+      }
+      return {
+        'totalStudents': 0,
+        'totalTeachers': 0,
+        'totalParents': 0,
+        'activeCourses': 0,
+        'attendanceRate': 0.0,
+        'averageGrade': 0.0,
+      };
+    }
+  }
 }

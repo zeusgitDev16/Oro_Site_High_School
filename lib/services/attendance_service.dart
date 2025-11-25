@@ -21,23 +21,29 @@ class AttendanceService {
     required int scanTimeLimitMinutes,
   }) async {
     // Calculate scan deadline
-    final scanDeadline = scheduleStart.add(Duration(minutes: scanTimeLimitMinutes));
+    final scanDeadline = scheduleStart.add(
+      Duration(minutes: scanTimeLimitMinutes),
+    );
 
-    final response = await _supabase.from('attendance_sessions').insert({
-      'teacher_id': teacherId,
-      'teacher_name': teacherName,
-      'course_id': courseId,
-      'course_name': courseName,
-      'section_id': sectionId,
-      'section_name': sectionName,
-      'day_of_week': dayOfWeek,
-      'schedule_start': scheduleStart.toIso8601String(),
-      'schedule_end': scheduleEnd.toIso8601String(),
-      'scan_time_limit_minutes': scanTimeLimitMinutes,
-      'scan_deadline': scanDeadline.toIso8601String(),
-      'status': 'active',
-      'started_at': DateTime.now().toIso8601String(),
-    }).select().single();
+    final response = await _supabase
+        .from('attendance_sessions')
+        .insert({
+          'teacher_id': teacherId,
+          'teacher_name': teacherName,
+          'course_id': courseId,
+          'course_name': courseName,
+          'section_id': sectionId,
+          'section_name': sectionName,
+          'day_of_week': dayOfWeek,
+          'schedule_start': scheduleStart.toIso8601String(),
+          'schedule_end': scheduleEnd.toIso8601String(),
+          'scan_time_limit_minutes': scanTimeLimitMinutes,
+          'scan_deadline': scanDeadline.toIso8601String(),
+          'status': 'active',
+          'started_at': DateTime.now().toIso8601String(),
+        })
+        .select()
+        .single();
 
     return AttendanceSession.fromMap(response);
   }
@@ -54,8 +60,10 @@ class AttendanceService {
     }
 
     final response = await query;
-    final sessions = (response as List).map((item) => AttendanceSession.fromMap(item)).toList();
-    
+    final sessions = (response as List)
+        .map((item) => AttendanceSession.fromMap(item))
+        .toList();
+
     // Sort in Dart instead of database
     sessions.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return sessions;
@@ -70,20 +78,22 @@ class AttendanceService {
     DateTime? startDate,
     DateTime? endDate,
   }) async {
-    var query = _supabase
-        .from('attendance_sessions')
-        .select();
+    var query = _supabase.from('attendance_sessions').select();
 
     if (teacherId != null) query = query.eq('teacher_id', teacherId);
     if (courseId != null) query = query.eq('course_id', courseId);
     if (sectionId != null) query = query.eq('section_id', sectionId);
     if (status != null) query = query.eq('status', status);
-    if (startDate != null) query = query.gte('created_at', startDate.toIso8601String());
-    if (endDate != null) query = query.lte('created_at', endDate.toIso8601String());
+    if (startDate != null)
+      query = query.gte('created_at', startDate.toIso8601String());
+    if (endDate != null)
+      query = query.lte('created_at', endDate.toIso8601String());
 
     final response = await query;
-    final sessions = (response as List).map((item) => AttendanceSession.fromMap(item)).toList();
-    
+    final sessions = (response as List)
+        .map((item) => AttendanceSession.fromMap(item))
+        .toList();
+
     // Sort in Dart instead of database
     sessions.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return sessions;
@@ -103,9 +113,7 @@ class AttendanceService {
 
   /// Update attendance session status
   Future<void> updateSessionStatus(int sessionId, String status) async {
-    final updateData = {
-      'status': status,
-    };
+    final updateData = {'status': status};
 
     if (status == 'completed') {
       updateData['completed_at'] = DateTime.now().toIso8601String();
@@ -141,27 +149,33 @@ class AttendanceService {
   }) async {
     // Determine status based on time
     String status = 'present';
-    
+
     if (sessionId != null) {
       final session = await getAttendanceSession(sessionId);
       if (session != null && timeIn != null) {
         // Check if student is late
-        if (session.scanDeadline != null && timeIn.isAfter(session.scanDeadline!)) {
+        if (session.scanDeadline != null &&
+            timeIn.isAfter(session.scanDeadline!)) {
           status = 'late';
         }
       }
     }
 
-    final response = await _supabase.from('attendance').insert({
-      'student_id': studentId,
-      'student_lrn': studentLrn,
-      'course_id': courseId,
-      'session_id': sessionId,
-      'date': date.toIso8601String(),
-      'status': status,
-      'time_in': timeIn?.toIso8601String() ?? DateTime.now().toIso8601String(),
-      'remarks': remarks,
-    }).select().single();
+    final response = await _supabase
+        .from('attendance')
+        .insert({
+          'student_id': studentId,
+          'student_lrn': studentLrn,
+          'course_id': courseId,
+          'session_id': sessionId,
+          'date': date.toIso8601String(),
+          'status': status,
+          'time_in':
+              timeIn?.toIso8601String() ?? DateTime.now().toIso8601String(),
+          'remarks': remarks,
+        })
+        .select()
+        .single();
 
     // Update session counts
     if (sessionId != null) {
@@ -173,7 +187,7 @@ class AttendanceService {
 
   /// Get attendance records for a student
   Future<List<Attendance>> getAttendanceForStudent(
-    String studentId, 
+    String studentId,
     int courseId,
   ) async {
     final response = await _supabase
@@ -181,9 +195,11 @@ class AttendanceService {
         .select()
         .eq('student_id', studentId)
         .eq('course_id', courseId);
-    
-    final records = (response as List).map((item) => Attendance.fromMap(item)).toList();
-    
+
+    final records = (response as List)
+        .map((item) => Attendance.fromMap(item))
+        .toList();
+
     // Sort in Dart instead of database
     records.sort((a, b) => b.date.compareTo(a.date));
     return records;
@@ -195,9 +211,11 @@ class AttendanceService {
         .from('attendance')
         .select()
         .eq('session_id', sessionId);
-    
-    final records = (response as List).map((item) => Attendance.fromMap(item)).toList();
-    
+
+    final records = (response as List)
+        .map((item) => Attendance.fromMap(item))
+        .toList();
+
     // Sort in Dart instead of database
     records.sort((a, b) {
       if (a.timeIn == null && b.timeIn == null) return 0;
@@ -217,36 +235,44 @@ class AttendanceService {
     DateTime? endDate,
     String? status,
   }) async {
-    var query = _supabase
-        .from('attendance')
-        .select();
+    var query = _supabase.from('attendance').select();
 
     if (studentId != null) query = query.eq('student_id', studentId);
     if (courseId != null) query = query.eq('course_id', courseId);
     if (sessionId != null) query = query.eq('session_id', sessionId);
     if (status != null) query = query.eq('status', status);
-    if (startDate != null) query = query.gte('date', startDate.toIso8601String());
+    if (startDate != null)
+      query = query.gte('date', startDate.toIso8601String());
     if (endDate != null) query = query.lte('date', endDate.toIso8601String());
 
     final response = await query;
-    final records = (response as List).map((item) => Attendance.fromMap(item)).toList();
-    
+    final records = (response as List)
+        .map((item) => Attendance.fromMap(item))
+        .toList();
+
     // Sort in Dart instead of database
     records.sort((a, b) => b.date.compareTo(a.date));
     return records;
   }
 
   /// Mark students as absent who didn't scan
-  Future<void> markAbsentStudents(int sessionId, List<String> studentIds) async {
+  Future<void> markAbsentStudents(
+    int sessionId,
+    List<String> studentIds,
+  ) async {
     final session = await getAttendanceSession(sessionId);
     if (session == null) return;
 
     // Get students who already have attendance records
     final existingAttendance = await getAttendanceForSession(sessionId);
-    final scannedStudentIds = existingAttendance.map((a) => a.studentId).toSet();
+    final scannedStudentIds = existingAttendance
+        .map((a) => a.studentId)
+        .toSet();
 
     // Mark remaining students as absent
-    final absentStudentIds = studentIds.where((id) => !scannedStudentIds.contains(id));
+    final absentStudentIds = studentIds.where(
+      (id) => !scannedStudentIds.contains(id),
+    );
 
     for (final studentId in absentStudentIds) {
       await _supabase.from('attendance').insert({
@@ -305,12 +331,12 @@ class AttendanceService {
     int courseId,
   ) async {
     final records = await getAttendanceForStudent(studentId, courseId);
-    
+
     final total = records.length;
     final present = records.where((r) => r.status == 'present').length;
     final late = records.where((r) => r.status == 'late').length;
     final absent = records.where((r) => r.status == 'absent').length;
-    
+
     return {
       'total': total,
       'present': present,
@@ -323,12 +349,12 @@ class AttendanceService {
   /// Get attendance statistics for a session
   Future<Map<String, dynamic>> getSessionAttendanceStats(int sessionId) async {
     final records = await getAttendanceForSession(sessionId);
-    
+
     final total = records.length;
     final present = records.where((r) => r.status == 'present').length;
     final late = records.where((r) => r.status == 'late').length;
     final absent = records.where((r) => r.status == 'absent').length;
-    
+
     return {
       'total': total,
       'present': present,
@@ -353,15 +379,19 @@ class AttendanceService {
       endDate: endDate,
     );
 
-    return records.map((record) => {
-      'Student LRN': record.studentLrn,
-      'Student ID': record.studentId,
-      'Date': record.date.toString(),
-      'Time In': record.timeIn?.toString() ?? 'N/A',
-      'Time Out': record.timeOut?.toString() ?? 'N/A',
-      'Status': record.status.toUpperCase(),
-      'Remarks': record.remarks ?? '',
-    }).toList();
+    return records
+        .map(
+          (record) => {
+            'Student LRN': record.studentLrn,
+            'Student ID': record.studentId,
+            'Date': record.date.toString(),
+            'Time In': record.timeIn?.toString() ?? 'N/A',
+            'Time Out': record.timeOut?.toString() ?? 'N/A',
+            'Status': record.status.toUpperCase(),
+            'Remarks': record.remarks ?? '',
+          },
+        )
+        .toList();
   }
 
   // ==================== HELPER METHODS ====================
@@ -369,11 +399,11 @@ class AttendanceService {
   /// Update session attendance counts
   Future<void> _updateSessionCounts(int sessionId) async {
     final records = await getAttendanceForSession(sessionId);
-    
+
     final presentCount = records.where((r) => r.status == 'present').length;
     final lateCount = records.where((r) => r.status == 'late').length;
     final absentCount = records.where((r) => r.status == 'absent').length;
-    
+
     await _supabase
         .from('attendance_sessions')
         .update({
@@ -429,5 +459,42 @@ class AttendanceService {
       timeIn: attendance.timeIn,
       remarks: attendance.remarks,
     );
+  }
+
+  /// Get average attendance rate for a teacher
+  Future<double> getTeacherAttendanceRate(String teacherId) async {
+    try {
+      // Get all sessions for this teacher
+      final sessions = await _supabase
+          .from('attendance_sessions')
+          .select('present_count, late_count, total_students')
+          .eq('teacher_id', teacherId)
+          .eq('status', 'completed'); // Only count completed sessions
+
+      final sessionList = sessions as List;
+      if (sessionList.isEmpty) return 0.0;
+
+      int totalPresent = 0;
+      int totalStudents = 0;
+
+      for (final session in sessionList) {
+        final present =
+            (session['present_count'] as int? ?? 0) +
+            (session['late_count'] as int? ?? 0);
+        final total = session['total_students'] as int? ?? 0;
+
+        if (total > 0) {
+          totalPresent += present;
+          totalStudents += total;
+        }
+      }
+
+      if (totalStudents == 0) return 0.0;
+
+      return (totalPresent / totalStudents) * 100;
+    } catch (e) {
+      print('❌ Error calculating teacher attendance rate: $e');
+      return 0.0;
+    }
   }
 }
