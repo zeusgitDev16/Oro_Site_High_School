@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../services/profile_service.dart';
 import '../../../models/profile.dart';
+import 'dialogs/edit_user_dialog.dart';
 
 class ManageUsersScreen extends StatefulWidget {
   const ManageUsersScreen({super.key});
@@ -401,16 +402,6 @@ class _ManageUsersScreenState extends State<ManageUsersScreen>
               trailing: PopupMenuButton(
                 itemBuilder: (context) => [
                   const PopupMenuItem(
-                    value: 'view',
-                    child: Row(
-                      children: [
-                        Icon(Icons.visibility, size: 18),
-                        SizedBox(width: 8),
-                        Text('View Profile'),
-                      ],
-                    ),
-                  ),
-                  const PopupMenuItem(
                     value: 'edit',
                     child: Row(
                       children: [
@@ -504,16 +495,21 @@ class _ManageUsersScreenState extends State<ManageUsersScreen>
       case 'activate':
         _activateUser(user);
         break;
-      case 'view':
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('View profile for ${user.displayName}')),
-        );
-        break;
       case 'edit':
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Edit ${user.displayName}')));
+        _showEditUserDialog(user);
         break;
+    }
+  }
+
+  Future<void> _showEditUserDialog(Profile user) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => EditUserDialog(user: user),
+    );
+
+    if (result == true) {
+      _loadUsers();
+      _loadUserCounts();
     }
   }
 

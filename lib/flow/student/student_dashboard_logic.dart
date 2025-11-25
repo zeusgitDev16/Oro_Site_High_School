@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:oro_site_high_school/services/backend_service.dart';
+import 'package:oro_site_high_school/services/classroom_service.dart';
+import 'package:oro_site_high_school/services/assignment_service.dart';
 
 /// Interactive logic for Student Dashboard
 /// Handles state management, navigation, and data operations
@@ -167,19 +169,189 @@ class StudentDashboardLogic extends ChangeNotifier {
     _isLoadingDashboard = true;
     notifyListeners();
 
-    // Simulate API call
-    await Future.delayed(const Duration(milliseconds: 500));
+    try {
+      // Get current student ID
+      final studentId = _studentData['id'] as String?;
+      if (studentId == null || studentId.isEmpty) {
+        debugPrint('Cannot load dashboard: student ID is null');
+        _isLoadingDashboard = false;
+        notifyListeners();
+        return;
+      }
 
-    // In real implementation, this would call:
-    // - EnrollmentService.getEnrollmentsByStudent(studentId)
-    // - AssignmentService.getUpcomingAssignments(courseIds)
-    // - AnnouncementService.getRecentAnnouncements(courseIds)
-    // - GradeService.getRecentGrades(studentId)
-    // - AttendanceService.getAttendanceSummary(studentId)
-    // - CalendarEventService.getTodayEvents(studentId)
+      // Fetch student's classrooms
+      final classroomService = ClassroomService();
+      final classrooms = await classroomService.getStudentClassrooms(studentId);
 
-    _isLoadingDashboard = false;
-    notifyListeners();
+      if (classrooms.isEmpty) {
+        debugPrint('No classrooms found for student');
+        _dashboardData['todayClasses'] = [];
+        _dashboardData['upcomingAssignments'] = [];
+        _dashboardData['recentAnnouncements'] = [];
+        _dashboardData['recentGrades'] = [];
+        _dashboardData['attendanceSummary'] = {
+          'percentage': 0.0,
+          'present': 0,
+          'absent': 0,
+          'late': 0,
+        };
+        _isLoadingDashboard = false;
+        notifyListeners();
+        return;
+      }
+
+      // Get the first active classroom (students typically have one main classroom)
+      final classroom = classrooms.first;
+      final classroomId = classroom.id;
+
+      // Fetch data in parallel
+      final results = await Future.wait([
+        _fetchTodayClasses(classroomId),
+        _fetchUpcomingAssignments(classroomId),
+        _fetchRecentAnnouncements(),
+        _fetchRecentGrades(studentId),
+        _fetchAttendanceSummary(studentId),
+      ]);
+
+      _dashboardData['todayClasses'] = results[0];
+      _dashboardData['upcomingAssignments'] = results[1];
+      _dashboardData['recentAnnouncements'] = results[2];
+      _dashboardData['recentGrades'] = results[3];
+      _dashboardData['attendanceSummary'] = results[4];
+
+      _isLoadingDashboard = false;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error loading dashboard data: $e');
+      _isLoadingDashboard = false;
+      notifyListeners();
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchTodayClasses(
+    String classroomId,
+  ) async {
+    try {
+      // For now, return empty list as we need course schedule implementation
+      // TODO: Implement course schedule fetching for today
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching today classes: $e');
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchUpcomingAssignments(
+    String classroomId,
+  ) async {
+    try {
+      final assignmentService = AssignmentService();
+      final assignments = await assignmentService.getUpcomingAssignments(
+        classroomId,
+      );
+
+      // Transform to match expected format
+      return assignments.map((a) {
+        return {
+          'id': a['id'],
+          'title': a['title'] ?? 'Untitled Assignment',
+          'dueDate': a['due_date'],
+          'course': a['course_name'] ?? 'Unknown Course',
+          'status': 'not_started', // Default status
+          'pointsPossible': a['max_score'] ?? 0,
+        };
+      }).toList();
+    } catch (e) {
+      debugPrint('Error fetching upcoming assignments: $e');
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchRecentAnnouncements() async {
+    try {
+      final announcements = await _backendService.getAnnouncements();
+
+      // Get the 5 most recent announcements
+      final recent = announcements.take(5).toList();
+
+      return recent.map((a) {
+        return {
+          'id': a['id'],
+          'title': a['title'] ?? 'Untitled Announcement',
+          'message': a['message'] ?? a['content'] ?? '',
+          'date': a['created_at'],
+          'priority': a['priority'] ?? 'normal',
+        };
+      }).toList();
+    } catch (e) {
+      debugPrint('Error fetching recent announcements: $e');
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchRecentGrades(
+    String studentId,
+  ) async {
+    try {
+      final grades = await _backendService.getStudentGrades(studentId);
+
+      // Get the 5 most recent grades
+      final recent = grades.take(5).toList();
+
+      return recent.map((g) {
+        final score = g['grade'] ?? g['score'] ?? 0;
+        final maxScore = g['max_score'] ?? 100;
+        final percentage = maxScore > 0 ? (score / maxScore * 100) : 0;
+
+        return {
+          'id': g['id'],
+          'course': g['course_name'] ?? 'Unknown Course',
+          'assignment': g['assignment_name'] ?? 'Grade',
+          'score': score,
+          'maxScore': maxScore,
+          'percentage': percentage,
+          'date': g['created_at'] ?? g['graded_at'],
+        };
+      }).toList();
+    } catch (e) {
+      debugPrint('Error fetching recent grades: $e');
+      return [];
+    }
+  }
+
+  Future<Map<String, dynamic>> _fetchAttendanceSummary(String studentId) async {
+    try {
+      // Get attendance records for the current month
+      final now = DateTime.now();
+      final startOfMonth = DateTime(now.year, now.month, 1);
+
+      final records = await _backendService.getAttendanceRecords(
+        studentId: studentId,
+        startDate: startOfMonth,
+        endDate: now,
+      );
+
+      if (records.isEmpty) {
+        return {'percentage': 0.0, 'present': 0, 'absent': 0, 'late': 0};
+      }
+
+      final present = records.where((r) => r['status'] == 'present').length;
+      final late = records.where((r) => r['status'] == 'late').length;
+      final absent = records.where((r) => r['status'] == 'absent').length;
+      final total = records.length;
+
+      final percentage = total > 0 ? ((present + late) / total * 100) : 0.0;
+
+      return {
+        'percentage': percentage,
+        'present': present,
+        'absent': absent,
+        'late': late,
+      };
+    } catch (e) {
+      debugPrint('Error fetching attendance summary: $e');
+      return {'percentage': 0.0, 'present': 0, 'absent': 0, 'late': 0};
+    }
   }
 
   Future<void> refreshDashboard() async {

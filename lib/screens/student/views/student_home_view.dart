@@ -171,21 +171,6 @@ class _StudentHomeViewState extends State<StudentHomeView> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Grade ${studentData['gradeLevel']} - ${studentData['section']}',
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 14,
-                      ),
-                    ),
-                    Text(
-                      'LRN: ${studentData['lrn']}',
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 12,
-                      ),
-                    ),
                   ],
                 ),
               ),
