@@ -229,6 +229,37 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
     }
   }
 
+  /// Refresh the selected classroom to get updated data
+  Future<void> _refreshSelectedClassroom() async {
+    if (_selectedClassroom == null) return;
+
+    try {
+      print('🔄 Refreshing classroom: ${_selectedClassroom!.id}');
+      final response = await _supabase
+          .from('classrooms')
+          .select()
+          .eq('id', _selectedClassroom!.id)
+          .single();
+
+      final updatedClassroom = Classroom.fromJson(response);
+
+      setState(() {
+        _selectedClassroom = updatedClassroom;
+        // Update in the list as well
+        final index = _allClassrooms.indexWhere(
+          (c) => c.id == updatedClassroom.id,
+        );
+        if (index != -1) {
+          _allClassrooms[index] = updatedClassroom;
+        }
+      });
+
+      print('✅ Classroom refreshed successfully');
+    } catch (e) {
+      print('❌ Error refreshing classroom: $e');
+    }
+  }
+
   /// Load existing coordinator assignments from database
   Future<void> _loadExistingCoordinatorAssignments() async {
     print('📥 Loading existing coordinator assignments from database...');
@@ -1565,9 +1596,8 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
             allClassrooms: _allClassrooms,
             selectedClassroom: _selectedClassroom,
             onClassroomSelected: (classroom) {
-              setState(() {
-                _selectedClassroom = classroom;
-              });
+              // Switch to view mode when classroom is selected
+              _switchToViewMode(classroom);
             },
             gradeCoordinators: _gradeCoordinators,
             onSetGradeCoordinator: (grade) {
@@ -2944,9 +2974,15 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
         // Upload temporary subjects and resources to database
         await _uploadTemporarySubjectsAndResources(newClassroom.id);
 
-        // Add to local list
+        // Add to local list and sort by grade level
         setState(() {
           _allClassrooms.add(newClassroom);
+          // Sort classrooms by grade level, then by title
+          _allClassrooms.sort((a, b) {
+            final gradeCompare = a.gradeLevel.compareTo(b.gradeLevel);
+            if (gradeCompare != 0) return gradeCompare;
+            return a.title.compareTo(b.title);
+          });
           _selectedClassroom = newClassroom;
           _currentMode = 'edit'; // Switch to edit mode after creation
           _isSavingClassroom = false;
@@ -3010,6 +3046,13 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
           if (index != -1) {
             _allClassrooms[index] = updatedClassroom;
           }
+          // Sort classrooms by grade level, then by title
+          // This ensures classroom appears in correct position if grade level changed
+          _allClassrooms.sort((a, b) {
+            final gradeCompare = a.gradeLevel.compareTo(b.gradeLevel);
+            if (gradeCompare != 0) return gradeCompare;
+            return a.title.compareTo(b.title);
+          });
           _selectedClassroom = updatedClassroom;
           _isSavingClassroom = false;
         });
@@ -3065,6 +3108,12 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
           _selectedAdvisoryTeacher = teacher;
         });
         _saveDraftClassroom(); // Save draft when advisory teacher changes
+      },
+      onStudentsChanged: () async {
+        // Refresh the selected classroom to get updated student count
+        if (_selectedClassroom != null) {
+          await _refreshSelectedClassroom();
+        }
       },
       // Pass settings from right sidebar to show indicators
       selectedSchoolLevel: _selectedSchoolLevel,

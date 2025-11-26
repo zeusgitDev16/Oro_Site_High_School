@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:oro_site_high_school/models/classroom.dart';
 import 'package:oro_site_high_school/models/teacher.dart';
+import 'package:oro_site_high_school/widgets/classroom/classroom_students_dialog.dart';
 
 /// Reusable classroom viewer widget for displaying classroom details
 ///
@@ -30,13 +31,27 @@ class ClassroomViewerWidget extends StatelessWidget {
   /// Whether the user can edit this classroom
   final bool canEdit;
 
+  /// Callback when students are changed (for refreshing classroom data)
+  final VoidCallback? onStudentsChanged;
+
   const ClassroomViewerWidget({
     super.key,
     required this.classroom,
     this.advisoryTeacher,
     this.onEdit,
     this.canEdit = true,
+    this.onStudentsChanged,
   });
+
+  void _showStudentsDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => ClassroomStudentsDialog(
+        classroomId: classroom.id,
+        onStudentsChanged: onStudentsChanged,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -117,6 +132,25 @@ class ClassroomViewerWidget extends StatelessWidget {
                 '${classroom.occupancyPercentage.toStringAsFixed(1)}%',
               ),
             ]),
+            const SizedBox(height: 12),
+
+            // Manage Students Button
+            if (canEdit)
+              Center(
+                child: ElevatedButton.icon(
+                  onPressed: () => _showStudentsDialog(context),
+                  icon: const Icon(Icons.people, size: 18),
+                  label: const Text('Manage Students'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 12,
+                    ),
+                  ),
+                ),
+              ),
             const SizedBox(height: 24),
 
             _buildDetailSection('Status', [

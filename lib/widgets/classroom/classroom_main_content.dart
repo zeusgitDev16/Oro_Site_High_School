@@ -96,6 +96,9 @@ class ClassroomMainContent extends StatelessWidget {
   /// Callback when advisory teacher is changed
   final ValueChanged<Teacher?> onAdvisoryTeacherChanged;
 
+  /// Callback when students are changed (for refreshing classroom data)
+  final VoidCallback? onStudentsChanged;
+
   /// Selected school level from right sidebar
   final String? selectedSchoolLevel;
 
@@ -128,6 +131,7 @@ class ClassroomMainContent extends StatelessWidget {
     this.onSave,
     this.onEdit,
     required this.onAdvisoryTeacherChanged,
+    this.onStudentsChanged,
     this.selectedSchoolLevel,
     this.selectedGradeLevel,
     this.selectedQuarter,
@@ -170,6 +174,7 @@ class ClassroomMainContent extends StatelessWidget {
           advisoryTeacher: selectedAdvisoryTeacher,
           onEdit: onEdit,
           canEdit: config.canEdit,
+          onStudentsChanged: onStudentsChanged,
         );
 
       case 'create':

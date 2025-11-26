@@ -12,6 +12,10 @@ import 'file_upload_dialog.dart';
 
 /// Main content area for subject resources
 /// Shows quarter selector and resource sections (modules, assignment resources, assignments)
+///
+/// **Phase 5: Role-Based Layout**
+/// - **Students**: Tab bar layout (Modules and Assignments as tabs)
+/// - **Teachers/Admin**: Card layout (Modules, Assignment Resources, Assignments as cards)
 class SubjectResourcesContent extends StatefulWidget {
   final ClassroomSubject subject;
   final String classroomId;
@@ -35,13 +39,18 @@ class SubjectResourcesContent extends StatefulWidget {
       _SubjectResourcesContentState();
 }
 
-class _SubjectResourcesContentState extends State<SubjectResourcesContent> {
+class _SubjectResourcesContentState extends State<SubjectResourcesContent>
+    with SingleTickerProviderStateMixin {
   final SubjectResourceService _resourceService = SubjectResourceService();
   final TemporaryResourceStorage _tempStorage = TemporaryResourceStorage();
   int _selectedQuarter = 1;
   Map<ResourceType, List<SubjectResource>> _resourcesByType = {};
   List<TemporaryResource> _temporaryResources = [];
   bool _isLoading = false;
+
+  // Phase 5: Tab controller for student view
+  late TabController _studentTabController;
+  int _selectedStudentTab = 0; // 0 = Modules, 1 = Assignments
 
   @override
   void initState() {
@@ -56,11 +65,31 @@ class _SubjectResourcesContentState extends State<SubjectResourcesContent> {
     print('   _hasTeacherPermissions(): ${_hasTeacherPermissions()}');
     print('   _isStudent(): ${_isStudent()}');
 
+    // Phase 5: Initialize tab controller for students
+    if (_isStudent()) {
+      _studentTabController = TabController(length: 2, vsync: this);
+      _studentTabController.addListener(() {
+        if (!_studentTabController.indexIsChanging) {
+          setState(() {
+            _selectedStudentTab = _studentTabController.index;
+          });
+        }
+      });
+    }
+
     if (widget.isCreateMode) {
       _loadTemporaryResources();
     } else {
       _loadResources();
     }
+  }
+
+  @override
+  void dispose() {
+    if (_isStudent()) {
+      _studentTabController.dispose();
+    }
+    super.dispose();
   }
 
   /// Check if user has admin-like permissions
@@ -649,6 +678,136 @@ class _SubjectResourcesContentState extends State<SubjectResourcesContent> {
     }
   }
 
+  /// Phase 5: Build student tab bar layout
+  /// Shows Modules and Assignments as tabs instead of cards
+  Widget _buildStudentTabBarLayout() {
+    return Column(
+      children: [
+        // Tab Bar
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border(
+              bottom: BorderSide(color: Colors.grey.shade300, width: 1),
+            ),
+          ),
+          child: TabBar(
+            controller: _studentTabController,
+            labelColor: Colors.blue.shade700,
+            unselectedLabelColor: Colors.grey.shade600,
+            indicatorColor: Colors.blue.shade700,
+            tabs: const [
+              Tab(text: 'Modules'),
+              Tab(text: 'Assignments'),
+            ],
+          ),
+        ),
+
+        // Tab Views
+        Expanded(
+          child: TabBarView(
+            controller: _studentTabController,
+            children: [
+              // Modules Tab
+              _buildResourceList(ResourceType.module),
+
+              // Assignments Tab
+              _buildResourceList(ResourceType.assignment),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Phase 5: Build teacher/admin card layout
+  /// Shows Modules, Assignment Resources, and Assignments as separate cards
+  Widget _buildTeacherCardLayout() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Modules section
+          // - Admins/ICT Coordinators/Hybrid: Can upload, delete
+          // - Teachers/Grade Level Coordinators: Can view only
+          ResourceSectionWidget(
+            resourceType: ResourceType.module,
+            resources: widget.isCreateMode
+                ? _convertTemporaryToSubjectResources(
+                    ResourceType.module,
+                  )
+                : _resourcesByType[ResourceType.module] ?? [],
+            onUpload: () => _handleUpload(ResourceType.module),
+            onDownload: _handleDownload,
+            onDelete: _handleDeleteWrapper,
+            canUpload: _hasAdminPermissions(), // Admin-like roles can upload
+            canDelete: _hasAdminPermissions(), // Admin-like roles can delete
+          ),
+
+          // Assignment Resources section
+          // - Admins/ICT Coordinators/Hybrid: Can upload, delete, view
+          // - Teachers/Grade Level Coordinators: Can view only
+          // - Students: CANNOT view (hidden)
+          if (!_isStudent())
+            ResourceSectionWidget(
+              resourceType: ResourceType.assignmentResource,
+              resources: widget.isCreateMode
+                  ? _convertTemporaryToSubjectResources(
+                      ResourceType.assignmentResource,
+                    )
+                  : _resourcesByType[ResourceType.assignmentResource] ?? [],
+              onUpload: () => _handleUpload(ResourceType.assignmentResource),
+              onDownload: _handleDownload,
+              onDelete: _handleDeleteWrapper,
+              canUpload: _hasAdminPermissions(), // Admin-like roles can upload
+              canDelete: _hasAdminPermissions(), // Admin-like roles can delete
+            ),
+
+          // Assignments section
+          // - Admins/ICT Coordinators/Hybrid: Full CRUD (manage all)
+          // - Teachers/Grade Level Coordinators: Full CRUD (their main job)
+          ResourceSectionWidget(
+            resourceType: ResourceType.assignment,
+            resources: widget.isCreateMode
+                ? _convertTemporaryToSubjectResources(
+                    ResourceType.assignment,
+                  )
+                : _resourcesByType[ResourceType.assignment] ?? [],
+            onUpload: () => _handleUpload(ResourceType.assignment),
+            onDownload: _handleDownload,
+            onDelete: _handleDeleteWrapper,
+            canUpload: _hasAdminPermissions() ||
+                _hasTeacherPermissions(), // Admin-like and teacher-like roles can upload
+            canDelete: _hasAdminPermissions() ||
+                _hasTeacherPermissions(), // Admin-like and teacher-like roles can delete
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Phase 5: Build resource list for a specific type
+  /// Used in student tab bar layout
+  Widget _buildResourceList(ResourceType resourceType) {
+    final resources = widget.isCreateMode
+        ? _convertTemporaryToSubjectResources(resourceType)
+        : _resourcesByType[resourceType] ?? [];
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: ResourceSectionWidget(
+        resourceType: resourceType,
+        resources: resources,
+        onUpload: () => _handleUpload(resourceType),
+        onDownload: _handleDownload,
+        onDelete: _handleDeleteWrapper,
+        canUpload: false, // Students cannot upload
+        canDelete: false, // Students cannot delete
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -695,83 +854,13 @@ class _SubjectResourcesContentState extends State<SubjectResourcesContent> {
         ),
 
         // Resource sections
+        // Phase 5: Tab bar layout for students, card layout for teachers/admin
         Expanded(
           child: _isLoading
               ? const Center(child: CircularProgressIndicator())
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Modules section
-                      // - Admins/ICT Coordinators/Hybrid: Can upload, delete
-                      // - Teachers/Grade Level Coordinators: Can view only
-                      // - Students: Can view only
-                      ResourceSectionWidget(
-                        resourceType: ResourceType.module,
-                        resources: widget.isCreateMode
-                            ? _convertTemporaryToSubjectResources(
-                                ResourceType.module,
-                              )
-                            : _resourcesByType[ResourceType.module] ?? [],
-                        onUpload: () => _handleUpload(ResourceType.module),
-                        onDownload: _handleDownload,
-                        onDelete: _handleDeleteWrapper,
-                        canUpload:
-                            _hasAdminPermissions(), // Admin-like roles can upload
-                        canDelete:
-                            _hasAdminPermissions(), // Admin-like roles can delete
-                      ),
-
-                      // Assignment Resources section
-                      // - Admins/ICT Coordinators/Hybrid: Can upload, delete, view
-                      // - Teachers/Grade Level Coordinators: Can view only
-                      // - Students: CANNOT view (hidden)
-                      if (!_isStudent())
-                        ResourceSectionWidget(
-                          resourceType: ResourceType.assignmentResource,
-                          resources: widget.isCreateMode
-                              ? _convertTemporaryToSubjectResources(
-                                  ResourceType.assignmentResource,
-                                )
-                              : _resourcesByType[ResourceType
-                                        .assignmentResource] ??
-                                    [],
-                          onUpload: () =>
-                              _handleUpload(ResourceType.assignmentResource),
-                          onDownload: _handleDownload,
-                          onDelete: _handleDeleteWrapper,
-                          canUpload:
-                              _hasAdminPermissions(), // Admin-like roles can upload
-                          canDelete:
-                              _hasAdminPermissions(), // Admin-like roles can delete
-                        ),
-
-                      // Assignments section
-                      // - Admins/ICT Coordinators/Hybrid: Full CRUD (manage all)
-                      // - Teachers/Grade Level Coordinators: Full CRUD (their main job)
-                      // - Students: Can create submissions, view, update drafts, delete drafts
-                      //   (Note: Student submission logic will be different - handled separately)
-                      ResourceSectionWidget(
-                        resourceType: ResourceType.assignment,
-                        resources: widget.isCreateMode
-                            ? _convertTemporaryToSubjectResources(
-                                ResourceType.assignment,
-                              )
-                            : _resourcesByType[ResourceType.assignment] ?? [],
-                        onUpload: () => _handleUpload(ResourceType.assignment),
-                        onDownload: _handleDownload,
-                        onDelete: _handleDeleteWrapper,
-                        canUpload:
-                            _hasAdminPermissions() ||
-                            _hasTeacherPermissions(), // Admin-like and teacher-like roles can upload
-                        canDelete:
-                            _hasAdminPermissions() ||
-                            _hasTeacherPermissions(), // Admin-like and teacher-like roles can delete
-                      ),
-                    ],
-                  ),
-                ),
+              : _isStudent()
+                  ? _buildStudentTabBarLayout()
+                  : _buildTeacherCardLayout(),
         ),
       ],
     );

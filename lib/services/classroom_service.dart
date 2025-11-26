@@ -96,43 +96,104 @@ class ClassroomService {
   }
 
   /// Get all classrooms for a teacher
+  /// Fetches classrooms where teacher is:
+  /// 1. Owner (teacher_id)
+  /// 2. Advisory teacher (advisory_teacher_id)
+  /// 3. Co-teacher (classroom_teachers table)
+  /// 4. Subject teacher (classroom_subjects table)
+  /// Results are sorted by grade level, then by title
   Future<List<Classroom>> getTeacherClassrooms(String teacherId) async {
     try {
-      // Owned classrooms
-      final response = await _supabase
+      print('📚 Fetching classrooms for teacher: $teacherId');
+
+      // 1. Owned classrooms (teacher_id)
+      final ownedResponse = await _supabase
           .from('classrooms')
           .select()
           .eq('teacher_id', teacherId)
-          .eq('is_active', true)
-          .order('created_at', ascending: false);
+          .eq('is_active', true);
 
-      final owned = (response as List)
+      final owned = (ownedResponse as List)
           .map((json) => Classroom.fromJson(json))
           .toList();
+      print('✅ Found ${owned.length} owned classrooms');
 
-      // Co-teaching classrooms (optional; ignore if mapping table/policies are absent)
+      // 2. Advisory classrooms (advisory_teacher_id)
+      List<Classroom> advisory = [];
+      try {
+        final advisoryResponse = await _supabase
+            .from('classrooms')
+            .select()
+            .eq('advisory_teacher_id', teacherId)
+            .eq('is_active', true);
+
+        advisory = (advisoryResponse as List)
+            .map((json) => Classroom.fromJson(json))
+            .toList();
+        print('✅ Found ${advisory.length} advisory classrooms');
+      } catch (e) {
+        print('⚠️ Error fetching advisory classrooms: $e');
+      }
+
+      // 3. Co-teaching classrooms (classroom_teachers table)
       List<Classroom> coTeaching = [];
       try {
         final coRows = await _supabase
             .from('classroom_teachers')
             .select('classroom_id, classrooms(*)')
-            .eq('teacher_id', teacherId)
-            .order('joined_at', ascending: false);
+            .eq('teacher_id', teacherId);
 
         coTeaching = (coRows as List)
             .map((item) => Classroom.fromJson(item['classrooms']))
             .where((c) => c.isActive)
             .toList();
+        print('✅ Found ${coTeaching.length} co-teaching classrooms');
       } catch (e) {
-        // Backend not yet prepared for co-teachers; proceed with owned only
+        print('⚠️ Error fetching co-teaching classrooms: $e');
+      }
+
+      // 4. Subject teacher classrooms (classroom_subjects table)
+      List<Classroom> subjectTeaching = [];
+      try {
+        final subjectRows = await _supabase
+            .from('classroom_subjects')
+            .select('classroom_id, classrooms(*)')
+            .eq('teacher_id', teacherId)
+            .eq('is_active', true);
+
+        subjectTeaching = (subjectRows as List)
+            .map((item) {
+              final classroomData = item['classrooms'];
+              if (classroomData != null && classroomData is Map<String, dynamic>) {
+                final classroom = Classroom.fromJson(classroomData);
+                // Only include active classrooms
+                return classroom.isActive ? classroom : null;
+              }
+              return null;
+            })
+            .whereType<Classroom>()
+            .toList();
+        print('✅ Found ${subjectTeaching.length} subject teaching classrooms');
+      } catch (e) {
+        print('⚠️ Error fetching subject teaching classrooms: $e');
       }
 
       // Merge and deduplicate by classroom id
       final byId = <String, Classroom>{};
-      for (final c in [...owned, ...coTeaching]) {
+      for (final c in [...owned, ...advisory, ...coTeaching, ...subjectTeaching]) {
         byId[c.id] = c;
       }
-      return byId.values.toList();
+
+      // Sort by grade level, then by title
+      final classrooms = byId.values.toList()
+        ..sort((a, b) {
+          final gradeCompare = a.gradeLevel.compareTo(b.gradeLevel);
+          if (gradeCompare != 0) return gradeCompare;
+          return a.title.compareTo(b.title);
+        });
+
+      print('✅ Total unique classrooms for teacher: ${classrooms.length}');
+      return classrooms;
     } catch (e) {
       print('❌ Error fetching teacher classrooms: $e');
       rethrow;
@@ -752,13 +813,16 @@ class ClassroomService {
   }
 
   /// Get student's enrolled classrooms
+  /// Fetches classrooms where student is enrolled via classroom_students table
+  /// Results are sorted by grade level, then by title
   Future<List<Classroom>> getStudentClassrooms(String studentId) async {
     try {
+      print('📚 Fetching classrooms for student: $studentId');
+
       final response = await _supabase
           .from('classroom_students')
           .select('classroom_id, classrooms(*)')
-          .eq('student_id', studentId)
-          .order('enrolled_at', ascending: false);
+          .eq('student_id', studentId);
 
       final List<dynamic> rows = (response as List<dynamic>);
       final List<Classroom> classrooms = [];
@@ -798,6 +862,14 @@ class ClassroomService {
         }
       }
 
+      // Sort by grade level, then by title
+      classrooms.sort((a, b) {
+        final gradeCompare = a.gradeLevel.compareTo(b.gradeLevel);
+        if (gradeCompare != 0) return gradeCompare;
+        return a.title.compareTo(b.title);
+      });
+
+      print('✅ Found ${classrooms.length} enrolled classrooms for student');
       return classrooms;
     } catch (e) {
       print('❌ Error fetching student classrooms: $e');
