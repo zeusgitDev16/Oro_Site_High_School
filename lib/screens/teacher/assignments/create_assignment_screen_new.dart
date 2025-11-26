@@ -6,6 +6,14 @@ import 'package:file_picker/file_picker.dart';
 import 'dart:typed_data';
 import 'dart:math' as math;
 
+// Import modular assignment builder widgets
+import 'package:oro_site_high_school/widgets/assignment_builders/quiz_assignment_builder.dart';
+import 'package:oro_site_high_school/widgets/assignment_builders/multiple_choice_assignment_builder.dart';
+import 'package:oro_site_high_school/widgets/assignment_builders/identification_assignment_builder.dart';
+import 'package:oro_site_high_school/widgets/assignment_builders/matching_type_assignment_builder.dart';
+import 'package:oro_site_high_school/widgets/assignment_builders/essay_assignment_builder.dart';
+import 'package:oro_site_high_school/widgets/assignment_builders/file_upload_assignment_builder.dart';
+
 /// Layer 1: UI Layer - Create Assignment Screen
 /// Full-screen assignment creation with type-specific templates
 class CreateAssignmentScreen extends StatefulWidget {
@@ -31,10 +39,12 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
   String _selectedType = 'quiz';
   DateTime? _dueDate;
   TimeOfDay? _dueTime;
+  DateTime? _startTime; // NEW: When assignment becomes visible to students
+  DateTime? _endTime; // NEW: When assignment moves to history
   bool _isSaving = false;
   bool _allowLateSubmissions = true;
-  // Grading tags (UI only for now; persisted in content.meta until DB columns are added)
-  String _component = 'written_works'; // 'written_works' | 'performance_task'
+  // Grading tags (persisted in DB columns: component, quarter_no)
+  String _component = 'written_works'; // 'written_works' | 'performance_task' | 'quarterly_assessment'
   int _quarterNo = 1; // 1..4
 
   // Supabase client and pending uploaded files for file-upload type
@@ -76,6 +86,16 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
           _dueDate = DateTime(dt.year, dt.month, dt.day);
           _dueTime = TimeOfDay(hour: dt.hour, minute: dt.minute);
         }
+      }
+
+      // Parse start_time (NEW)
+      if (a['start_time'] != null) {
+        _startTime = DateTime.tryParse(a['start_time']);
+      }
+
+      // Parse end_time (NEW)
+      if (a['end_time'] != null) {
+        _endTime = DateTime.tryParse(a['end_time']);
       }
 
       // Hydrate grading tags if present (DB columns win over meta; both are kept in sync)
@@ -577,6 +597,195 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
               ),
             ),
           ],
+        ),
+
+        const SizedBox(height: 24),
+
+        // NEW: Assignment Timeline (Start Time & End Time)
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.blue.shade50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.blue.shade200),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.schedule, size: 20, color: Colors.blue.shade700),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Assignment Timeline',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.blue.shade700,
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade100,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      'Optional',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.blue.shade700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Control when students can see and submit this assignment',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.blue.shade700,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Start Time',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        InkWell(
+                          onTap: _selectStartTime,
+                          borderRadius: BorderRadius.circular(8),
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.blue.shade300),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.play_circle_outline,
+                                  size: 16,
+                                  color: Colors.blue.shade600,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _startTime != null
+                                        ? '${_startTime!.month}/${_startTime!.day}/${_startTime!.year} ${_startTime!.hour}:${_startTime!.minute.toString().padLeft(2, '0')}'
+                                        : 'Visible immediately',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: _startTime != null
+                                          ? Colors.black87
+                                          : Colors.grey.shade500,
+                                    ),
+                                  ),
+                                ),
+                                if (_startTime != null)
+                                  IconButton(
+                                    icon: const Icon(Icons.close, size: 14),
+                                    onPressed: () {
+                                      setState(() {
+                                        _startTime = null;
+                                      });
+                                    },
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'End Time',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        InkWell(
+                          onTap: _selectEndTime,
+                          borderRadius: BorderRadius.circular(8),
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.blue.shade300),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.stop_circle_outlined,
+                                  size: 16,
+                                  color: Colors.red.shade600,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _endTime != null
+                                        ? '${_endTime!.month}/${_endTime!.day}/${_endTime!.year} ${_endTime!.hour}:${_endTime!.minute.toString().padLeft(2, '0')}'
+                                        : 'Never expires',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: _endTime != null
+                                          ? Colors.black87
+                                          : Colors.grey.shade500,
+                                    ),
+                                  ),
+                                ),
+                                if (_endTime != null)
+                                  IconButton(
+                                    icon: const Icon(Icons.close, size: 14),
+                                    onPressed: () {
+                                      setState(() {
+                                        _endTime = null;
+                                      });
+                                    },
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              if (_startTime != null || _dueDate != null || _endTime != null) ...[
+                const SizedBox(height: 16),
+                _buildTimelineVisualization(),
+              ],
+            ],
+          ),
         ),
 
         const SizedBox(height: 24),
@@ -2077,6 +2286,169 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
     }
   }
 
+  // NEW: Select start time (when assignment becomes visible)
+  Future<void> _selectStartTime() async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: _startTime ?? DateTime.now(),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+
+    if (date != null) {
+      final time = await showTimePicker(
+        context: context,
+        initialTime: TimeOfDay.fromDateTime(_startTime ?? DateTime.now()),
+      );
+
+      if (time != null) {
+        setState(() {
+          _startTime = DateTime(
+            date.year,
+            date.month,
+            date.day,
+            time.hour,
+            time.minute,
+          );
+        });
+      }
+    }
+  }
+
+  // NEW: Select end time (when assignment moves to history)
+  Future<void> _selectEndTime() async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: _endTime ?? DateTime.now().add(const Duration(days: 7)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+
+    if (date != null) {
+      final time = await showTimePicker(
+        context: context,
+        initialTime: TimeOfDay.fromDateTime(_endTime ?? DateTime.now()),
+      );
+
+      if (time != null) {
+        setState(() {
+          _endTime = DateTime(
+            date.year,
+            date.month,
+            date.day,
+            time.hour,
+            time.minute,
+          );
+        });
+      }
+    }
+  }
+
+  // NEW: Build timeline visualization
+  Widget _buildTimelineVisualization() {
+    final now = DateTime.now();
+    final start = _startTime ?? now;
+    final due = _dueDate != null && _dueTime != null
+        ? DateTime(
+            _dueDate!.year,
+            _dueDate!.month,
+            _dueDate!.day,
+            _dueTime!.hour,
+            _dueTime!.minute,
+          )
+        : _dueDate != null
+            ? DateTime(_dueDate!.year, _dueDate!.month, _dueDate!.day, 23, 59)
+            : null;
+    final end = _endTime;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.blue.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Timeline Preview',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey.shade700,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _buildTimelinePoint(
+                'Start',
+                _startTime != null ? 'Visible' : 'Now',
+                Colors.green,
+                isFirst: true,
+              ),
+              Expanded(
+                child: Container(
+                  height: 2,
+                  color: Colors.blue.shade200,
+                ),
+              ),
+              if (due != null) ...[
+                _buildTimelinePoint('Due', 'Deadline', Colors.orange),
+                Expanded(
+                  child: Container(
+                    height: 2,
+                    color: Colors.orange.shade200,
+                  ),
+                ),
+              ],
+              _buildTimelinePoint(
+                'End',
+                _endTime != null ? 'History' : 'Never',
+                Colors.red,
+                isLast: true,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimelinePoint(String label, String sublabel, Color color,
+      {bool isFirst = false, bool isLast = false}) {
+    return Column(
+      children: [
+        Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w600,
+            color: color,
+          ),
+        ),
+        Text(
+          sublabel,
+          style: TextStyle(
+            fontSize: 8,
+            color: Colors.grey.shade600,
+          ),
+        ),
+      ],
+    );
+  }
+
   Future<void> _saveAssignment() async {
     if (!_formKey.currentState!.validate()) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2092,11 +2464,34 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
     String? error;
     if (_dueDate == null) {
       error = 'Please select a Due Date (required).';
-    } else if (!{'written_works', 'performance_task'}.contains(_component)) {
-      error = 'Please select a Component (Written Works or Performance Task).';
+    } else if (!{'written_works', 'performance_task', 'quarterly_assessment'}.contains(_component)) {
+      error = 'Please select a valid Component.';
     } else if (!([1, 2, 3, 4].contains(_quarterNo))) {
       error = 'Please select a Quarter (Q1–Q4).';
     } else {
+      // NEW: Validate timeline (start_time < due_date < end_time)
+      final dueDateTime = _dueDate != null && _dueTime != null
+          ? DateTime(
+              _dueDate!.year,
+              _dueDate!.month,
+              _dueDate!.day,
+              _dueTime!.hour,
+              _dueTime!.minute,
+            )
+          : _dueDate != null
+              ? DateTime(_dueDate!.year, _dueDate!.month, _dueDate!.day, 23, 59)
+              : null;
+
+      if (_startTime != null && dueDateTime != null && _startTime!.isAfter(dueDateTime)) {
+        error = 'Start Time must be before Due Date.';
+      } else if (_endTime != null && dueDateTime != null && _endTime!.isBefore(dueDateTime)) {
+        error = 'End Time must be after Due Date.';
+      } else if (_startTime != null && _endTime != null && _startTime!.isAfter(_endTime!)) {
+        error = 'Start Time must be before End Time.';
+      }
+    }
+
+    if (error == null) {
       switch (_selectedType) {
         case 'quiz':
           if (_quizQuestions.isEmpty) error = 'Add at least 1 quiz question.';
@@ -2214,6 +2609,8 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
           assignmentType: _selectedType,
           totalPoints: totalPoints,
           dueDate: dueDateTime,
+          startTime: _startTime, // NEW
+          endTime: _endTime, // NEW
           allowLateSubmissions: _allowLateSubmissions,
           content: content,
           component: _component,
@@ -2267,6 +2664,8 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
           assignmentType: _selectedType,
           totalPoints: totalPoints,
           dueDate: dueDateTime,
+          startTime: _startTime, // NEW
+          endTime: _endTime, // NEW
           allowLateSubmissions: _allowLateSubmissions,
           content: content,
           component: _component,

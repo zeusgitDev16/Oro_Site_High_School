@@ -437,6 +437,16 @@ extension DepEdGradeCompute on DepEdGradeService {
     // 1) Load assignments for this class/course/quarter
     //    Include both published and unpublished so the breakdown matches
     //    the teacher's computed grade. Only require is_active=true.
+    //
+    //    PHASE 5 INTEGRATION: Timeline assignments (with start_time/end_time)
+    //    are included regardless of their timeline status. This is correct because:
+    //    - Scheduled assignments (before start_time): Included if they have submissions
+    //    - Active assignments (between start_time and due_date): Included
+    //    - Late assignments (between due_date and end_time): Included
+    //    - Ended assignments (after end_time): Included
+    //
+    //    Grade computation considers ALL assignments in the quarter that have
+    //    graded submissions, regardless of timeline visibility to students.
     final assignments = List<Map<String, dynamic>>.from(
       await supa
           .from('assignments')

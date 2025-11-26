@@ -5,6 +5,7 @@ import 'package:oro_site_high_school/services/classroom_service.dart';
 import 'package:oro_site_high_school/services/assignment_service.dart';
 import 'package:oro_site_high_school/widgets/gradebook/bulk_compute_grades_dialog.dart';
 import 'package:oro_site_high_school/widgets/gradebook/score_edit_dialog.dart';
+import 'package:oro_site_high_school/widgets/gradebook/class_list_panel.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// **Phase 4: Gradebook Grid Panel (Right Panel)**
@@ -37,8 +38,9 @@ class _GradebookGridPanelState extends State<GradebookGridPanel> {
   List<Map<String, dynamic>> _students = [];
   List<Map<String, dynamic>> _assignments = [];
   Map<String, Map<String, dynamic>> _submissionMap = {}; // "studentId_assignmentId" -> submission
-  
+
   bool _isLoading = true;
+  bool _showClassList = false; // Toggle for class list panel
 
   @override
   void initState() {
@@ -59,10 +61,24 @@ class _GradebookGridPanelState extends State<GradebookGridPanel> {
     setState(() => _isLoading = true);
 
     try {
-      // 1. Load students
-      final students = await _classroomService.getClassroomStudents(widget.classroom.id);
-      
+      // 1. Load students (real users from database)
+      final rawStudents = await _classroomService.getClassroomStudents(widget.classroom.id);
+
+      // OPTIMIZATION: Normalize student data to use 'id' field consistently
+      final students = rawStudents.map((s) {
+        return {
+          'id': s['student_id'] ?? s['id'], // Normalize to 'id'
+          'full_name': s['full_name'] ?? 'Unknown',
+          'email': s['email'] ?? '',
+          'enrolled_at': s['enrolled_at'],
+        };
+      }).toList();
+
       // 2. Load assignments (filtered by quarter and subject)
+      //    PHASE 5 INTEGRATION: Timeline assignments (with start_time/end_time)
+      //    are included in the gradebook regardless of their timeline status.
+      //    This allows teachers to see all assignments and their submissions,
+      //    even if they're scheduled for the future or have ended.
       final allAssignments = await _assignmentService.getClassroomAssignments(widget.classroom.id);
       final filteredAssignments = allAssignments.where((a) {
         final quarterNo = a['quarter_no'];
@@ -70,7 +86,7 @@ class _GradebookGridPanelState extends State<GradebookGridPanel> {
         return quarterNo == _selectedQuarter && courseId == widget.subject.id;
       }).toList();
 
-      // 3. Load submissions (bulk query)
+      // 3. Load submissions (bulk query with real student IDs)
       final submissionMap = await _loadSubmissions(
         students.map((s) => s['id'].toString()).toList(),
         filteredAssignments.map((a) => a['id'].toString()).toList(),
@@ -82,6 +98,8 @@ class _GradebookGridPanelState extends State<GradebookGridPanel> {
         _submissionMap = submissionMap;
         _isLoading = false;
       });
+
+      print('✅ Gradebook loaded: ${students.length} students, ${filteredAssignments.length} assignments');
     } catch (e) {
       print('❌ Error loading gradebook data: $e');
       setState(() {
@@ -159,26 +177,40 @@ class _GradebookGridPanelState extends State<GradebookGridPanel> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return Row(
       children: [
-        _buildHeader(),
+        // Main gradebook area
         Expanded(
-          child: _isLoading
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const CircularProgressIndicator(),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Loading gradebook data...',
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                      ),
-                    ],
-                  ),
-                )
-              : _buildGradebookGrid(),
+          child: Column(
+            children: [
+              _buildHeader(),
+              Expanded(
+                child: _isLoading
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const CircularProgressIndicator(),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Loading gradebook data...',
+                              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                            ),
+                          ],
+                        ),
+                      )
+                    : _buildGradebookGrid(),
+              ),
+            ],
+          ),
         ),
+
+        // Class list panel (collapsible)
+        if (_showClassList)
+          ClassListPanel(
+            students: _students,
+            classroomTitle: widget.classroom.title,
+          ),
       ],
     );
   }
@@ -258,6 +290,35 @@ class _GradebookGridPanelState extends State<GradebookGridPanel> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blue,
                 foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ),
+            ),
+          ),
+
+          const SizedBox(width: 8),
+
+          // Class List toggle button
+          Tooltip(
+            message: _showClassList ? 'Hide class list' : 'Show class list',
+            child: OutlinedButton.icon(
+              onPressed: () {
+                setState(() {
+                  _showClassList = !_showClassList;
+                });
+              },
+              icon: Icon(
+                _showClassList ? Icons.people : Icons.people_outline,
+                size: 16,
+              ),
+              label: Text(
+                'Class List',
+                style: const TextStyle(fontSize: 12),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _showClassList ? Colors.blue : Colors.grey.shade700,
+                side: BorderSide(
+                  color: _showClassList ? Colors.blue : Colors.grey.shade300,
+                ),
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               ),
             ),

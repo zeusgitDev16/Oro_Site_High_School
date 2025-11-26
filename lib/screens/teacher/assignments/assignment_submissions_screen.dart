@@ -4,6 +4,7 @@ import 'package:oro_site_high_school/services/submission_service.dart';
 import 'package:oro_site_high_school/services/classroom_service.dart';
 import 'package:oro_site_high_school/services/assignment_service.dart';
 import 'package:oro_site_high_school/screens/teacher/assignments/submission_detail_screen.dart';
+import 'package:oro_site_high_school/widgets/assignment/assignment_analytics_widget.dart';
 
 class AssignmentSubmissionsScreen extends StatefulWidget {
   final String classroomId;
@@ -39,7 +40,7 @@ class _AssignmentSubmissionsScreenState
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this); // Phase 5 Task 9: Added Analytics tab
     _loadData();
     _setupRealtime();
   }
@@ -157,9 +158,12 @@ class _AssignmentSubmissionsScreenState
           controller: _tabController,
           labelColor: Colors.black,
           unselectedLabelColor: Colors.grey,
+          labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          unselectedLabelStyle: const TextStyle(fontSize: 12),
           tabs: [
             Tab(text: 'Submitted (${_submitted.length})'),
             Tab(text: 'Not Submitted (${_notSubmitted.length})'),
+            const Tab(text: 'Analytics'), // Phase 5 Task 9: Analytics tab
           ],
         ),
       ),
@@ -171,7 +175,16 @@ class _AssignmentSubmissionsScreenState
                 Expanded(
                   child: TabBarView(
                     controller: _tabController,
-                    children: [_buildSubmittedList(), _buildNotSubmittedList()],
+                    children: [
+                      _buildSubmittedList(),
+                      _buildNotSubmittedList(),
+                      // Phase 5 Task 9: Analytics tab
+                      AssignmentAnalyticsWidget(
+                        assignment: _assignment,
+                        submissions: _submissions,
+                        students: _students,
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -188,66 +201,218 @@ class _AssignmentSubmissionsScreenState
         ? ((a['allow_late_submissions'] ?? true) == true)
         : true);
 
+    // NEW: Get timeline status
+    final now = DateTime.now();
+    final startTime = a?['start_time'] != null
+        ? DateTime.tryParse(a!['start_time'].toString())
+        : null;
+    final dueDate = a?['due_date'] != null
+        ? DateTime.tryParse(a!['due_date'].toString())
+        : null;
+    final endTime = a?['end_time'] != null
+        ? DateTime.tryParse(a!['end_time'].toString())
+        : null;
+
+    String timelineStatus = 'active';
+    if (startTime != null && now.isBefore(startTime)) {
+      timelineStatus = 'scheduled';
+    } else if (endTime != null && now.isAfter(endTime)) {
+      timelineStatus = 'ended';
+    } else if (dueDate != null && now.isAfter(dueDate)) {
+      timelineStatus = allowLate ? 'late' : 'ended';
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.grey.shade50,
         border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      widget.courseTitle ?? '',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  widget.courseTitle ?? '',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: allowLate ? Colors.green.shade50 : Colors.red.shade50,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: allowLate ? Colors.green.shade200 : Colors.red.shade200,
               ),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  allowLate ? Icons.check_circle : Icons.block,
-                  size: 16,
-                  color: allowLate ? Colors.green : Colors.red,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  allowLate ? 'late allowed' : 'late not allowed',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: allowLate
-                        ? Colors.green.shade800
-                        : Colors.red.shade800,
+              // NEW: Timeline status badge
+              _buildTimelineStatusBadge(timelineStatus),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: allowLate ? Colors.green.shade50 : Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: allowLate ? Colors.green.shade200 : Colors.red.shade200,
                   ),
                 ),
+                child: Row(
+                  children: [
+                    Icon(
+                      allowLate ? Icons.check_circle : Icons.block,
+                      size: 16,
+                      color: allowLate ? Colors.green : Colors.red,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      allowLate ? 'late allowed' : 'late not allowed',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: allowLate
+                            ? Colors.green.shade800
+                            : Colors.red.shade800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          // NEW: Timeline info row
+          if (startTime != null || endTime != null) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 12,
+              runSpacing: 4,
+              children: [
+                if (startTime != null)
+                  _buildTimelineInfo(
+                    'Start',
+                    _formatDateTime(startTime),
+                    Icons.play_circle,
+                    Colors.green,
+                  ),
+                if (dueDate != null)
+                  _buildTimelineInfo(
+                    'Due',
+                    _formatDateTime(dueDate),
+                    Icons.event,
+                    Colors.orange,
+                  ),
+                if (endTime != null)
+                  _buildTimelineInfo(
+                    'End',
+                    _formatDateTime(endTime),
+                    Icons.stop_circle,
+                    Colors.red,
+                  ),
               ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // NEW: Build timeline status badge
+  Widget _buildTimelineStatusBadge(String status) {
+    IconData icon;
+    Color color;
+    String label;
+
+    switch (status) {
+      case 'scheduled':
+        icon = Icons.schedule;
+        color = Colors.blue;
+        label = 'Scheduled';
+        break;
+      case 'active':
+        icon = Icons.play_circle;
+        color = Colors.green;
+        label = 'Active';
+        break;
+      case 'late':
+        icon = Icons.warning;
+        color = Colors.orange;
+        label = 'Late';
+        break;
+      case 'ended':
+        icon = Icons.stop_circle;
+        color = Colors.red;
+        label = 'Ended';
+        break;
+      default:
+        icon = Icons.help;
+        color = Colors.grey;
+        label = 'Unknown';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: color,
             ),
           ),
         ],
       ),
     );
+  }
+
+  // NEW: Build timeline info chip
+  Widget _buildTimelineInfo(String label, String value, IconData icon, Color color) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 12, color: color),
+        const SizedBox(width: 4),
+        Text(
+          '$label: ',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey.shade700,
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 11,
+            color: Colors.grey.shade600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // NEW: Format date/time for display
+  String _formatDateTime(DateTime dt) {
+    final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final m = dt.minute.toString().padLeft(2, '0');
+    final ap = dt.hour >= 12 ? 'PM' : 'AM';
+    return '${dt.month}/${dt.day}/${dt.year} $h:$m $ap';
   }
 
   Widget _buildSubmittedList() {
