@@ -50,6 +50,11 @@ class _ClassroomStudentsDialogState extends State<ClassroomStudentsDialog>
   bool _isLoading = false;
   String _searchQuery = '';
 
+  // Phase 1 Task 1.2: Checklist-based bulk enrollment
+  final Set<String> _selectedEnrolledIds = {};
+  final Set<String> _selectedAvailableIds = {};
+  bool _isBulkProcessing = false;
+
   @override
   void initState() {
     super.initState();
@@ -142,91 +147,8 @@ class _ClassroomStudentsDialogState extends State<ClassroomStudentsDialog>
     });
   }
 
-  Future<void> _addStudent(String studentId) async {
-    try {
-      setState(() => _isLoading = true);
-
-      // Insert into classroom_students
-      await _supabase.from('classroom_students').insert({
-        'classroom_id': widget.classroomId,
-        'student_id': studentId,
-        'enrolled_at': DateTime.now().toIso8601String(),
-      });
-
-      // Update student count
-      await _updateStudentCount();
-
-      // Reload data
-      await _loadData();
-
-      // Notify parent
-      widget.onStudentsChanged?.call();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Student added successfully'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      print('Error adding student: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error adding student: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _removeStudent(String studentId) async {
-    try {
-      setState(() => _isLoading = true);
-
-      // Remove from classroom_students
-      await _supabase
-          .from('classroom_students')
-          .delete()
-          .eq('classroom_id', widget.classroomId)
-          .eq('student_id', studentId);
-
-      // Update student count
-      await _updateStudentCount();
-
-      // Reload data
-      await _loadData();
-
-      // Notify parent
-      widget.onStudentsChanged?.call();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Student removed successfully'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      print('Error removing student: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error removing student: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      setState(() => _isLoading = false);
-    }
-  }
+  // Phase 1 Task 1.2: Old individual add/remove methods removed
+  // Replaced with bulk enrollment methods for better performance and reliability
 
   Future<void> _updateStudentCount() async {
     try {
@@ -244,6 +166,116 @@ class _ClassroomStudentsDialogState extends State<ClassroomStudentsDialog>
           .eq('id', widget.classroomId);
     } catch (e) {
       print('Error updating student count: $e');
+    }
+  }
+
+  // Phase 1 Task 1.3: Bulk enrollment backend
+  Future<void> _bulkEnrollStudents(List<String> studentIds) async {
+    if (studentIds.isEmpty) return;
+
+    try {
+      setState(() => _isBulkProcessing = true);
+
+      // Prepare batch insert data
+      final insertData = studentIds.map((studentId) {
+        return {
+          'classroom_id': widget.classroomId,
+          'student_id': studentId,
+          'enrolled_at': DateTime.now().toIso8601String(),
+        };
+      }).toList();
+
+      // Single transaction batch insert
+      await _supabase.from('classroom_students').insert(insertData);
+
+      // Update student count
+      await _updateStudentCount();
+
+      // Reload data
+      await _loadData();
+
+      // Clear selection
+      setState(() {
+        _selectedAvailableIds.clear();
+      });
+
+      // Notify parent
+      widget.onStudentsChanged?.call();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${studentIds.length} student(s) enrolled successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error bulk enrolling students: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error enrolling students: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() => _isBulkProcessing = false);
+    }
+  }
+
+  // Phase 1 Task 1.3: Bulk removal backend
+  Future<void> _bulkRemoveStudents(List<String> studentIds) async {
+    if (studentIds.isEmpty) return;
+
+    try {
+      setState(() => _isBulkProcessing = true);
+
+      // Batch delete using multiple delete operations
+      // Note: Supabase doesn't support IN clause in delete, so we use multiple deletes
+      for (final studentId in studentIds) {
+        await _supabase
+            .from('classroom_students')
+            .delete()
+            .eq('classroom_id', widget.classroomId)
+            .eq('student_id', studentId);
+      }
+
+      // Update student count
+      await _updateStudentCount();
+
+      // Reload data
+      await _loadData();
+
+      // Clear selection
+      setState(() {
+        _selectedEnrolledIds.clear();
+      });
+
+      // Notify parent
+      widget.onStudentsChanged?.call();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${studentIds.length} student(s) removed successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error bulk removing students: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error removing students: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() => _isBulkProcessing = false);
     }
   }
 
@@ -367,36 +399,121 @@ class _ClassroomStudentsDialogState extends State<ClassroomStudentsDialog>
       );
     }
 
-    return ListView.builder(
-      itemCount: _enrolledStudents.length,
-      itemBuilder: (context, index) {
-        final student = _enrolledStudents[index];
-        return Card(
-          margin: const EdgeInsets.only(bottom: 8),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: Colors.blue.shade100,
-              child: Text(
-                student['full_name']?.toString().substring(0, 1).toUpperCase() ?? 'S',
-                style: TextStyle(
-                  color: Colors.blue.shade700,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            title: Text(
-              student['full_name'] ?? 'Unknown',
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            subtitle: Text(student['email'] ?? ''),
-            trailing: IconButton(
-              icon: const Icon(Icons.remove_circle, color: Colors.red),
-              onPressed: () => _confirmRemoveStudent(student['student_id']),
-              tooltip: 'Remove student',
+    // Phase 1 Task 1.2: Checklist-based UI with bulk actions
+    return Column(
+      children: [
+        // Selection controls
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade50,
+            border: Border(
+              bottom: BorderSide(color: Colors.grey.shade300),
             ),
           ),
-        );
-      },
+          child: Row(
+            children: [
+              Checkbox(
+                value: _selectedEnrolledIds.length == _enrolledStudents.length,
+                tristate: true,
+                onChanged: (value) {
+                  setState(() {
+                    if (value == true) {
+                      _selectedEnrolledIds.addAll(
+                        _enrolledStudents.map((s) => s['student_id'].toString()),
+                      );
+                    } else {
+                      _selectedEnrolledIds.clear();
+                    }
+                  });
+                },
+              ),
+              Text(
+                _selectedEnrolledIds.isEmpty
+                    ? 'Select All'
+                    : '${_selectedEnrolledIds.length} selected',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const Spacer(),
+              if (_selectedEnrolledIds.isNotEmpty)
+                ElevatedButton.icon(
+                  onPressed: _isBulkProcessing
+                      ? null
+                      : () => _confirmBulkRemove(),
+                  icon: _isBulkProcessing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.remove_circle, size: 18),
+                  label: const Text('Remove Selected'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        // Student list
+        Expanded(
+          child: ListView.builder(
+            itemCount: _enrolledStudents.length,
+            itemBuilder: (context, index) {
+              final student = _enrolledStudents[index];
+              final studentId = student['student_id'].toString();
+              final isSelected = _selectedEnrolledIds.contains(studentId);
+
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                color: isSelected ? Colors.blue.shade50 : null,
+                child: ListTile(
+                  leading: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Checkbox(
+                        value: isSelected,
+                        onChanged: (value) {
+                          setState(() {
+                            if (value == true) {
+                              _selectedEnrolledIds.add(studentId);
+                            } else {
+                              _selectedEnrolledIds.remove(studentId);
+                            }
+                          });
+                        },
+                      ),
+                      CircleAvatar(
+                        backgroundColor: Colors.blue.shade100,
+                        child: Text(
+                          student['full_name']?.toString().substring(0, 1).toUpperCase() ?? 'S',
+                          style: TextStyle(
+                            color: Colors.blue.shade700,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  title: Text(
+                    student['full_name'] ?? 'Unknown',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: Text(student['email'] ?? ''),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -427,52 +544,138 @@ class _ClassroomStudentsDialogState extends State<ClassroomStudentsDialog>
       );
     }
 
-    return ListView.builder(
-      itemCount: _filteredAvailableStudents.length,
-      itemBuilder: (context, index) {
-        final student = _filteredAvailableStudents[index];
-        return Card(
-          margin: const EdgeInsets.only(bottom: 8),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: Colors.green.shade100,
-              child: Text(
-                student['full_name']?.toString().substring(0, 1).toUpperCase() ?? 'S',
-                style: TextStyle(
-                  color: Colors.green.shade700,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            title: Text(
-              student['full_name'] ?? 'Unknown',
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('LRN: ${student['lrn']}'),
-                Text('Grade ${student['grade_level']} - ${student['section']}'),
-              ],
-            ),
-            trailing: IconButton(
-              icon: const Icon(Icons.add_circle, color: Colors.green),
-              onPressed: () => _addStudent(student['student_id']),
-              tooltip: 'Add student',
+    // Phase 1 Task 1.2: Checklist-based UI with bulk actions
+    return Column(
+      children: [
+        // Selection controls
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade50,
+            border: Border(
+              bottom: BorderSide(color: Colors.grey.shade300),
             ),
           ),
-        );
-      },
+          child: Row(
+            children: [
+              Checkbox(
+                value: _selectedAvailableIds.length == _filteredAvailableStudents.length,
+                tristate: true,
+                onChanged: (value) {
+                  setState(() {
+                    if (value == true) {
+                      _selectedAvailableIds.addAll(
+                        _filteredAvailableStudents.map((s) => s['student_id'].toString()),
+                      );
+                    } else {
+                      _selectedAvailableIds.clear();
+                    }
+                  });
+                },
+              ),
+              Text(
+                _selectedAvailableIds.isEmpty
+                    ? 'Select All'
+                    : '${_selectedAvailableIds.length} selected',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const Spacer(),
+              if (_selectedAvailableIds.isNotEmpty)
+                ElevatedButton.icon(
+                  onPressed: _isBulkProcessing
+                      ? null
+                      : () => _confirmBulkEnroll(),
+                  icon: _isBulkProcessing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.add_circle, size: 18),
+                  label: const Text('Enroll Selected'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        // Student list
+        Expanded(
+          child: ListView.builder(
+            itemCount: _filteredAvailableStudents.length,
+            itemBuilder: (context, index) {
+              final student = _filteredAvailableStudents[index];
+              final studentId = student['student_id'].toString();
+              final isSelected = _selectedAvailableIds.contains(studentId);
+
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                color: isSelected ? Colors.green.shade50 : null,
+                child: ListTile(
+                  leading: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Checkbox(
+                        value: isSelected,
+                        onChanged: (value) {
+                          setState(() {
+                            if (value == true) {
+                              _selectedAvailableIds.add(studentId);
+                            } else {
+                              _selectedAvailableIds.remove(studentId);
+                            }
+                          });
+                        },
+                      ),
+                      CircleAvatar(
+                        backgroundColor: Colors.green.shade100,
+                        child: Text(
+                          student['full_name']?.toString().substring(0, 1).toUpperCase() ?? 'S',
+                          style: TextStyle(
+                            color: Colors.green.shade700,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  title: Text(
+                    student['full_name'] ?? 'Unknown',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('LRN: ${student['lrn']}'),
+                      Text('Grade ${student['grade_level']} - ${student['section']}'),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
-  void _confirmRemoveStudent(String studentId) {
+  // Phase 1 Task 1.2: Confirmation dialogs for bulk operations
+  void _confirmBulkEnroll() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Remove Student'),
-        content: const Text(
-          'Are you sure you want to remove this student from the classroom?',
+        title: const Text('Enroll Students'),
+        content: Text(
+          'Are you sure you want to enroll ${_selectedAvailableIds.length} student(s) to this classroom?',
         ),
         actions: [
           TextButton(
@@ -482,7 +685,35 @@ class _ClassroomStudentsDialogState extends State<ClassroomStudentsDialog>
           ElevatedButton(
             onPressed: () {
               Navigator.of(context).pop();
-              _removeStudent(studentId);
+              _bulkEnrollStudents(_selectedAvailableIds.toList());
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+            ),
+            child: const Text('Enroll'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmBulkRemove() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove Students'),
+        content: Text(
+          'Are you sure you want to remove ${_selectedEnrolledIds.length} student(s) from this classroom?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _bulkRemoveStudents(_selectedEnrolledIds.toList());
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,

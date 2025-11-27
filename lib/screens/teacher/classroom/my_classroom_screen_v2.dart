@@ -131,20 +131,24 @@ class _MyClassroomScreenV2State extends State<MyClassroomScreenV2> {
     }
   }
 
+  /// Phase 2 Task 2.6: Load subjects with role-based filtering
   Future<void> _loadSubjects() async {
-    if (_selectedClassroom == null) return;
+    if (_selectedClassroom == null || _teacherId == null) return;
 
     setState(() => _isLoadingSubjects = true);
 
     try {
-      final subjects = await _subjectService.getSubjectsByClassroom(
-        _selectedClassroom!.id,
+      // Use role-based filtering for teachers
+      final subjects =
+          await _subjectService.getSubjectsByClassroomForTeacher(
+        classroomId: _selectedClassroom!.id,
+        teacherId: _teacherId!,
       );
 
       setState(() {
         _subjects = subjects;
         _isLoadingSubjects = false;
-        
+
         // Auto-select first subject
         if (_subjects.isNotEmpty && _selectedSubject == null) {
           _selectedSubject = _subjects.first;

@@ -109,7 +109,10 @@ class _GradebookScreenState extends State<GradebookScreen> {
     }
   }
 
+  /// Phase 2 Task 2.6: Load subjects with role-based filtering
   Future<void> _loadSubjects(String classroomId) async {
+    if (_teacherId == null) return;
+
     setState(() {
       _isLoadingSubjects = true;
       _subjects = [];
@@ -117,13 +120,14 @@ class _GradebookScreenState extends State<GradebookScreen> {
     });
 
     try {
-      final subjects = await _subjectService.getSubjectsByClassroom(classroomId);
-
-      // Filter subjects where teacher is assigned
-      final teacherSubjects = subjects.where((s) => s.teacherId == _teacherId).toList();
+      // Use role-based filtering for teachers
+      final subjects = await _subjectService.getSubjectsByClassroomForTeacher(
+        classroomId: classroomId,
+        teacherId: _teacherId!,
+      );
 
       setState(() {
-        _subjects = teacherSubjects;
+        _subjects = subjects;
         _isLoadingSubjects = false;
       });
     } catch (e) {

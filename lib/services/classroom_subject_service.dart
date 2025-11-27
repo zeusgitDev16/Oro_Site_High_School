@@ -31,6 +31,80 @@ class ClassroomSubjectService {
     }
   }
 
+  /// Phase 2 Task 2.6: Get subjects for a classroom with role-based filtering
+  /// - Coordinators: See all subjects in classrooms in their grade level
+  /// - Advisors: See all subjects in their advisory classroom
+  /// - Subject Teachers: See only their assigned subjects
+  Future<List<ClassroomSubject>> getSubjectsByClassroomForTeacher({
+    required String classroomId,
+    required String teacherId,
+  }) async {
+    try {
+      print(
+        '📚 [SubjectService] Fetching subjects for classroom: $classroomId, teacher: $teacherId',
+      );
+
+      // Check if teacher is coordinator
+      final coordResponse = await _supabase
+          .from('coordinator_assignments')
+          .select('grade_level')
+          .eq('teacher_id', teacherId)
+          .eq('is_active', true)
+          .maybeSingle();
+
+      final isCoordinator = coordResponse != null;
+
+      // Check if teacher is advisor for this classroom
+      final classroomResponse = await _supabase
+          .from('classrooms')
+          .select('advisory_teacher_id, grade_level')
+          .eq('id', classroomId)
+          .single();
+
+      final isAdvisor = classroomResponse['advisory_teacher_id'] == teacherId;
+      final classroomGradeLevel = classroomResponse['grade_level'] as int;
+
+      // If coordinator, check if this classroom is in their grade level
+      bool isCoordinatorForThisGrade = false;
+      if (isCoordinator) {
+        final coordGradeLevel = coordResponse['grade_level'] as int;
+        isCoordinatorForThisGrade = coordGradeLevel == classroomGradeLevel;
+      }
+
+      // Fetch subjects based on role
+      List<ClassroomSubject> subjects;
+
+      if (isCoordinatorForThisGrade || isAdvisor) {
+        // Coordinators and advisors see ALL subjects in the classroom
+        print(
+          '✅ [SubjectService] Teacher is ${isCoordinatorForThisGrade ? 'coordinator' : 'advisor'} - showing all subjects',
+        );
+        subjects = await getSubjectsByClassroom(classroomId);
+      } else {
+        // Subject teachers see only their assigned subjects
+        print(
+          '✅ [SubjectService] Teacher is subject teacher - showing only assigned subjects',
+        );
+        final response = await _supabase
+            .from('classroom_subjects_with_details')
+            .select()
+            .eq('classroom_id', classroomId)
+            .eq('teacher_id', teacherId)
+            .order('subject_name');
+
+        subjects = (response as List)
+            .map((json) => ClassroomSubject.fromJson(json))
+            .toList();
+      }
+
+      print('✅ [SubjectService] Fetched ${subjects.length} subjects');
+      return subjects;
+    } catch (e) {
+      print('❌ [SubjectService] Error fetching subjects: $e');
+      rethrow;
+    }
+  }
+
   /// Add a subject to a classroom
   Future<ClassroomSubject> addSubject({
     required String classroomId,

@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../models/classroom_subject.dart';
 import '../../models/subject_resource.dart';
 import '../../models/resource_type.dart';
@@ -520,14 +521,46 @@ class _SubjectResourcesContentState extends State<SubjectResourcesContent>
     }
   }
 
+  /// Phase 3 Task 3.4: Open module/resource file in browser/external viewer
   Future<void> _handleDownload(SubjectResource resource) async {
-    // TODO: Implement download logic
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Downloading ${resource.resourceName}...'),
-        backgroundColor: Colors.blue,
-      ),
-    );
+    try {
+      final url = resource.fileUrl;
+      if (url.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('File URL not available'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Could not open ${resource.resourceName}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('❌ Error opening file: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error opening file: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _handleDeleteTemporary(TemporaryResource resource) async {

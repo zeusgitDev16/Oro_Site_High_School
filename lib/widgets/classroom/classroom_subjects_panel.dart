@@ -151,6 +151,11 @@ class ClassroomSubjectsPanel extends StatelessWidget {
         final subject = subjects[index];
         final isSelected = selectedSubject?.id == subject.id;
 
+        // Phase 2 Task 2.5: Check if current teacher is assigned to this subject
+        final isSubjectTeacher = userRole == 'teacher' &&
+            userId != null &&
+            subject.teacherId == userId;
+
         return Material(
           color: isSelected ? Colors.blue.shade50 : Colors.transparent,
           child: InkWell(
@@ -162,15 +167,60 @@ class ClassroomSubjectsPanel extends StatelessWidget {
                   bottom: BorderSide(color: Colors.grey.shade200, width: 1),
                 ),
               ),
-              child: Text(
-                subject.subjectName,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                  color: isSelected ? Colors.blue.shade700 : Colors.black87,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    subject.subjectName,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight:
+                          isSelected ? FontWeight.w600 : FontWeight.normal,
+                      color: isSelected ? Colors.blue.shade700 : Colors.black87,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  // Phase 2 Task 2.5: Teacher badge
+                  if (isSubjectTeacher) ...[
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: Colors.blue.shade300,
+                          width: 0.5,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.person,
+                            size: 7,
+                            color: Colors.blue.shade700,
+                          ),
+                          const SizedBox(width: 2),
+                          Text(
+                            'TEACHER',
+                            style: TextStyle(
+                              fontSize: 6,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.blue.shade700,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
           ),

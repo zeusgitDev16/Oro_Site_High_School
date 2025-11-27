@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:oro_site_high_school/models/classroom.dart';
 import 'package:oro_site_high_school/models/teacher.dart';
 import 'package:oro_site_high_school/models/school_year_simple.dart';
@@ -324,6 +325,10 @@ class _ClassroomLeftSidebarStatefulState
         .where((c) => c.gradeLevel == grade)
         .toList();
 
+    // Phase 2 Task 2.2: Check if current teacher is coordinator for this grade
+    final isCoordinatorForThisGrade = widget.isCoordinator == true &&
+        widget.coordinatorGradeLevel == grade;
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -348,6 +353,46 @@ class _ClassroomLeftSidebarStatefulState
                     color: Colors.grey.shade800,
                   ),
                 ),
+
+                // Phase 2 Task 2.2: Coordinator badge
+                if (isCoordinatorForThisGrade) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: Colors.purple.shade300,
+                        width: 0.5,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.star,
+                          size: 8,
+                          color: Colors.purple.shade700,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          'COORDINATOR',
+                          style: TextStyle(
+                            fontSize: 7,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.purple.shade700,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
                 const Spacer(),
 
                 // Plus button for grade level coordinator with badge
@@ -479,6 +524,12 @@ class _ClassroomLeftSidebarStatefulState
   Widget _buildClassroomItem(Classroom classroom) {
     final isSelected = widget.selectedClassroom?.id == classroom.id;
 
+    // Phase 2 Task 2.4: Check if current teacher is advisor for this classroom
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    final isAdvisor = widget.userRole == 'teacher' &&
+        currentUserId != null &&
+        classroom.advisoryTeacherId == currentUserId;
+
     return InkWell(
       onTap: () => widget.onClassroomSelected(classroom),
       hoverColor: Colors.blue.shade50,
@@ -499,16 +550,61 @@ class _ClassroomLeftSidebarStatefulState
             ),
             const SizedBox(width: 6),
             Expanded(
-              child: Text(
-                classroom.title,
-                style: TextStyle(
-                  fontSize: 10,
-                  color: isSelected
-                      ? Colors.blue.shade700
-                      : Colors.grey.shade700,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                ),
-                overflow: TextOverflow.ellipsis,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    classroom.title,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: isSelected
+                          ? Colors.blue.shade700
+                          : Colors.grey.shade700,
+                      fontWeight:
+                          isSelected ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  // Phase 2 Task 2.4: Advisor badge
+                  if (isAdvisor) ...[
+                    const SizedBox(height: 2),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: Colors.green.shade300,
+                          width: 0.5,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.school,
+                            size: 7,
+                            color: Colors.green.shade700,
+                          ),
+                          const SizedBox(width: 2),
+                          Text(
+                            'ADVISOR',
+                            style: TextStyle(
+                              fontSize: 6,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.green.shade700,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
           ],

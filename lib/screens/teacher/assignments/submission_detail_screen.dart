@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:oro_site_high_school/services/assignment_service.dart';
 import 'package:oro_site_high_school/services/submission_service.dart';
 
@@ -517,9 +518,94 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
       );
     }
 
+    // Phase 3 Task 3.3: Display uploaded files for file_upload assignments
     if (type == 'file_upload') {
-      return _manualNote(
-        'Uploaded files and feedback will appear here once implemented. Manual grading required.',
+      final submissionContent = _submission?['submission_content'];
+      List<Map<String, dynamic>> files = [];
+
+      if (submissionContent is Map) {
+        final filesData = submissionContent['files'];
+        if (filesData is List) {
+          files = filesData.map((f) => Map<String, dynamic>.from(f as Map)).toList();
+        }
+      }
+
+      if (files.isEmpty) {
+        return _manualNote('No files uploaded yet.');
+      }
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _manualNote('File upload assignment - Manual grading required.'),
+          const SizedBox(height: 12),
+          ...files.map((file) {
+            final fileName = file['name']?.toString() ?? 'Unknown file';
+            final fileUrl = file['url']?.toString() ?? '';
+            final fileSize = file['size'] as int?;
+            final fileSizeText = fileSize != null
+                ? '${(fileSize / 1024).toStringAsFixed(1)} KB'
+                : 'Unknown size';
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.insert_drive_file,
+                    color: Colors.blue.shade700,
+                    size: 24,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          fileName,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          fileSizeText,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    onPressed: () => _openFile(fileUrl),
+                    icon: const Icon(Icons.open_in_new, size: 16),
+                    label: const Text('View'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue.shade700,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
       );
     }
 
@@ -778,6 +864,35 @@ class _SubmissionDetailScreenState extends State<SubmissionDetailScreen> {
       }
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  /// Phase 3 Task 3.3: Open file in browser/external viewer
+  Future<void> _openFile(String url) async {
+    try {
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not open file'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('❌ Error opening file: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error opening file: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 

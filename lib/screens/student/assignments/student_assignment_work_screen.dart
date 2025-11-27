@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:oro_site_high_school/flow/student/student_submission_logic.dart';
 import 'package:oro_site_high_school/services/submission_service.dart';
+import 'package:oro_site_high_school/services/file_upload_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Student Assignment Work Screen
@@ -23,11 +25,16 @@ class _StudentAssignmentWorkScreenState
     extends State<StudentAssignmentWorkScreen> {
   final StudentSubmissionLogic _logic = StudentSubmissionLogic();
   final SubmissionService _submissionService = SubmissionService();
+  final FileUploadService _fileUploadService = FileUploadService();
 
   final Map<int, dynamic> _answers = {}; // simple per-question map
   Timer? _debounce;
   RealtimeChannel? _subChannel;
   bool _ensuring = false; // ensure submission fallback if logic failed
+
+  // Phase 3 Task 3.1: File upload state
+  final Map<int, List<PlatformFile>> _uploadedFiles = {}; // question index -> files
+  bool _isUploadingFile = false;
 
   @override
   void initState() {
@@ -214,8 +221,54 @@ class _StudentAssignmentWorkScreenState
       await _persistAnswers();
     }
 
-    // Submit via server-side logic
+    // Phase 3 Task 3.2: Upload files for file_upload assignments
     final type = (a['assignment_type'] ?? '').toString();
+    if (type == 'file_upload' && _uploadedFiles.isNotEmpty) {
+      try {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Uploading files...'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+
+        // Upload all files
+        final allUploadedFiles = <Map<String, dynamic>>[];
+        for (final entry in _uploadedFiles.entries) {
+          final files = entry.value;
+          final uploadedFiles = await _fileUploadService.uploadSubmissionFiles(
+            files: files,
+            assignmentId: a['id'].toString(),
+            studentId: sub['student_id'].toString(),
+          );
+          allUploadedFiles.addAll(uploadedFiles);
+        }
+
+        // Update submission content with file URLs
+        await _submissionService.saveSubmissionContent(
+          assignmentId: a['id'].toString(),
+          studentId: sub['student_id'].toString(),
+          content: {'files': allUploadedFiles},
+        );
+
+        print('✅ Uploaded ${allUploadedFiles.length} file(s) successfully');
+      } catch (e) {
+        print('❌ Error uploading files: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to upload files: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+    }
+
+    // Submit via server-side logic
     int? autoScore;
     int? autoMax;
 
@@ -273,6 +326,69 @@ class _StudentAssignmentWorkScreenState
   }
 
   // Removed eager ensure; submission will be created on submit only.
+
+  /// Phase 3 Task 3.1: Pick files for file_upload assignment type
+  Future<void> _pickFiles(int questionIndex) async {
+    if (_isUploadingFile) return;
+
+    try {
+      setState(() => _isUploadingFile = true);
+
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: true,
+        type: FileType.custom,
+        allowedExtensions: ['pdf', 'doc', 'docx', 'txt', 'jpg', 'jpeg', 'png'],
+      );
+
+      if (result != null && result.files.isNotEmpty) {
+        setState(() {
+          _uploadedFiles[questionIndex] = result.files;
+          // Store file names in answers for submission content
+          _answers[questionIndex] = result.files.map((f) => f.name).toList();
+        });
+        _queueSave();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${result.files.length} file(s) selected'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('❌ Error picking files: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error selecting files: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() => _isUploadingFile = false);
+    }
+  }
+
+  /// Phase 3 Task 3.1: Remove a selected file
+  void _removeFile(int questionIndex, int fileIndex) {
+    setState(() {
+      final files = _uploadedFiles[questionIndex];
+      if (files != null && fileIndex < files.length) {
+        files.removeAt(fileIndex);
+        if (files.isEmpty) {
+          _uploadedFiles.remove(questionIndex);
+          _answers.remove(questionIndex);
+        } else {
+          _answers[questionIndex] = files.map((f) => f.name).toList();
+        }
+        _queueSave();
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -722,18 +838,129 @@ class _StudentAssignmentWorkScreenState
         );
 
       case 'file_upload':
-        return _questionCard(
-          [
-            Row(
-              children: [
-                Icon(Icons.upload_file, color: Colors.indigo.shade700),
-                const SizedBox(width: 8),
-                const Text('Upload will be available soon'),
+        // Phase 3 Task 3.1: File upload UI with file picker
+        final questions = List<Map<String, dynamic>>.from(
+          (content['questions'] as List?) ?? const [],
+        );
+        return Column(
+          children: questions.asMap().entries.map((entry) {
+            final idx = entry.key;
+            final q = entry.value;
+            final qText = (q['question'] ?? 'Question ${idx + 1}').toString();
+            final pts = (q['points'] as num?)?.toInt() ?? 0;
+            final files = _uploadedFiles[idx] ?? [];
+
+            return _questionCard([
+              // Question header
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      qText,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  _chip('$pts pts', color: Colors.indigo),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // Upload button
+              if (!readOnly)
+                ElevatedButton.icon(
+                  onPressed: _isUploadingFile ? null : () => _pickFiles(idx),
+                  icon: _isUploadingFile
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.upload_file, size: 18),
+                  label: Text(
+                    _isUploadingFile ? 'Selecting...' : 'Choose Files',
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.indigo.shade700,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+
+              // Selected files list
+              if (files.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                ...files.asMap().entries.map((fileEntry) {
+                  final fileIdx = fileEntry.key;
+                  final file = fileEntry.value;
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.insert_drive_file,
+                          color: Colors.indigo.shade700,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                file.name,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              Text(
+                                '${(file.size / 1024).toStringAsFixed(1)} KB',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (!readOnly)
+                          IconButton(
+                            icon: const Icon(Icons.close, size: 18),
+                            onPressed: () => _removeFile(idx, fileIdx),
+                            color: Colors.red,
+                            tooltip: 'Remove file',
+                          ),
+                      ],
+                    ),
+                  );
+                }),
               ],
-            ),
-          ],
-          altColor: Colors.indigo.shade50,
-          altBorder: Colors.indigo.shade200,
+
+              // Read-only view (after submission)
+              if (readOnly && files.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    'No files uploaded',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey.shade600,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+            ]);
+          }).toList(),
         );
 
       default:

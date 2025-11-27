@@ -101,10 +101,31 @@ class ClassroomService {
   /// 2. Advisory teacher (advisory_teacher_id)
   /// 3. Co-teacher (classroom_teachers table)
   /// 4. Subject teacher (classroom_subjects table)
+  /// 5. Grade coordinator (all classrooms in their grade level) - Phase 2 Task 2.3
   /// Results are sorted by grade level, then by title
   Future<List<Classroom>> getTeacherClassrooms(String teacherId) async {
     try {
       print('📚 Fetching classrooms for teacher: $teacherId');
+
+      // Phase 2 Task 2.3: Check if teacher is a grade coordinator
+      int? coordinatorGradeLevel;
+      try {
+        final coordResponse = await _supabase
+            .from('coordinator_assignments')
+            .select('grade_level')
+            .eq('teacher_id', teacherId)
+            .eq('is_active', true)
+            .maybeSingle();
+
+        if (coordResponse != null) {
+          coordinatorGradeLevel = coordResponse['grade_level'] as int;
+          print(
+            '✅ Teacher is Grade $coordinatorGradeLevel Coordinator',
+          );
+        }
+      } catch (e) {
+        print('⚠️ Error checking coordinator status: $e');
+      }
 
       // 1. Owned classrooms (teacher_id)
       final ownedResponse = await _supabase
@@ -178,9 +199,36 @@ class ClassroomService {
         print('⚠️ Error fetching subject teaching classrooms: $e');
       }
 
+      // Phase 2 Task 2.3: 5. Grade coordinator classrooms (all in their grade level)
+      List<Classroom> coordinatorClassrooms = [];
+      if (coordinatorGradeLevel != null) {
+        try {
+          final coordResponse = await _supabase
+              .from('classrooms')
+              .select()
+              .eq('grade_level', coordinatorGradeLevel)
+              .eq('is_active', true);
+
+          coordinatorClassrooms = (coordResponse as List)
+              .map((json) => Classroom.fromJson(json))
+              .toList();
+          print(
+            '✅ Found ${coordinatorClassrooms.length} classrooms in Grade $coordinatorGradeLevel (coordinator access)',
+          );
+        } catch (e) {
+          print('⚠️ Error fetching coordinator classrooms: $e');
+        }
+      }
+
       // Merge and deduplicate by classroom id
       final byId = <String, Classroom>{};
-      for (final c in [...owned, ...advisory, ...coTeaching, ...subjectTeaching]) {
+      for (final c in [
+        ...owned,
+        ...advisory,
+        ...coTeaching,
+        ...subjectTeaching,
+        ...coordinatorClassrooms,
+      ]) {
         byId[c.id] = c;
       }
 
@@ -1077,6 +1125,66 @@ class ClassroomService {
     } catch (e) {
       print('❌ Error removing co-teacher: $e');
       return false;
+    }
+  }
+
+  /// Phase 2 Task 2.1: Get grade coordinator for a specific grade level
+  /// Returns coordinator info (teacher_id, teacher_name) or null if no coordinator assigned
+  Future<Map<String, dynamic>?> getGradeCoordinator(int gradeLevel) async {
+    try {
+      print('🔍 [ClassroomService] Fetching coordinator for Grade $gradeLevel');
+
+      final response = await _supabase
+          .from('coordinator_assignments')
+          .select('teacher_id, teacher_name, grade_level')
+          .eq('grade_level', gradeLevel)
+          .eq('is_active', true)
+          .maybeSingle();
+
+      if (response == null) {
+        print(
+          '⚠️ [ClassroomService] No coordinator assigned to Grade $gradeLevel',
+        );
+        return null;
+      }
+
+      print(
+        '✅ [ClassroomService] Coordinator found: ${response['teacher_name']}',
+      );
+      return response;
+    } catch (e) {
+      print('❌ [ClassroomService] Error fetching coordinator: $e');
+      return null;
+    }
+  }
+
+  /// Phase 2 Task 2.1: Get all grade coordinators (for caching)
+  /// Returns map of grade level -> coordinator info
+  Future<Map<int, Map<String, dynamic>>> getAllGradeCoordinators() async {
+    try {
+      print('🔍 [ClassroomService] Fetching all grade coordinators');
+
+      final response = await _supabase
+          .from('coordinator_assignments')
+          .select('teacher_id, teacher_name, grade_level')
+          .eq('is_active', true)
+          .order('grade_level');
+
+      final coordinators = <int, Map<String, dynamic>>{};
+      for (final row in (response as List)) {
+        final gradeLevel = row['grade_level'] as int;
+        coordinators[gradeLevel] = {
+          'teacher_id': row['teacher_id'],
+          'teacher_name': row['teacher_name'],
+          'grade_level': gradeLevel,
+        };
+      }
+
+      print('✅ [ClassroomService] Found ${coordinators.length} coordinators');
+      return coordinators;
+    } catch (e) {
+      print('❌ [ClassroomService] Error fetching coordinators: $e');
+      return {};
     }
   }
 }
