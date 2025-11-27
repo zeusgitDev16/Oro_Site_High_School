@@ -59,7 +59,7 @@ class _StudentAssignmentWorkspaceScreenState
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 5, vsync: this);
+    _tabCtrl = TabController(length: 6, vsync: this); // NEW: 6 tabs (added History)
     _tabCtrl.addListener(() {
       if (mounted && !_tabCtrl.indexIsChanging) {
         setState(() {});
@@ -203,6 +203,7 @@ class _StudentAssignmentWorkspaceScreenState
               Tab(text: 'Upcoming'),
               Tab(text: 'Due Today'),
               Tab(text: 'Missing'),
+              Tab(text: 'History'), // NEW: History tab for ended assignments
             ],
           ),
         ),
@@ -246,6 +247,10 @@ class _StudentAssignmentWorkspaceScreenState
                     ),
                     _buildAssignmentList(
                       all.where((a) => a['status'] == 'missed').toList(),
+                    ),
+                    // NEW: History tab - show ended assignments
+                    _buildAssignmentList(
+                      all.where((a) => a['timeline_status'] == 'ended').toList(),
                     ),
                   ],
                 ),
@@ -475,25 +480,54 @@ class _StudentAssignmentWorkspaceScreenState
       }
 
       final items = <Map<String, dynamic>>[];
+      final now = DateTime.now();
+
       for (final a in raw) {
         final due = _parseDateTime(a['due_date']) ?? DateTime.now();
         final sub = subMap[a['id'].toString()];
         final status = _deriveSubmissionStatus(a, sub);
         final scoreVal = sub?['score'];
         final maxPts = a['total_points'];
-        items.add({
-          'id': a['id'],
-          'title': (a['title'] ?? '').toString(),
-          'type': (a['assignment_type'] ?? '').toString(),
-          'component': (a['component'] ?? '').toString(),
-          'quarter': a['quarter_no'] ?? 0,
-          'due': due,
-          'status': status,
-          'score': scoreVal is num ? scoreVal.toInt() : null,
-          'max': maxPts is num
-              ? maxPts.toInt()
-              : (maxPts is String ? int.tryParse(maxPts) : null),
-        });
+
+        // NEW: Calculate timeline status
+        final startTime = a['start_time'] != null
+            ? DateTime.tryParse(a['start_time'].toString())
+            : null;
+        final endTime = a['end_time'] != null
+            ? DateTime.tryParse(a['end_time'].toString())
+            : null;
+        final allowLate = a['allow_late_submissions'] ?? true;
+
+        String timelineStatus = 'active';
+        if (startTime != null && now.isBefore(startTime)) {
+          timelineStatus = 'scheduled';
+        } else if (endTime != null && now.isAfter(endTime)) {
+          timelineStatus = 'ended';
+        } else if (now.isAfter(due)) {
+          timelineStatus = allowLate ? 'late' : 'ended';
+        }
+
+        // NEW: Filter out scheduled assignments (not yet visible)
+        // and ended assignments (moved to history tab)
+        // Only show active and late assignments in main tabs
+        final shouldInclude = timelineStatus != 'scheduled';
+
+        if (shouldInclude) {
+          items.add({
+            'id': a['id'],
+            'title': (a['title'] ?? '').toString(),
+            'type': (a['assignment_type'] ?? '').toString(),
+            'component': (a['component'] ?? '').toString(),
+            'quarter': a['quarter_no'] ?? 0,
+            'due': due,
+            'status': status,
+            'timeline_status': timelineStatus, // NEW: Add timeline status
+            'score': scoreVal is num ? scoreVal.toInt() : null,
+            'max': maxPts is num
+                ? maxPts.toInt()
+                : (maxPts is String ? int.tryParse(maxPts) : null),
+          });
+        }
       }
       items.sort(
         (a, b) => (a['due'] as DateTime).compareTo(b['due'] as DateTime),

@@ -5,6 +5,10 @@ import 'package:oro_site_high_school/models/school_year_simple.dart';
 
 /// Reusable left sidebar for classroom management
 /// Can be used across admin, teacher, and student screens with RLS filtering
+///
+/// **Role-Based Filtering:**
+/// - **Student**: Only shows grade levels and classrooms where student is enrolled
+/// - **Teacher/Admin**: Shows all grade levels and classrooms (existing behavior)
 class ClassroomLeftSidebar extends StatelessWidget {
   final String title;
   final VoidCallback? onBackPressed;
@@ -21,6 +25,11 @@ class ClassroomLeftSidebar extends StatelessWidget {
   final VoidCallback? onAddSchoolYear;
   final bool canManageCoordinators;
   final bool canManageSchoolYears;
+
+  /// User role for conditional UI rendering
+  /// - 'student': Shows only enrolled classrooms
+  /// - 'teacher', 'admin', or null: Shows all classrooms (backward compatible)
+  final String? userRole;
 
   const ClassroomLeftSidebar({
     super.key,
@@ -39,7 +48,34 @@ class ClassroomLeftSidebar extends StatelessWidget {
     this.onAddSchoolYear,
     this.canManageCoordinators = false,
     this.canManageSchoolYears = false,
+    this.userRole,
   });
+
+  /// Check if current user is a student
+  bool get _isStudent => userRole?.toLowerCase() == 'student';
+
+  /// Get list of grade levels where student has enrolled classrooms
+  /// Returns all grades (7-12) for non-students (backward compatible)
+  List<int> get _visibleGrades {
+    if (!_isStudent) {
+      // Admin/Teacher: Show all grades (backward compatible)
+      return [7, 8, 9, 10, 11, 12];
+    }
+
+    // Student: Only show grades where they have enrolled classrooms
+    final enrolledGrades = allClassrooms
+        .map((c) => c.gradeLevel)
+        .toSet()
+        .toList()
+      ..sort();
+
+    return enrolledGrades;
+  }
+
+  /// Check if a grade level should be visible
+  bool _isGradeVisible(int grade) {
+    return _visibleGrades.contains(grade);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -93,16 +129,20 @@ class ClassroomLeftSidebar extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 8),
               children: [
                 // Junior High School Section (Grades 7-10)
-                _buildSectionHeader('JUNIOR HIGH SCHOOL', isJHS: true),
-                for (int grade = 7; grade <= 10; grade++)
-                  _buildGradeItem(context, grade),
+                if (_visibleGrades.any((g) => g >= 7 && g <= 10)) ...[
+                  _buildSectionHeader('JUNIOR HIGH SCHOOL', isJHS: true),
+                  for (int grade = 7; grade <= 10; grade++)
+                    if (_isGradeVisible(grade)) _buildGradeItem(context, grade),
+                ],
 
                 const SizedBox(height: 8),
 
                 // Senior High School Section (Grades 11-12)
-                _buildSectionHeader('SENIOR HIGH SCHOOL', isJHS: false),
-                for (int grade = 11; grade <= 12; grade++)
-                  _buildGradeItem(context, grade),
+                if (_visibleGrades.any((g) => g >= 11 && g <= 12)) ...[
+                  _buildSectionHeader('SENIOR HIGH SCHOOL', isJHS: false),
+                  for (int grade = 11; grade <= 12; grade++)
+                    if (_isGradeVisible(grade)) _buildGradeItem(context, grade),
+                ],
 
                 const SizedBox(height: 16),
 

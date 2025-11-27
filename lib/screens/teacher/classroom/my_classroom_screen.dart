@@ -48,6 +48,8 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
   // Sub-tab for quarters in Assignments
   int _selectedQuarter = 1; // 1..4
   late TabController _quarterTabController;
+  // NEW: Assignment status filter
+  String _assignmentStatusFilter = 'all'; // 'all', 'active', 'scheduled', 'late', 'ended'
   bool _isLoading = false;
   bool _isLoadingCourses = false;
   bool _isLoadingModules = false;
@@ -1389,7 +1391,7 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                           ),
                           const SizedBox(width: 6),
                           const Text(
-                            'joined',
+                            'Class List',
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.black87,
@@ -3558,7 +3560,8 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
   }
 
   Widget _buildAssignmentsQuarterList() {
-    final filtered = _classroomAssignments.where((a) {
+    // Filter by quarter
+    final quarterFiltered = _classroomAssignments.where((a) {
       int? qInt;
       final q = a['quarter_no'];
       if (q != null) qInt = int.tryParse(q.toString());
@@ -3574,29 +3577,207 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
       return qInt == _selectedQuarter;
     }).toList();
 
-    if (filtered.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.assignment_outlined,
-                size: 64,
-                color: Colors.grey.shade300,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'No assignments for Q$_selectedQuarter',
-                style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
-              ),
-            ],
+    // NEW: Filter by status
+    final filtered = _assignmentStatusFilter == 'all'
+        ? quarterFiltered
+        : quarterFiltered.where((a) {
+            final status = _getAssignmentStatus(a);
+            return status == _assignmentStatusFilter;
+          }).toList();
+
+    return Column(
+      children: [
+        // NEW: Status filter chips
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade50,
+            border: Border(
+              bottom: BorderSide(color: Colors.grey.shade200, width: 1),
+            ),
+          ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildStatusFilterChip('all', 'All', Icons.list, Colors.grey),
+                const SizedBox(width: 8),
+                _buildStatusFilterChip(
+                    'active', 'Active', Icons.play_circle, Colors.green),
+                const SizedBox(width: 8),
+                _buildStatusFilterChip(
+                    'scheduled', 'Scheduled', Icons.schedule, Colors.blue),
+                const SizedBox(width: 8),
+                _buildStatusFilterChip(
+                    'late', 'Late', Icons.warning, Colors.orange),
+                const SizedBox(width: 8),
+                _buildStatusFilterChip(
+                    'ended', 'Ended', Icons.stop_circle, Colors.red),
+              ],
+            ),
           ),
         ),
-      );
+
+        // Assignment list
+        Expanded(
+          child: filtered.isEmpty
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.assignment_outlined,
+                          size: 64,
+                          color: Colors.grey.shade300,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          _assignmentStatusFilter == 'all'
+                              ? 'No assignments for Q$_selectedQuarter'
+                              : 'No $_assignmentStatusFilter assignments for Q$_selectedQuarter',
+                          style: TextStyle(
+                              fontSize: 16, color: Colors.grey.shade600),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : _buildAssignmentsList(filtered),
+        ),
+      ],
+    );
+  }
+
+  // NEW: Build status filter chip
+  Widget _buildStatusFilterChip(
+      String value, String label, IconData icon, Color color) {
+    final isSelected = _assignmentStatusFilter == value;
+    return FilterChip(
+      selected: isSelected,
+      label: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: isSelected ? Colors.white : color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: isSelected ? Colors.white : Colors.black87,
+            ),
+          ),
+        ],
+      ),
+      onSelected: (selected) {
+        setState(() {
+          _assignmentStatusFilter = value;
+        });
+      },
+      selectedColor: color,
+      backgroundColor: Colors.white,
+      side: BorderSide(color: isSelected ? color : Colors.grey.shade300),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+  }
+
+  // NEW: Get assignment status based on timeline
+  String _getAssignmentStatus(Map<String, dynamic> assignment) {
+    final now = DateTime.now();
+    final startTime = assignment['start_time'] != null
+        ? DateTime.tryParse(assignment['start_time'].toString())
+        : null;
+    final dueDate = assignment['due_date'] != null
+        ? DateTime.tryParse(assignment['due_date'].toString())
+        : null;
+    final endTime = assignment['end_time'] != null
+        ? DateTime.tryParse(assignment['end_time'].toString())
+        : null;
+    final allowLate = assignment['allow_late_submissions'] ?? true;
+
+    // Scheduled: not yet visible
+    if (startTime != null && now.isBefore(startTime)) {
+      return 'scheduled';
     }
 
+    // Ended: past end time
+    if (endTime != null && now.isAfter(endTime)) {
+      return 'ended';
+    }
+
+    // Late: past due date but before end time (if late submissions allowed)
+    if (dueDate != null && now.isAfter(dueDate)) {
+      return allowLate ? 'late' : 'ended';
+    }
+
+    // Active: between start and due
+    return 'active';
+  }
+
+  // NEW: Build timeline status badge
+  Widget _buildTimelineStatusBadge(Map<String, dynamic> assignment) {
+    final status = _getAssignmentStatus(assignment);
+
+    IconData icon;
+    Color color;
+    String label;
+
+    switch (status) {
+      case 'scheduled':
+        icon = Icons.schedule;
+        color = Colors.blue;
+        label = 'Scheduled';
+        break;
+      case 'active':
+        icon = Icons.play_circle;
+        color = Colors.green;
+        label = 'Active';
+        break;
+      case 'late':
+        icon = Icons.warning;
+        color = Colors.orange;
+        label = 'Late';
+        break;
+      case 'ended':
+        icon = Icons.stop_circle;
+        color = Colors.red;
+        label = 'Ended';
+        break;
+      default:
+        icon = Icons.help;
+        color = Colors.grey;
+        label = 'Unknown';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAssignmentsList(List<Map<String, dynamic>> filtered) {
     return ListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       itemCount: filtered.length,
@@ -3650,7 +3831,7 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Title + status chip
+                      // Title + status chips
                       Row(
                         children: [
                           Expanded(
@@ -3665,6 +3846,10 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                             ),
                           ),
                           const SizedBox(width: 6),
+                          // NEW: Timeline status badge
+                          _buildTimelineStatusBadge(a),
+                          const SizedBox(width: 4),
+                          // Published/Draft badge
                           Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 8,
@@ -3697,6 +3882,7 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                         ],
                       ),
                       const SizedBox(height: 4),
+                      // Points and Due Date
                       Row(
                         children: [
                           Text(
@@ -3715,7 +3901,7 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              '${due.month}/${due.day}/${due.year} ${_formatAmPm(due)}',
+                              'Due: ${due.month}/${due.day}/${due.year} ${_formatAmPm(due)}',
                               style: TextStyle(
                                 fontSize: 12,
                                 color: Colors.grey.shade600,
@@ -3724,6 +3910,45 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
                           ],
                         ],
                       ),
+                      // NEW: Timeline info (start_time and end_time)
+                      if (a['start_time'] != null || a['end_time'] != null) ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            if (a['start_time'] != null) ...[
+                              Icon(
+                                Icons.play_arrow,
+                                size: 13,
+                                color: Colors.green.shade600,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Start: ${_formatDateTime(a['start_time'])}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.green.shade700,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                            ],
+                            if (a['end_time'] != null) ...[
+                              Icon(
+                                Icons.stop,
+                                size: 13,
+                                color: Colors.red.shade600,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'End: ${_formatDateTime(a['end_time'])}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.red.shade700,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 6),
                       Wrap(
                         spacing: 6,
@@ -3873,6 +4098,17 @@ class _MyClassroomScreenState extends State<MyClassroomScreen>
     final m = dt.minute.toString().padLeft(2, '0');
     final ap = dt.hour >= 12 ? 'pm' : 'am';
     return '$h:$m $ap';
+  }
+
+  // NEW: Format date/time for timeline display
+  String _formatDateTime(dynamic dateTimeStr) {
+    if (dateTimeStr == null) return '';
+    try {
+      final dt = DateTime.parse(dateTimeStr.toString());
+      return '${dt.month}/${dt.day}/${dt.year} ${_formatAmPm(dt)}';
+    } catch (_) {
+      return '';
+    }
   }
 
   String _formatLongDate(DateTime dt) {

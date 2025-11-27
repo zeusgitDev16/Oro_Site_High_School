@@ -354,14 +354,36 @@ class _SubjectListContentState extends State<SubjectListContent> {
                       ],
                     ],
                   ),
+                  const SizedBox(height: 4),
+                  // Teacher name or "No teacher assigned" indicator
                   if (subject.teacherName != null) ...[
-                    const SizedBox(height: 4),
                     Text(
                       'Teacher: ${subject.teacherName}',
                       style: TextStyle(
                         fontSize: 11,
                         color: Colors.grey.shade600,
                       ),
+                    ),
+                  ] else ...[
+                    // Show "No teacher assigned" indicator
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.person_off_outlined,
+                          size: 10,
+                          color: Colors.orange.shade600,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'No teacher assigned',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.orange.shade600,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ],

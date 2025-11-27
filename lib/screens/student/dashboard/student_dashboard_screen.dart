@@ -13,6 +13,8 @@ import 'package:oro_site_high_school/screens/admin/dialogs/logout_dialog.dart';
 import 'package:oro_site_high_school/screens/admin/dialogs/calendar_dialog.dart';
 import 'package:oro_site_high_school/screens/student/help/student_help_screen.dart';
 import 'package:oro_site_high_school/screens/student/classroom/student_classroom_screen.dart';
+import 'package:oro_site_high_school/screens/student/classroom/student_classroom_screen_v2.dart';
+import 'package:oro_site_high_school/services/feature_flag_service.dart';
 
 /// Student Dashboard Screen - Main entry point for student users
 /// UI only - interactive logic in StudentDashboardLogic
@@ -155,16 +157,20 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen>
             color: isSelected ? Colors.white : Colors.grey.shade400,
           ),
         ),
-        onTap: () {
+        onTap: () async {
           _logic.setSideNavIndex(index);
           if (index == 0) {
             _tabController.animateTo(0);
           } else if (index == 1) {
-            // My Classroom
+            // My Classroom - Feature flag routing
+            final useNewUI = await FeatureFlagService.isNewClassroomUIEnabled();
+            if (!mounted) return;
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => const StudentClassroomScreen(),
+                builder: (context) => useNewUI
+                    ? const StudentClassroomScreenV2()
+                    : const StudentClassroomScreen(),
               ),
             );
           } else if (index == 2) {

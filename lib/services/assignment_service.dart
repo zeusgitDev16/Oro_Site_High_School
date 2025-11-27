@@ -99,6 +99,149 @@ class AssignmentService {
     }
   }
 
+  /// Get active assignments for students (respects start_time and end_time)
+  ///
+  /// Returns assignments where:
+  /// - start_time <= now (or start_time is NULL)
+  /// - end_time > now (or end_time is NULL)
+  /// - is_active = true
+  /// - is_published = true
+  ///
+  /// This is the method students should use to see their available assignments.
+  Future<List<Map<String, dynamic>>> getActiveAssignmentsForStudent(
+    String classroomId,
+  ) async {
+    try {
+      print('📚 Fetching active assignments for student in classroom: $classroomId');
+
+      final now = DateTime.now().toIso8601String();
+
+      final response = await _supabase
+          .from('assignments')
+          .select()
+          .eq('classroom_id', classroomId)
+          .eq('is_active', true)
+          .eq('is_published', true)
+          .or('start_time.is.null,start_time.lte.$now')
+          .or('end_time.is.null,end_time.gt.$now')
+          .order('created_at', ascending: false);
+
+      print('✅ Fetched ${(response as List).length} active assignments');
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      print('❌ Error fetching active assignments: $e');
+      rethrow;
+    }
+  }
+
+  /// Get assignment history for students (past end_time)
+  ///
+  /// Returns assignments where:
+  /// - end_time <= now
+  /// - is_active = true
+  /// - is_published = true
+  ///
+  /// These are assignments that have ended and moved to history.
+  Future<List<Map<String, dynamic>>> getAssignmentHistoryForStudent(
+    String classroomId,
+  ) async {
+    try {
+      print('📚 Fetching assignment history for student in classroom: $classroomId');
+
+      final now = DateTime.now().toIso8601String();
+
+      final response = await _supabase
+          .from('assignments')
+          .select()
+          .eq('classroom_id', classroomId)
+          .eq('is_active', true)
+          .eq('is_published', true)
+          .not('end_time', 'is', null)
+          .lte('end_time', now)
+          .order('end_time', ascending: false);
+
+      print('✅ Fetched ${(response as List).length} historical assignments');
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      print('❌ Error fetching assignment history: $e');
+      rethrow;
+    }
+  }
+
+  /// Get scheduled assignments (before start_time)
+  ///
+  /// Returns assignments where:
+  /// - start_time > now
+  /// - is_active = true
+  ///
+  /// These are assignments that are scheduled but not yet visible to students.
+  /// Teachers can use this to see upcoming assignments.
+  Future<List<Map<String, dynamic>>> getScheduledAssignments(
+    String classroomId,
+  ) async {
+    try {
+      print('📚 Fetching scheduled assignments for classroom: $classroomId');
+
+      final now = DateTime.now().toIso8601String();
+
+      final response = await _supabase
+          .from('assignments')
+          .select()
+          .eq('classroom_id', classroomId)
+          .eq('is_active', true)
+          .not('start_time', 'is', null)
+          .gt('start_time', now)
+          .order('start_time', ascending: true);
+
+      print('✅ Fetched ${(response as List).length} scheduled assignments');
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      print('❌ Error fetching scheduled assignments: $e');
+      rethrow;
+    }
+  }
+
+  /// Get assignment status based on time
+  ///
+  /// Returns one of: 'scheduled', 'active', 'late', 'closed', 'ended'
+  ///
+  /// - 'scheduled': Before start_time (not visible to students)
+  /// - 'active': Between start_time and due_date (on-time)
+  /// - 'late': Between due_date and end_time (late submissions allowed)
+  /// - 'closed': After due_date (late submissions NOT allowed)
+  /// - 'ended': After end_time (moved to history)
+  String getAssignmentStatus(Map<String, dynamic> assignment) {
+    final now = DateTime.now();
+    final startTime = assignment['start_time'] != null
+        ? DateTime.parse(assignment['start_time'])
+        : null;
+    final dueDate = assignment['due_date'] != null
+        ? DateTime.parse(assignment['due_date'])
+        : null;
+    final endTime = assignment['end_time'] != null
+        ? DateTime.parse(assignment['end_time'])
+        : null;
+    final allowLate = assignment['allow_late_submissions'] ?? true;
+
+    // Not yet visible
+    if (startTime != null && now.isBefore(startTime)) {
+      return 'scheduled';
+    }
+
+    // Ended (moved to history)
+    if (endTime != null && now.isAfter(endTime)) {
+      return 'ended';
+    }
+
+    // Late period
+    if (dueDate != null && now.isAfter(dueDate)) {
+      return allowLate ? 'late' : 'closed';
+    }
+
+    // Active (on-time)
+    return 'active';
+  }
+
   /// Create a new assignment
   Future<Map<String, dynamic>> createAssignment({
     required String classroomId,
@@ -108,9 +251,12 @@ class AssignmentService {
     required String assignmentType,
     required int totalPoints,
     DateTime? dueDate,
+    DateTime? startTime, // NEW: When assignment becomes visible to students
+    DateTime? endTime, // NEW: When assignment moves to history
     bool allowLateSubmissions = true,
     Map<String, dynamic>? content,
-    String? courseId,
+    String? courseId, // OLD: For backward compatibility with old courses system
+    String? subjectId, // NEW: For new classroom_subjects system
     bool isPublished = false,
     String?
     component, // 'written_works' | 'performance_task' | 'quarterly_assessment'
@@ -122,6 +268,9 @@ class AssignmentService {
       print('   Type: $assignmentType');
       print('   Points: $totalPoints');
       print('   Allow Late: $allowLateSubmissions');
+      if (startTime != null) print('   Start Time: $startTime');
+      if (endTime != null) print('   End Time: $endTime');
+      if (subjectId != null) print('   Subject ID: $subjectId'); // NEW
 
       final assignmentData = {
         'classroom_id': classroomId,
@@ -131,40 +280,26 @@ class AssignmentService {
         'assignment_type': assignmentType,
         'total_points': totalPoints,
         'due_date': dueDate?.toIso8601String(),
+        'start_time': startTime?.toIso8601String(), // NEW
+        'end_time': endTime?.toIso8601String(), // NEW
         'allow_late_submissions': allowLateSubmissions,
         'content': content ?? {},
         'is_published': isPublished,
         'is_active': true,
-        if (courseId != null) 'course_id': courseId,
+        if (courseId != null) 'course_id': courseId, // OLD: Backward compatibility
+        if (subjectId != null) 'subject_id': subjectId, // NEW: Link to classroom_subjects
         if (component != null) 'component': component,
         if (quarterNo != null) 'quarter_no': quarterNo,
       };
 
-      Map<String, dynamic>? response;
-      try {
-        response = await _supabase
-            .from('assignments')
-            .insert(assignmentData)
-            .select()
-            .single();
-      } catch (e) {
-        // Fallback if new columns are not yet present in DB
-        try {
-          final fallback = Map<String, dynamic>.from(assignmentData);
-          fallback.remove('component');
-          fallback.remove('quarter_no');
-          response = await _supabase
-              .from('assignments')
-              .insert(fallback)
-              .select()
-              .single();
-        } catch (_) {
-          rethrow;
-        }
-      }
+      final response = await _supabase
+          .from('assignments')
+          .insert(assignmentData)
+          .select()
+          .single();
 
-      print('✅ Assignment created successfully: ${response!['id']}');
-      return response!;
+      print('✅ Assignment created successfully: ${response['id']}');
+      return response;
     } catch (e) {
       print('❌ Error creating assignment: $e');
       rethrow;
@@ -179,6 +314,8 @@ class AssignmentService {
     String? assignmentType,
     int? totalPoints,
     DateTime? dueDate,
+    DateTime? startTime, // NEW: When assignment becomes visible to students
+    DateTime? endTime, // NEW: When assignment moves to history
     bool? allowLateSubmissions,
     Map<String, dynamic>? content,
     bool? isPublished,
@@ -198,6 +335,10 @@ class AssignmentService {
       if (assignmentType != null) updates['assignment_type'] = assignmentType;
       if (totalPoints != null) updates['total_points'] = totalPoints;
       if (dueDate != null) updates['due_date'] = dueDate.toIso8601String();
+      if (startTime != null)
+        updates['start_time'] = startTime.toIso8601String(); // NEW
+      if (endTime != null)
+        updates['end_time'] = endTime.toIso8601String(); // NEW
       if (allowLateSubmissions != null)
         updates['allow_late_submissions'] = allowLateSubmissions;
       if (content != null) updates['content'] = content;
@@ -207,33 +348,15 @@ class AssignmentService {
       if (component != null) updates['component'] = component;
       if (quarterNo != null) updates['quarter_no'] = quarterNo;
 
-      Map<String, dynamic>? response;
-      try {
-        response = await _supabase
-            .from('assignments')
-            .update(updates)
-            .eq('id', assignmentId)
-            .select()
-            .single();
-      } catch (e) {
-        // Fallback if new columns are not yet present in DB
-        try {
-          final fallback = Map<String, dynamic>.from(updates);
-          fallback.remove('component');
-          fallback.remove('quarter_no');
-          response = await _supabase
-              .from('assignments')
-              .update(fallback)
-              .eq('id', assignmentId)
-              .select()
-              .single();
-        } catch (_) {
-          rethrow;
-        }
-      }
+      final response = await _supabase
+          .from('assignments')
+          .update(updates)
+          .eq('id', assignmentId)
+          .select()
+          .single();
 
       print('✅ Assignment updated successfully');
-      return response!;
+      return response;
     } catch (e) {
       print('❌ Error updating assignment: $e');
       rethrow;

@@ -195,4 +195,60 @@ class SubmissionService {
         .order('submitted_at', ascending: false);
     return List<Map<String, dynamic>>.from(rows as List);
   }
+
+  /// **Phase 4: Update submission score (for gradebook)**
+  /// Updates score and marks as graded with graded_by and graded_at
+  Future<void> updateSubmissionScore({
+    required String submissionId,
+    required double score,
+    String? gradedBy,
+  }) async {
+    final update = <String, dynamic>{
+      'score': score,
+      'status': 'graded',
+      'graded_at': DateTime.now().toIso8601String(),
+    };
+
+    if (gradedBy != null) {
+      update['graded_by'] = gradedBy;
+    }
+
+    await _supabase
+        .from('assignment_submissions')
+        .update(update)
+        .eq('id', submissionId);
+  }
+
+  /// **Phase 4: Create manual submission (for gradebook)**
+  /// Creates a submission when student hasn't submitted but teacher wants to enter a score
+  Future<Map<String, dynamic>> createManualSubmission({
+    required String assignmentId,
+    required String studentId,
+    required String classroomId,
+    required double score,
+    String? gradedBy,
+  }) async {
+    final payload = {
+      'assignment_id': assignmentId,
+      'student_id': studentId,
+      'classroom_id': classroomId,
+      'status': 'graded',
+      'score': score,
+      'submitted_at': DateTime.now().toIso8601String(),
+      'graded_at': DateTime.now().toIso8601String(),
+      'submission_content': {},
+    };
+
+    if (gradedBy != null) {
+      payload['graded_by'] = gradedBy;
+    }
+
+    final inserted = await _supabase
+        .from('assignment_submissions')
+        .insert(payload)
+        .select()
+        .single();
+
+    return Map<String, dynamic>.from(inserted);
+  }
 }

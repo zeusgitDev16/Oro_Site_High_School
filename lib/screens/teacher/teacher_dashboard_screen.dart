@@ -4,15 +4,19 @@ import 'package:oro_site_high_school/screens/teacher/views/teacher_home_view.dar
 import 'package:oro_site_high_school/screens/teacher/widgets/teacher_calendar_widget.dart';
 import 'package:oro_site_high_school/screens/teacher/courses/my_courses_screen.dart';
 import 'package:oro_site_high_school/screens/teacher/classroom/my_classroom_screen.dart';
-import 'package:oro_site_high_school/screens/teacher/grades/grade_entry_screen.dart';
-import 'package:oro_site_high_school/screens/teacher/attendance/teacher_attendance_screen.dart';
-import 'package:oro_site_high_school/screens/teacher/assignments/my_assignments_screen.dart';
+import 'package:oro_site_high_school/screens/teacher/classroom/my_classroom_screen_v2.dart';
+// Phase 4: Removed GradeEntryScreen import - grades now accessed through gradebook UI
+import 'package:oro_site_high_school/screens/teacher/grades/gradebook_screen.dart';
+// Phase 2 - Attendance Revamp: Removed TeacherAttendanceScreen import
+// Attendance now accessed through: My Classroom > Select Subject > Attendance Tab
+// Phase 3: Removed MyAssignmentsScreen import - assignments now accessed through classroom UI
 import 'package:oro_site_high_school/screens/teacher/messaging/messages_screen.dart';
 import 'package:oro_site_high_school/screens/teacher/messaging/notifications_screen.dart';
 import 'package:oro_site_high_school/screens/teacher/reports/reports_main_screen.dart';
 import 'package:oro_site_high_school/screens/teacher/profile/teacher_profile_screen.dart';
 import 'package:oro_site_high_school/screens/teacher/help/teacher_help_screen.dart';
 import 'package:oro_site_high_school/screens/admin/dialogs/logout_dialog.dart';
+import 'package:oro_site_high_school/services/feature_flag_service.dart';
 
 class TeacherDashboardScreen extends StatefulWidget {
   const TeacherDashboardScreen({super.key});
@@ -88,16 +92,18 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen>
                 _buildNavItem(Icons.home, 'Home', 0),
                 _buildNavItem(Icons.school, 'My Courses', 1),
                 _buildNavItem(Icons.class_, 'My Classroom', 2),
-                _buildNavItem(Icons.grade, 'Grades', 3),
-                _buildNavItem(Icons.fact_check, 'Attendance', 4),
-                _buildNavItem(Icons.assignment, 'Assignments', 5),
-                _buildNavItem(Icons.insert_chart, 'Reports', 6),
+                _buildNavItem(Icons.grade, 'Gradebook', 3), // Phase 4: Changed to Gradebook
+                // Phase 2 - Attendance Revamp: Removed standalone Attendance navigation
+                // Attendance now accessed through: My Classroom > Select Subject > Attendance Tab
+                // Phase 3: Removed standalone Assignments navigation
+                // Assignments are now accessed through My Classroom > Subject > Assignments tab
+                _buildNavItem(Icons.insert_chart, 'Reports', 4), // Phase 2: Changed index from 5 to 4
               ],
             ),
           ),
           const Divider(color: Colors.white24, height: 1),
-          _buildNavItem(Icons.person, 'Profile', 7),
-          _buildNavItem(Icons.help_outline, 'Help', 8),
+          _buildNavItem(Icons.person, 'Profile', 5), // Phase 2: Changed from 6 to 5
+          _buildNavItem(Icons.help_outline, 'Help', 6), // Phase 2: Changed from 7 to 6
         ],
       ),
     );
@@ -127,7 +133,7 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen>
             color: isSelected ? Colors.white : Colors.grey.shade400,
           ),
         ),
-        onTap: () {
+        onTap: () async {
           setState(() {
             _sideNavIndex = index;
             if (index == 0) {
@@ -143,53 +149,41 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen>
               MaterialPageRoute(builder: (context) => const MyCoursesScreen()),
             );
           } else if (index == 2) {
-            // My Classroom
+            // My Classroom - Feature flag routing
+            final useNewUI = await FeatureFlagService.isNewClassroomUIEnabled();
+            if (!mounted) return;
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => const MyClassroomScreen(),
+                builder: (context) => useNewUI
+                    ? const MyClassroomScreenV2()
+                    : const MyClassroomScreen(),
               ),
             );
           } else if (index == 3) {
-            // Grades
+            // Phase 4: Gradebook (new implementation)
             Navigator.push(
               context,
-              MaterialPageRoute(builder: (context) => const GradeEntryScreen()),
+              MaterialPageRoute(builder: (context) => const GradebookScreen()),
             );
           } else if (index == 4) {
-            // Attendance
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const TeacherAttendanceScreen(),
-              ),
-            );
-          } else if (index == 5) {
-            // Assignments
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const MyAssignmentsScreen(),
-              ),
-            );
-          } else if (index == 6) {
-            // Reports
+            // Phase 2 - Attendance Revamp: Reports (index changed from 5 to 4)
             Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (context) => const ReportsMainScreen(),
               ),
             );
-          } else if (index == 7) {
-            // Profile
+          } else if (index == 5) {
+            // Phase 2 - Attendance Revamp: Profile (index changed from 6 to 5)
             Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (context) => const TeacherProfileScreen(),
               ),
             );
-          } else if (index == 8) {
-            // Help
+          } else if (index == 6) {
+            // Phase 2 - Attendance Revamp: Help (index changed from 7 to 6)
             Navigator.push(
               context,
               MaterialPageRoute(
@@ -197,6 +191,10 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen>
               ),
             );
           }
+          // Phase 3: Removed standalone Assignments navigation (old index 5)
+          // Assignments are now accessed through: My Classroom > Select Subject > Assignments Tab
+          // Phase 2 - Attendance Revamp: Removed standalone Attendance navigation (old index 4)
+          // Attendance now accessed through: My Classroom > Select Subject > Attendance Tab
         },
       ),
     );

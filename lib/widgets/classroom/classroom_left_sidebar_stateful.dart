@@ -1,9 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:oro_site_high_school/models/classroom.dart';
 import 'package:oro_site_high_school/models/teacher.dart';
 import 'package:oro_site_high_school/models/school_year_simple.dart';
 
 /// Stateful wrapper for ClassroomLeftSidebar that handles school year dropdown overlay
+///
+/// **Role-Based Filtering:**
+/// - Pass `userRole: 'student'` to show only enrolled classrooms
+/// - Pass `userRole: 'teacher'` to show only assigned classrooms
+/// - Pass `userRole: 'admin'` or `userRole: null` to show all classrooms (backward compatible)
+///
+/// **Grade Level Coordinator Support:**
+/// - Pass `isCoordinator: true` and `coordinatorGradeLevel` to show coordinator badge
 class ClassroomLeftSidebarStateful extends StatefulWidget {
   final String title;
   final VoidCallback? onBackPressed;
@@ -22,6 +31,16 @@ class ClassroomLeftSidebarStateful extends StatefulWidget {
   final VoidCallback? onAddSchoolYear;
   final bool canManageCoordinators;
   final bool canManageSchoolYears;
+
+  /// User role for conditional UI rendering
+  /// - 'student': Shows only enrolled classrooms
+  /// - 'teacher': Shows only assigned classrooms
+  /// - 'admin', or null: Shows all classrooms (backward compatible)
+  final String? userRole;
+
+  /// Grade level coordinator status (for teachers)
+  final bool? isCoordinator;
+  final int? coordinatorGradeLevel;
 
   const ClassroomLeftSidebarStateful({
     super.key,
@@ -42,6 +61,9 @@ class ClassroomLeftSidebarStateful extends StatefulWidget {
     this.onAddSchoolYear,
     this.canManageCoordinators = false,
     this.canManageSchoolYears = false,
+    this.userRole,
+    this.isCoordinator,
+    this.coordinatorGradeLevel,
   });
 
   @override
@@ -110,6 +132,49 @@ class _ClassroomLeftSidebarStatefulState
     _schoolYearSearchController.clear();
   }
 
+  /// Check if current user is a student
+  bool get _isStudent => widget.userRole?.toLowerCase() == 'student';
+
+  /// Check if current user is a teacher
+  bool get _isTeacher => widget.userRole?.toLowerCase() == 'teacher';
+
+  /// Get list of grade levels to display based on user role
+  ///
+  /// **Role-Based Filtering:**
+  /// - **Student**: Only show grades where they have enrolled classrooms
+  /// - **Teacher**: Only show grades where they have assigned classrooms
+  /// - **Admin** or **null**: Show all grades (7-12) - backward compatible
+  List<int> get _visibleGrades {
+    if (_isStudent) {
+      // Student: Only show grades where they have enrolled classrooms
+      final enrolledGrades = widget.allClassrooms
+          .map((c) => c.gradeLevel)
+          .toSet()
+          .toList()
+        ..sort();
+      return enrolledGrades;
+    }
+
+    if (_isTeacher) {
+      // Teacher: Only show grades where they have assigned classrooms
+      // This is already filtered by ClassroomService.getTeacherClassrooms()
+      final assignedGrades = widget.allClassrooms
+          .map((c) => c.gradeLevel)
+          .toSet()
+          .toList()
+        ..sort();
+      return assignedGrades;
+    }
+
+    // Admin or null: Show all grades (backward compatible)
+    return [7, 8, 9, 10, 11, 12];
+  }
+
+  /// Check if a grade level should be visible
+  bool _isGradeVisible(int grade) {
+    return _visibleGrades.contains(grade);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -131,47 +196,89 @@ class _ClassroomLeftSidebarStatefulState
                 bottom: BorderSide(color: Colors.grey.shade300, width: 1),
               ),
             ),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (widget.onBackPressed != null) ...[
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back),
-                    onPressed: widget.onBackPressed,
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                Expanded(
-                  child: Text(
-                    widget.title,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
+                Row(
+                  children: [
+                    if (widget.onBackPressed != null) ...[
+                      IconButton(
+                        icon: const Icon(Icons.arrow_back),
+                        onPressed: widget.onBackPressed,
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    Expanded(
+                      child: Text(
+                        widget.title,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                // Phase 1: Show coordinator badge in sidebar
+                if (widget.isCoordinator == true && widget.coordinatorGradeLevel != null) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.purple.shade200),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.star,
+                          size: 14,
+                          color: Colors.purple.shade700,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Grade ${widget.coordinatorGradeLevel} Coordinator',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.purple.shade700,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
 
           const Divider(height: 1),
 
-          // Grade level list
+          // Grade level list with role-based filtering
           Expanded(
             child: ListView(
               padding: const EdgeInsets.symmetric(vertical: 8),
               children: [
                 // Junior High School Section (Grades 7-10)
-                _buildSectionHeader('JUNIOR HIGH SCHOOL', isJHS: true),
-                for (int grade = 7; grade <= 10; grade++)
-                  _buildGradeItem(grade),
+                if (_visibleGrades.any((g) => g >= 7 && g <= 10)) ...[
+                  _buildSectionHeader('JUNIOR HIGH SCHOOL', isJHS: true),
+                  for (int grade = 7; grade <= 10; grade++)
+                    if (_isGradeVisible(grade)) _buildGradeItem(grade),
+                ],
 
                 const SizedBox(height: 8),
 
                 // Senior High School Section (Grades 11-12)
-                _buildSectionHeader('SENIOR HIGH SCHOOL', isJHS: false),
-                for (int grade = 11; grade <= 12; grade++)
-                  _buildGradeItem(grade),
+                if (_visibleGrades.any((g) => g >= 11 && g <= 12)) ...[
+                  _buildSectionHeader('SENIOR HIGH SCHOOL', isJHS: false),
+                  for (int grade = 11; grade <= 12; grade++)
+                    if (_isGradeVisible(grade)) _buildGradeItem(grade),
+                ],
 
                 const SizedBox(height: 16),
 
@@ -218,6 +325,10 @@ class _ClassroomLeftSidebarStatefulState
         .where((c) => c.gradeLevel == grade)
         .toList();
 
+    // Phase 2 Task 2.2: Check if current teacher is coordinator for this grade
+    final isCoordinatorForThisGrade = widget.isCoordinator == true &&
+        widget.coordinatorGradeLevel == grade;
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -242,6 +353,46 @@ class _ClassroomLeftSidebarStatefulState
                     color: Colors.grey.shade800,
                   ),
                 ),
+
+                // Phase 2 Task 2.2: Coordinator badge
+                if (isCoordinatorForThisGrade) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: Colors.purple.shade300,
+                        width: 0.5,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.star,
+                          size: 8,
+                          color: Colors.purple.shade700,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          'COORDINATOR',
+                          style: TextStyle(
+                            fontSize: 7,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.purple.shade700,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
                 const Spacer(),
 
                 // Plus button for grade level coordinator with badge
@@ -373,6 +524,12 @@ class _ClassroomLeftSidebarStatefulState
   Widget _buildClassroomItem(Classroom classroom) {
     final isSelected = widget.selectedClassroom?.id == classroom.id;
 
+    // Phase 2 Task 2.4: Check if current teacher is advisor for this classroom
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    final isAdvisor = widget.userRole == 'teacher' &&
+        currentUserId != null &&
+        classroom.advisoryTeacherId == currentUserId;
+
     return InkWell(
       onTap: () => widget.onClassroomSelected(classroom),
       hoverColor: Colors.blue.shade50,
@@ -393,16 +550,61 @@ class _ClassroomLeftSidebarStatefulState
             ),
             const SizedBox(width: 6),
             Expanded(
-              child: Text(
-                classroom.title,
-                style: TextStyle(
-                  fontSize: 10,
-                  color: isSelected
-                      ? Colors.blue.shade700
-                      : Colors.grey.shade700,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                ),
-                overflow: TextOverflow.ellipsis,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    classroom.title,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: isSelected
+                          ? Colors.blue.shade700
+                          : Colors.grey.shade700,
+                      fontWeight:
+                          isSelected ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  // Phase 2 Task 2.4: Advisor badge
+                  if (isAdvisor) ...[
+                    const SizedBox(height: 2),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: Colors.green.shade300,
+                          width: 0.5,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.school,
+                            size: 7,
+                            color: Colors.green.shade700,
+                          ),
+                          const SizedBox(width: 2),
+                          Text(
+                            'ADVISOR',
+                            style: TextStyle(
+                              fontSize: 6,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.green.shade700,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
           ],

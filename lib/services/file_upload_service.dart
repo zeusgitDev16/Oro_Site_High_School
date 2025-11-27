@@ -250,6 +250,65 @@ class FileUploadService {
     }
   }
 
+  /// Phase 3 Task 3.2: Upload assignment submission files to Supabase Storage
+  /// Returns list of file URLs
+  Future<List<Map<String, dynamic>>> uploadSubmissionFiles({
+    required List<PlatformFile> files,
+    required String assignmentId,
+    required String studentId,
+  }) async {
+    try {
+      print('📤 FileUploadService: Uploading ${files.length} submission file(s)...');
+
+      final uploadedFiles = <Map<String, dynamic>>[];
+
+      for (final file in files) {
+        // Create unique file path
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        final extension = file.extension ?? 'unknown';
+        final fileName = '${studentId}_${timestamp}_${file.name}';
+        final filePath = 'submissions/$assignmentId/$fileName';
+
+        // Upload to Supabase Storage (use course_files bucket)
+        final bytes = file.bytes ?? await File(file.path!).readAsBytes();
+
+        await _supabase.storage
+            .from(_bucketName)
+            .uploadBinary(
+              filePath,
+              bytes,
+              fileOptions: FileOptions(
+                contentType: _getContentType(extension),
+                upsert: false,
+              ),
+            );
+
+        // Get public URL
+        final publicUrl = _supabase.storage
+            .from(_bucketName)
+            .getPublicUrl(filePath);
+
+        uploadedFiles.add({
+          'name': file.name,
+          'url': publicUrl,
+          'size': file.size,
+          'extension': extension,
+        });
+
+        print('✅ FileUploadService: Uploaded ${file.name}');
+      }
+
+      print('✅ FileUploadService: All ${files.length} file(s) uploaded successfully');
+      return uploadedFiles;
+    } catch (e) {
+      print('❌ FileUploadService: Error uploading submission files: $e');
+      if (e is StorageException) {
+        print('❌ Storage error: ${e.message}');
+      }
+      rethrow;
+    }
+  }
+
   /// Get content type based on file extension
   String _getContentType(String extension) {
     switch (extension.toLowerCase()) {

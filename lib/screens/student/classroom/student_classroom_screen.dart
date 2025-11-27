@@ -259,6 +259,99 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
     return 'pending';
   }
 
+  // NEW: Get assignment timeline status
+  String _getAssignmentTimelineStatus(Map<String, dynamic> assignment) {
+    final now = DateTime.now();
+    final startTime = assignment['start_time'] != null
+        ? DateTime.tryParse(assignment['start_time'].toString())
+        : null;
+    final dueDate = assignment['due_date'] != null
+        ? DateTime.tryParse(assignment['due_date'].toString())
+        : null;
+    final endTime = assignment['end_time'] != null
+        ? DateTime.tryParse(assignment['end_time'].toString())
+        : null;
+    final allowLate = assignment['allow_late_submissions'] ?? true;
+
+    // Scheduled: not yet visible
+    if (startTime != null && now.isBefore(startTime)) {
+      return 'scheduled';
+    }
+
+    // Ended: past end time
+    if (endTime != null && now.isAfter(endTime)) {
+      return 'ended';
+    }
+
+    // Late: past due date but before end time (if late submissions allowed)
+    if (dueDate != null && now.isAfter(dueDate)) {
+      return allowLate ? 'late' : 'ended';
+    }
+
+    // Active: between start and due
+    return 'active';
+  }
+
+  // NEW: Build timeline status badge for students
+  Widget _buildTimelineStatusBadge(Map<String, dynamic> assignment) {
+    final status = _getAssignmentTimelineStatus(assignment);
+
+    IconData icon;
+    Color color;
+    String label;
+
+    switch (status) {
+      case 'scheduled':
+        icon = Icons.schedule;
+        color = Colors.blue;
+        label = 'Scheduled';
+        break;
+      case 'active':
+        icon = Icons.play_circle;
+        color = Colors.green;
+        label = 'Active';
+        break;
+      case 'late':
+        icon = Icons.warning;
+        color = Colors.orange;
+        label = 'Late';
+        break;
+      case 'ended':
+        icon = Icons.stop_circle;
+        color = Colors.red;
+        label = 'Ended';
+        break;
+      default:
+        icon = Icons.help;
+        color = Colors.grey;
+        label = 'Unknown';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 10, color: color),
+          const SizedBox(width: 3),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _initializeStudent() async {
     try {
       final user = Supabase.instance.client.auth.currentUser;
@@ -1368,7 +1461,10 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
   }
 
   Widget _buildAssignmentsQuarterList() {
-    final filtered = _assignments.where((a) {
+    final now = DateTime.now();
+
+    // Filter by quarter
+    final quarterFiltered = _assignments.where((a) {
       int? qInt;
       // Primary: use quarter_no column when present
       final q = a['quarter_no'];
@@ -1388,6 +1484,27 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
         } catch (_) {}
       }
       return qInt != null && qInt == _selectedQuarter;
+    }).toList();
+
+    // NEW: Filter by timeline (only show active assignments, not ended)
+    final filtered = quarterFiltered.where((a) {
+      // Check start_time: assignment must have started (or no start_time = visible immediately)
+      final startTime = a['start_time'] != null
+          ? DateTime.tryParse(a['start_time'].toString())
+          : null;
+      if (startTime != null && now.isBefore(startTime)) {
+        return false; // Not yet visible
+      }
+
+      // Check end_time: assignment must not have ended (or no end_time = never expires)
+      final endTime = a['end_time'] != null
+          ? DateTime.tryParse(a['end_time'].toString())
+          : null;
+      if (endTime != null && now.isAfter(endTime)) {
+        return false; // Already ended
+      }
+
+      return true; // Active assignment
     }).toList();
 
     if (filtered.isEmpty) {
@@ -1539,6 +1656,8 @@ class _StudentClassroomScreenState extends State<StudentClassroomScreen>
                           spacing: 6,
                           runSpacing: 4,
                           children: [
+                            // NEW: Timeline status badge
+                            _buildTimelineStatusBadge(a),
                             if ((((a['component'] ??
                                         (a['content']?['meta']?['component'] ??
                                             ''))

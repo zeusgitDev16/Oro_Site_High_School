@@ -180,7 +180,7 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
     }
   }
 
-  /// Load all classrooms from database
+  /// Load all classrooms from database with live enrollment counts
   Future<void> _loadAllClassrooms() async {
     setState(() {
       _isLoadingClassrooms = true;
@@ -198,11 +198,25 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
           .map((json) => Classroom.fromJson(json))
           .toList();
 
+      // Fetch live enrollment counts from classroom_students table
+      print('📊 Fetching live enrollment counts...');
+      final classroomIds = classrooms.map((c) => c.id).toList();
+      final counts = await _classroomService.getEnrollmentCountsForClassrooms(
+        classroomIds,
+      );
+
+      // Update classrooms with live counts
+      final updatedClassrooms = classrooms
+          .map(
+            (c) => c.copyWith(currentStudents: counts[c.id] ?? c.currentStudents),
+          )
+          .toList();
+
       setState(() {
-        _allClassrooms = classrooms;
+        _allClassrooms = updatedClassrooms;
         _isLoadingClassrooms = false;
       });
-      print('✅ Loaded ${classrooms.length} classrooms');
+      print('✅ Loaded ${classrooms.length} classrooms with live counts');
     } catch (e) {
       print('❌ Error loading classrooms: $e');
       setState(() {
@@ -226,6 +240,37 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
       setState(() {
         _isLoadingGradeCoordinators = false;
       });
+    }
+  }
+
+  /// Refresh the selected classroom to get updated data
+  Future<void> _refreshSelectedClassroom() async {
+    if (_selectedClassroom == null) return;
+
+    try {
+      print('🔄 Refreshing classroom: ${_selectedClassroom!.id}');
+      final response = await _supabase
+          .from('classrooms')
+          .select()
+          .eq('id', _selectedClassroom!.id)
+          .single();
+
+      final updatedClassroom = Classroom.fromJson(response);
+
+      setState(() {
+        _selectedClassroom = updatedClassroom;
+        // Update in the list as well
+        final index = _allClassrooms.indexWhere(
+          (c) => c.id == updatedClassroom.id,
+        );
+        if (index != -1) {
+          _allClassrooms[index] = updatedClassroom;
+        }
+      });
+
+      print('✅ Classroom refreshed successfully');
+    } catch (e) {
+      print('❌ Error refreshing classroom: $e');
     }
   }
 
@@ -1565,9 +1610,8 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
             allClassrooms: _allClassrooms,
             selectedClassroom: _selectedClassroom,
             onClassroomSelected: (classroom) {
-              setState(() {
-                _selectedClassroom = classroom;
-              });
+              // Switch to view mode when classroom is selected
+              _switchToViewMode(classroom);
             },
             gradeCoordinators: _gradeCoordinators,
             onSetGradeCoordinator: (grade) {
@@ -2050,7 +2094,7 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
     }
   }
 
-  /// Load classrooms filtered by selected school year
+  /// Load classrooms filtered by selected school year with live enrollment counts
   Future<void> _loadClassroomsForSelectedYear() async {
     if (_selectedSchoolYear == null) return;
 
@@ -2074,13 +2118,27 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
           .map((json) => Classroom.fromJson(json))
           .toList();
 
+      // Fetch live enrollment counts from classroom_students table
+      print('📊 Fetching live enrollment counts...');
+      final classroomIds = classrooms.map((c) => c.id).toList();
+      final counts = await _classroomService.getEnrollmentCountsForClassrooms(
+        classroomIds,
+      );
+
+      // Update classrooms with live counts
+      final updatedClassrooms = classrooms
+          .map(
+            (c) => c.copyWith(currentStudents: counts[c.id] ?? c.currentStudents),
+          )
+          .toList();
+
       setState(() {
-        _allClassrooms = classrooms;
+        _allClassrooms = updatedClassrooms;
         _isLoadingClassrooms = false;
       });
 
       print(
-        '✅ Loaded ${_allClassrooms.length} classrooms for $_selectedSchoolYear',
+        '✅ Loaded ${_allClassrooms.length} classrooms for $_selectedSchoolYear with live counts',
       );
     } catch (e) {
       print('❌ Error loading classrooms: $e');
@@ -2922,8 +2980,15 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
           throw Exception('Please select a school year first');
         }
 
+        // Validate advisory teacher is selected
+        if (_selectedAdvisoryTeacher == null) {
+          throw Exception(
+            'Please select an advisory teacher. The advisory teacher will be the owner of this classroom.',
+          );
+        }
+
         final newClassroom = await _classroomService.createClassroom(
-          teacherId: currentUser.id, // Admin creates the classroom
+          teacherId: _selectedAdvisoryTeacher!.id, // Use advisory teacher as owner
           title: _titleController.text.trim(),
           gradeLevel: _selectedGradeLevel!,
           maxStudents: _maxStudents, // Use configured student limit
@@ -2944,9 +3009,15 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
         // Upload temporary subjects and resources to database
         await _uploadTemporarySubjectsAndResources(newClassroom.id);
 
-        // Add to local list
+        // Add to local list and sort by grade level
         setState(() {
           _allClassrooms.add(newClassroom);
+          // Sort classrooms by grade level, then by title
+          _allClassrooms.sort((a, b) {
+            final gradeCompare = a.gradeLevel.compareTo(b.gradeLevel);
+            if (gradeCompare != 0) return gradeCompare;
+            return a.title.compareTo(b.title);
+          });
           _selectedClassroom = newClassroom;
           _currentMode = 'edit'; // Switch to edit mode after creation
           _isSavingClassroom = false;
@@ -3010,6 +3081,13 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
           if (index != -1) {
             _allClassrooms[index] = updatedClassroom;
           }
+          // Sort classrooms by grade level, then by title
+          // This ensures classroom appears in correct position if grade level changed
+          _allClassrooms.sort((a, b) {
+            final gradeCompare = a.gradeLevel.compareTo(b.gradeLevel);
+            if (gradeCompare != 0) return gradeCompare;
+            return a.title.compareTo(b.title);
+          });
           _selectedClassroom = updatedClassroom;
           _isSavingClassroom = false;
         });
@@ -3065,6 +3143,12 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
           _selectedAdvisoryTeacher = teacher;
         });
         _saveDraftClassroom(); // Save draft when advisory teacher changes
+      },
+      onStudentsChanged: () async {
+        // Refresh the selected classroom to get updated student count
+        if (_selectedClassroom != null) {
+          await _refreshSelectedClassroom();
+        }
       },
       // Pass settings from right sidebar to show indicators
       selectedSchoolLevel: _selectedSchoolLevel,

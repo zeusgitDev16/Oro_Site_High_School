@@ -137,7 +137,21 @@ class _StudentAssignmentReadScreenState
 
     final now = DateTime.now();
     final isPastDue = (due != null) && now.isAfter(due);
-    final startDisabled = isPastDue && !allowLate;
+
+    // NEW: Check end_time - assignment ended
+    final endTime = a['end_time'] != null
+        ? DateTime.tryParse(a['end_time'].toString())
+        : null;
+    final isEnded = endTime != null && now.isAfter(endTime);
+
+    // NEW: Check start_time - assignment not yet started
+    final startTime = a['start_time'] != null
+        ? DateTime.tryParse(a['start_time'].toString())
+        : null;
+    final notYetStarted = startTime != null && now.isBefore(startTime);
+
+    // Disable if: ended, not yet started, or (past due and late not allowed)
+    final startDisabled = isEnded || notYetStarted || (isPastDue && !allowLate);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -257,6 +271,64 @@ class _StudentAssignmentReadScreenState
           ],
 
           const SizedBox(height: 16),
+
+          // NEW: Timeline status banners
+          if (notYetStarted && startTime != null) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.schedule, color: Colors.blue.shade700, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'This assignment will be available on ${_formatDateTime(startTime)}',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.blue.shade900,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          if (isEnded && endTime != null) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.stop_circle, color: Colors.red.shade700, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'This assignment ended on ${_formatDateTime(endTime)}. Submissions are no longer accepted.',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.red.shade900,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+
           _buildDuePolicyBanner(allowLate, due),
           const SizedBox(height: 24),
 
@@ -278,9 +350,13 @@ class _StudentAssignmentReadScreenState
                         );
                       },
                 icon: const Icon(Icons.play_arrow),
-                label: const Text('Start'),
+                label: Text(startDisabled
+                    ? (isEnded ? 'Assignment Ended'
+                        : notYetStarted ? 'Not Yet Available'
+                        : 'Closed')
+                    : 'Start'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
+                  backgroundColor: startDisabled ? Colors.grey : Colors.green,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
@@ -289,6 +365,14 @@ class _StudentAssignmentReadScreenState
         ],
       ),
     );
+  }
+
+  // NEW: Format date/time for display
+  String _formatDateTime(DateTime dt) {
+    final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final m = dt.minute.toString().padLeft(2, '0');
+    final ap = dt.hour >= 12 ? 'PM' : 'AM';
+    return '${dt.month}/${dt.day}/${dt.year} $h:$m $ap';
   }
 
   Widget _buildDuePolicyBanner(bool allowLate, DateTime? due) {

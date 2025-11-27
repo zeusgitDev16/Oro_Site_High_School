@@ -7,6 +7,7 @@ class ClassroomSubject {
   final String? description;
   final String? teacherId;
   final String? parentSubjectId; // For sub-subjects (e.g., Music under MAPEH)
+  final int? courseId; // Link to courses table for attendance compatibility
   final bool isActive;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -29,6 +30,7 @@ class ClassroomSubject {
     this.description,
     this.teacherId,
     this.parentSubjectId,
+    this.courseId,
     required this.isActive,
     required this.createdAt,
     required this.updatedAt,
@@ -51,6 +53,7 @@ class ClassroomSubject {
       description: json['description'] as String?,
       teacherId: json['teacher_id'] as String?,
       parentSubjectId: json['parent_subject_id'] as String?,
+      courseId: json['course_id'] as int?,
       isActive: json['is_active'] as bool? ?? true,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
@@ -74,6 +77,7 @@ class ClassroomSubject {
       'description': description,
       'teacher_id': teacherId,
       'parent_subject_id': parentSubjectId,
+      'course_id': courseId,
       'is_active': isActive,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
@@ -90,6 +94,7 @@ class ClassroomSubject {
     String? teacherId,
     bool clearTeacherId = false, // Special flag to clear teacherId
     String? parentSubjectId,
+    int? courseId,
     bool? isActive,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -110,6 +115,7 @@ class ClassroomSubject {
       description: description ?? this.description,
       teacherId: clearTeacherId ? null : (teacherId ?? this.teacherId),
       parentSubjectId: parentSubjectId ?? this.parentSubjectId,
+      courseId: courseId ?? this.courseId,
       isActive: isActive ?? this.isActive,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
