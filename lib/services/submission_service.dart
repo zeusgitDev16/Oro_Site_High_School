@@ -48,8 +48,14 @@ class SubmissionService {
     required String studentId,
     required String classroomId,
   }) async {
+    // Convert assignmentId to integer (assignments.id is bigint)
+    final assignmentIdInt = int.tryParse(assignmentId);
+    if (assignmentIdInt == null) {
+      throw Exception('Invalid assignment ID: $assignmentId');
+    }
+
     final payload = {
-      'assignment_id': assignmentId,
+      'assignment_id': assignmentIdInt,
       'student_id': studentId,
       'classroom_id': classroomId,
       'status': 'draft',
@@ -125,9 +131,15 @@ class SubmissionService {
   Future<Map<String, dynamic>> autoGradeAndSubmit({
     required String assignmentId,
   }) async {
+    // Convert assignmentId to integer for RPC (assignments.id is bigint)
+    final assignmentIdInt = int.tryParse(assignmentId);
+    if (assignmentIdInt == null) {
+      throw Exception('Invalid assignment ID: $assignmentId');
+    }
+
     final result = await _supabase.rpc(
       'auto_grade_and_submit_assignment',
-      params: {'p_assignment_id': assignmentId},
+      params: {'p_assignment_id': assignmentIdInt},
     );
 
     if (result == null) {
@@ -228,8 +240,14 @@ class SubmissionService {
     required double score,
     String? gradedBy,
   }) async {
+    // Convert assignmentId to integer (assignments.id is bigint)
+    final assignmentIdInt = int.tryParse(assignmentId);
+    if (assignmentIdInt == null) {
+      throw Exception('Invalid assignment ID: $assignmentId');
+    }
+
     final payload = {
-      'assignment_id': assignmentId,
+      'assignment_id': assignmentIdInt,
       'student_id': studentId,
       'classroom_id': classroomId,
       'status': 'graded',
