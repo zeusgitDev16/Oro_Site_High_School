@@ -3,13 +3,13 @@ import 'package:flutter/services.dart';
 import 'package:oro_site_high_school/services/deped_grade_service.dart';
 
 /// **Phase 4: Grade Computation Dialog**
-/// 
+///
 /// Shows DepEd grade computation breakdown for a student.
 /// Allows manual QA entry, weight overrides, plus/extra points, and remarks.
 class GradeComputationDialog extends StatefulWidget {
   final Map<String, dynamic> student;
   final String classroomId;
-  final String courseId;
+  final String courseId;  // Can be either course_id (bigint as string) OR subject_id (UUID)
   final int quarter;
   final VoidCallback? onSaved;
 
@@ -66,9 +66,13 @@ class _GradeComputationDialogState extends State<GradeComputationDialog> {
     setState(() => _isLoading = true);
 
     try {
+      // Detect if courseId is UUID (new system) or bigint (old system)
+      final isUuid = widget.courseId.contains('-'); // UUID contains hyphens
+
       final breakdown = await _gradeService.computeQuarterlyBreakdown(
         classroomId: widget.classroomId,
-        courseId: widget.courseId,
+        courseId: isUuid ? null : widget.courseId,    // OLD: bigint course_id
+        subjectId: isUuid ? widget.courseId : null,   // NEW: UUID subject_id
         studentId: widget.student['id'].toString(),
         quarter: widget.quarter,
       );
@@ -95,9 +99,13 @@ class _GradeComputationDialogState extends State<GradeComputationDialog> {
       final plusPoints = double.tryParse(_plusPointsController.text) ?? 0;
       final extraPoints = double.tryParse(_extraPointsController.text) ?? 0;
 
+      // Detect if courseId is UUID (new system) or bigint (old system)
+      final isUuid = widget.courseId.contains('-');
+
       final breakdown = await _gradeService.computeQuarterlyBreakdown(
         classroomId: widget.classroomId,
-        courseId: widget.courseId,
+        courseId: isUuid ? null : widget.courseId,    // OLD: bigint course_id
+        subjectId: isUuid ? widget.courseId : null,   // NEW: UUID subject_id
         studentId: widget.student['id'].toString(),
         quarter: widget.quarter,
         qaScoreOverride: qaScore,
@@ -134,10 +142,14 @@ class _GradeComputationDialogState extends State<GradeComputationDialog> {
       final extraPoints = double.tryParse(_extraPointsController.text) ?? 0;
       final remarks = _remarksController.text.trim();
 
+      // Detect if courseId is UUID (new system) or bigint (old system)
+      final isUuid = widget.courseId.contains('-');
+
       await _gradeService.saveOrUpdateStudentQuarterGrade(
         studentId: widget.student['id'].toString(),
         classroomId: widget.classroomId,
-        courseId: widget.courseId,
+        courseId: isUuid ? null : widget.courseId,    // OLD: bigint course_id
+        subjectId: isUuid ? widget.courseId : null,   // NEW: UUID subject_id
         quarter: widget.quarter,
         initialGrade: (_breakdown!['initial_grade'] as num).toDouble(),
         transmutedGrade: (_breakdown!['transmuted_grade'] as num).toDouble(),

@@ -182,9 +182,9 @@ class ClassroomSubjectsPanel extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  // Phase 2 Task 2.5: Teacher badge
+                  const SizedBox(height: 4),
+                  // Phase 2 Task 2.5: Teacher badge or "No teacher assigned" indicator
                   if (isSubjectTeacher) ...[
-                    const SizedBox(height: 4),
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 4,
@@ -218,6 +218,38 @@ class ClassroomSubjectsPanel extends StatelessWidget {
                           ),
                         ],
                       ),
+                    ),
+                  ] else if (subject.teacherName != null) ...[
+                    // Show teacher name if assigned but not current user
+                    Text(
+                      subject.teacherName!,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ] else ...[
+                    // Show "No teacher assigned" indicator
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.person_off_outlined,
+                          size: 10,
+                          color: Colors.orange.shade600,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'No teacher assigned',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.orange.shade600,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ],

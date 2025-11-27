@@ -180,7 +180,7 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
     }
   }
 
-  /// Load all classrooms from database
+  /// Load all classrooms from database with live enrollment counts
   Future<void> _loadAllClassrooms() async {
     setState(() {
       _isLoadingClassrooms = true;
@@ -198,11 +198,25 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
           .map((json) => Classroom.fromJson(json))
           .toList();
 
+      // Fetch live enrollment counts from classroom_students table
+      print('📊 Fetching live enrollment counts...');
+      final classroomIds = classrooms.map((c) => c.id).toList();
+      final counts = await _classroomService.getEnrollmentCountsForClassrooms(
+        classroomIds,
+      );
+
+      // Update classrooms with live counts
+      final updatedClassrooms = classrooms
+          .map(
+            (c) => c.copyWith(currentStudents: counts[c.id] ?? c.currentStudents),
+          )
+          .toList();
+
       setState(() {
-        _allClassrooms = classrooms;
+        _allClassrooms = updatedClassrooms;
         _isLoadingClassrooms = false;
       });
-      print('✅ Loaded ${classrooms.length} classrooms');
+      print('✅ Loaded ${classrooms.length} classrooms with live counts');
     } catch (e) {
       print('❌ Error loading classrooms: $e');
       setState(() {
@@ -2080,7 +2094,7 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
     }
   }
 
-  /// Load classrooms filtered by selected school year
+  /// Load classrooms filtered by selected school year with live enrollment counts
   Future<void> _loadClassroomsForSelectedYear() async {
     if (_selectedSchoolYear == null) return;
 
@@ -2104,13 +2118,27 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
           .map((json) => Classroom.fromJson(json))
           .toList();
 
+      // Fetch live enrollment counts from classroom_students table
+      print('📊 Fetching live enrollment counts...');
+      final classroomIds = classrooms.map((c) => c.id).toList();
+      final counts = await _classroomService.getEnrollmentCountsForClassrooms(
+        classroomIds,
+      );
+
+      // Update classrooms with live counts
+      final updatedClassrooms = classrooms
+          .map(
+            (c) => c.copyWith(currentStudents: counts[c.id] ?? c.currentStudents),
+          )
+          .toList();
+
       setState(() {
-        _allClassrooms = classrooms;
+        _allClassrooms = updatedClassrooms;
         _isLoadingClassrooms = false;
       });
 
       print(
-        '✅ Loaded ${_allClassrooms.length} classrooms for $_selectedSchoolYear',
+        '✅ Loaded ${_allClassrooms.length} classrooms for $_selectedSchoolYear with live counts',
       );
     } catch (e) {
       print('❌ Error loading classrooms: $e');
@@ -2952,8 +2980,15 @@ class _ClassroomsScreenState extends State<ClassroomsScreen> {
           throw Exception('Please select a school year first');
         }
 
+        // Validate advisory teacher is selected
+        if (_selectedAdvisoryTeacher == null) {
+          throw Exception(
+            'Please select an advisory teacher. The advisory teacher will be the owner of this classroom.',
+          );
+        }
+
         final newClassroom = await _classroomService.createClassroom(
-          teacherId: currentUser.id, // Admin creates the classroom
+          teacherId: _selectedAdvisoryTeacher!.id, // Use advisory teacher as owner
           title: _titleController.text.trim(),
           gradeLevel: _selectedGradeLevel!,
           maxStudents: _maxStudents, // Use configured student limit

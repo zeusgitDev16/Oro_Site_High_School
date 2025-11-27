@@ -7,16 +7,16 @@ import 'package:oro_site_high_school/widgets/attendance/attendance_tab_widget.da
 
 /// Reusable tabbed content widget for subject details
 ///
-/// **Role-Based Tab Display (Phase 2 - Attendance Revamp):**
-/// - **Students**: 2 tabs (Modules, Assignments)
+/// **Role-Based Tab Display (Updated - Attendance for All):**
+/// - **Students**: 3 tabs (Modules, Assignments, Attendance)
 /// - **Teachers/Admin**: 5 tabs (Modules, Assignments, Announcements, Members, Attendance)
 ///
 /// **Tab Contents:**
 /// 1. **Modules** - Subject resources (modules only for students, includes assignment resources for teachers/admin)
 /// 2. **Assignments** - Assignment list with submission tracking
-/// 3. **Announcements** - Subject announcements with replies (teachers/admin only)
-/// 4. **Members** - Classroom members (teachers/admin only)
-/// 5. **Attendance** - Attendance tracking (teachers/admin only)
+/// 3. **Attendance** - Attendance tracking (read-only for students, editable for teachers/admin)
+/// 4. **Announcements** - Subject announcements with replies (teachers/admin only)
+/// 5. **Members** - Classroom members (teachers/admin only)
 ///
 /// **Usage:**
 /// ```dart
@@ -53,9 +53,9 @@ class _SubjectContentTabsState extends State<SubjectContentTabs>
   bool get _isStudent => widget.userRole?.toLowerCase() == 'student';
 
   /// Get number of tabs based on user role
-  /// - Students: 2 tabs (Modules, Assignments)
+  /// - Students: 3 tabs (Modules, Assignments, Attendance)
   /// - Teachers/Admin: 5 tabs (Modules, Assignments, Announcements, Members, Attendance)
-  int get _tabCount => _isStudent ? 2 : 5;
+  int get _tabCount => _isStudent ? 3 : 5;
 
   @override
   void initState() {
@@ -120,16 +120,17 @@ class _SubjectContentTabsState extends State<SubjectContentTabs>
   }
 
   /// Build tabs based on user role
-  /// Phase 2 - Attendance Revamp: Students see 2 tabs, Teachers/Admin see 5 tabs
+  /// Updated: Students now see Attendance tab (read-only)
   List<Widget> _buildTabs() {
     if (_isStudent) {
-      // Students: Only Modules and Assignments
+      // Students: Modules, Assignments, Attendance (read-only)
       return const [
         Tab(text: 'Modules'),
         Tab(text: 'Assignments'),
+        Tab(text: 'Attendance'),
       ];
     } else {
-      // Teachers/Admin: All tabs including Attendance
+      // Teachers/Admin: All tabs including Attendance (editable)
       return const [
         Tab(text: 'Modules'),
         Tab(text: 'Assignments'),
@@ -141,7 +142,7 @@ class _SubjectContentTabsState extends State<SubjectContentTabs>
   }
 
   /// Build tab views based on user role
-  /// Phase 2 - Attendance Revamp: Students see 2 tabs, Teachers/Admin see 5 tabs
+  /// Updated: Students now see Attendance tab (read-only)
   List<Widget> _buildTabViews() {
     final commonTabs = [
       // Modules Tab
@@ -162,10 +163,19 @@ class _SubjectContentTabsState extends State<SubjectContentTabs>
     ];
 
     if (_isStudent) {
-      // Students: Only Modules and Assignments
-      return commonTabs;
+      // Students: Modules, Assignments, Attendance (read-only)
+      return [
+        ...commonTabs,
+        // Attendance Tab (read-only for students)
+        AttendanceTabWidget(
+          subject: widget.subject,
+          classroomId: widget.classroomId,
+          userRole: widget.userRole,
+          userId: widget.userId,
+        ),
+      ];
     } else {
-      // Teachers/Admin: All tabs including Attendance
+      // Teachers/Admin: All tabs including Attendance (editable)
       return [
         ...commonTabs,
         // Announcements Tab
@@ -181,7 +191,7 @@ class _SubjectContentTabsState extends State<SubjectContentTabs>
         // Members Tab
         _buildMembersTab(),
 
-        // Attendance Tab (Phase 2 - Attendance Revamp)
+        // Attendance Tab (editable for teachers/admin)
         AttendanceTabWidget(
           subject: widget.subject,
           classroomId: widget.classroomId,

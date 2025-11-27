@@ -19,11 +19,13 @@ import 'package:oro_site_high_school/widgets/assignment_builders/file_upload_ass
 class CreateAssignmentScreen extends StatefulWidget {
   final Classroom classroom;
   final Map<String, dynamic>? existingAssignment; // For editing
+  final String? subjectId; // NEW: Link assignment to classroom_subjects
 
   const CreateAssignmentScreen({
     super.key,
     required this.classroom,
     this.existingAssignment,
+    this.subjectId, // NEW: Optional for backward compatibility
   });
 
   @override
@@ -2670,6 +2672,7 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
           content: content,
           component: _component,
           quarterNo: _quarterNo,
+          subjectId: widget.subjectId, // NEW: Link to classroom_subjects
         );
 
         final createdId = created['id'].toString();

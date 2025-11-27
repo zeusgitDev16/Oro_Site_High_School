@@ -110,9 +110,9 @@ class _SubjectAssignmentsTabState extends State<SubjectAssignmentsTab>
 
       // Filter assignments for this subject
       final subjectAssignments = assignments.where((a) {
-        // TODO: Update when assignments table has subject_id column
-        // For now, filter by course_id (temporary)
-        return a['course_id']?.toString() == widget.subject.id;
+        // ✅ FIXED: Use subject_id (UUID) instead of course_id (bigint)
+        // This links assignments to classroom_subjects table (new system)
+        return a['subject_id']?.toString() == widget.subject.id;
       }).toList();
 
       setState(() {
@@ -350,6 +350,7 @@ class _SubjectAssignmentsTabState extends State<SubjectAssignmentsTab>
         MaterialPageRoute(
           builder: (context) => CreateAssignmentScreen(
             classroom: classroom,
+            subjectId: widget.subject.id, // NEW: Pass subject ID to link assignment
           ),
         ),
       );

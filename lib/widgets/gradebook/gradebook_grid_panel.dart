@@ -82,8 +82,10 @@ class _GradebookGridPanelState extends State<GradebookGridPanel> {
       final allAssignments = await _assignmentService.getClassroomAssignments(widget.classroom.id);
       final filteredAssignments = allAssignments.where((a) {
         final quarterNo = a['quarter_no'];
-        final courseId = a['course_id']?.toString();
-        return quarterNo == _selectedQuarter && courseId == widget.subject.id;
+        // FIX: Use subject_id (UUID) instead of course_id (bigint) for new classroom_subjects system
+        final subjectId = a['subject_id']?.toString();
+        final courseId = a['course_id']?.toString(); // Backward compatibility
+        return quarterNo == _selectedQuarter && (subjectId == widget.subject.id || courseId == widget.subject.id);
       }).toList();
 
       // 3. Load submissions (bulk query with real student IDs)

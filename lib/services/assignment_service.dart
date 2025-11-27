@@ -255,7 +255,8 @@ class AssignmentService {
     DateTime? endTime, // NEW: When assignment moves to history
     bool allowLateSubmissions = true,
     Map<String, dynamic>? content,
-    String? courseId,
+    String? courseId, // OLD: For backward compatibility with old courses system
+    String? subjectId, // NEW: For new classroom_subjects system
     bool isPublished = false,
     String?
     component, // 'written_works' | 'performance_task' | 'quarterly_assessment'
@@ -269,6 +270,7 @@ class AssignmentService {
       print('   Allow Late: $allowLateSubmissions');
       if (startTime != null) print('   Start Time: $startTime');
       if (endTime != null) print('   End Time: $endTime');
+      if (subjectId != null) print('   Subject ID: $subjectId'); // NEW
 
       final assignmentData = {
         'classroom_id': classroomId,
@@ -284,7 +286,8 @@ class AssignmentService {
         'content': content ?? {},
         'is_published': isPublished,
         'is_active': true,
-        if (courseId != null) 'course_id': courseId,
+        if (courseId != null) 'course_id': courseId, // OLD: Backward compatibility
+        if (subjectId != null) 'subject_id': subjectId, // NEW: Link to classroom_subjects
         if (component != null) 'component': component,
         if (quarterNo != null) 'quarter_no': quarterNo,
       };

@@ -298,12 +298,13 @@ extension SupaClientExtras on SupabaseClient {
 }
 
 extension DepEdGradePersistence on DepEdGradeService {
-  /// Save or update a per-student, per-classroom, per-course, per-quarter grade row.
+  /// Save or update a per-student, per-classroom, per-course/subject, per-quarter grade row.
   /// This expects a table `student_grades` to exist in the DB.
   Future<void> saveOrUpdateStudentQuarterGrade({
     required String studentId,
     required String classroomId,
-    required String courseId,
+    String? courseId,    // OLD: For backward compatibility
+    String? subjectId,   // NEW: For new classroom_subjects system
     required int quarter,
     required double initialGrade,
     required double transmutedGrade,
@@ -323,19 +324,28 @@ extension DepEdGradePersistence on DepEdGradeService {
     final computedBy = supa.currentUserId();
 
     Future<void> writeOp({required bool includeOptional}) async {
-      final existing = await supa
+      // Build query with backward compatibility
+      var existingQuery = supa
           .from('student_grades')
           .select()
           .eq('student_id', studentId)
           .eq('classroom_id', classroomId)
-          .eq('course_id', courseId)
-          .eq('quarter', quarter)
-          .maybeSingle();
+          .eq('quarter', quarter);
+
+      // Filter by subject_id (new) OR course_id (old)
+      if (subjectId != null) {
+        existingQuery = existingQuery.eq('subject_id', subjectId);
+      } else if (courseId != null) {
+        existingQuery = existingQuery.eq('course_id', courseId);
+      }
+
+      final existing = await existingQuery.maybeSingle();
 
       final payload = <String, dynamic>{
         'student_id': studentId,
         'classroom_id': classroomId,
-        'course_id': courseId,
+        if (courseId != null) 'course_id': courseId,      // OLD: Backward compatibility
+        if (subjectId != null) 'subject_id': subjectId,   // NEW: Link to classroom_subjects
         'quarter': quarter,
         'initial_grade': initialGrade.roundTo(2),
         'transmuted_grade': transmutedGrade.roundTo(0),
@@ -398,10 +408,9 @@ extension DepEdGradePersistence on DepEdGradeService {
       }
       if (code == '22P02' &&
           (message.contains('uuid') || message.contains('UUID'))) {
-        // Likely: student_grades.course_id is UUID while a numeric courseId (e.g., "11") was provided
-        // Ask user to run the alignment migration we added to the repo
+        // Type mismatch between course_id/subject_id
         throw Exception(
-          'Type mismatch (code=22P02): student_grades.course_id expects UUID but received "$courseId". Run database/migrations/FIX_STUDENT_GRADES_COURSE_ID_TYPE.sql to align student_grades.course_id with courses.id.',
+          'Type mismatch (code=22P02): Ensure course_id (bigint) or subject_id (UUID) matches the table schema. courseId=$courseId, subjectId=$subjectId',
         );
       }
       throw Exception(
@@ -415,10 +424,11 @@ extension DepEdGradePersistence on DepEdGradeService {
 
 extension DepEdGradeCompute on DepEdGradeService {
   /// Computes DepEd-compliant quarterly grade breakdown for a student
-  /// using assignments and submissions filtered by classroom, course and quarter.
+  /// using assignments and submissions filtered by classroom, course/subject and quarter.
   Future<Map<String, dynamic>> computeQuarterlyBreakdown({
     required String classroomId,
-    required String courseId,
+    String? courseId,    // OLD: For backward compatibility with old classrooms
+    String? subjectId,   // NEW: For new classroom_subjects system
     required String studentId,
     required int quarter,
     String? courseTitle,
@@ -447,17 +457,25 @@ extension DepEdGradeCompute on DepEdGradeService {
     //
     //    Grade computation considers ALL assignments in the quarter that have
     //    graded submissions, regardless of timeline visibility to students.
-    final assignments = List<Map<String, dynamic>>.from(
-      await supa
-          .from('assignments')
-          .select('id, component, assignment_type, total_points')
-          .eq('classroom_id', classroomId)
-          .eq('course_id', courseId)
-          .eq('is_active', true)
-          .or(
-            'quarter_no.eq.$quarter,content->meta->>quarter.eq.$quarter,content->meta->>quarter_no.eq.$quarter',
-          ),
-    );
+
+    // Build query with backward compatibility for both course_id and subject_id
+    var query = supa
+        .from('assignments')
+        .select('id, component, assignment_type, total_points')
+        .eq('classroom_id', classroomId)
+        .eq('is_active', true)
+        .or(
+          'quarter_no.eq.$quarter,content->meta->>quarter.eq.$quarter,content->meta->>quarter_no.eq.$quarter',
+        );
+
+    // Filter by subject_id (new system) OR course_id (old system)
+    if (subjectId != null) {
+      query = query.eq('subject_id', subjectId);
+    } else if (courseId != null) {
+      query = query.eq('course_id', courseId);
+    }
+
+    final assignments = List<Map<String, dynamic>>.from(await query);
     final ids = assignments.map((a) => (a['id']).toString()).toList();
 
     // 2) Load student's submissions for those assignments
