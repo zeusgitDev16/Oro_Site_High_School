@@ -48,19 +48,42 @@ class SubmissionService {
     required String studentId,
     required String classroomId,
   }) async {
+    print('📝 SubmissionService.createSubmission: Starting...');
+    print('📝 Assignment ID (string): $assignmentId');
+    print('📝 Student ID: $studentId');
+    print('📝 Classroom ID: $classroomId');
+
+    // Convert assignmentId to integer (assignments.id is bigint)
+    final assignmentIdInt = int.tryParse(assignmentId);
+    if (assignmentIdInt == null) {
+      print('❌ SubmissionService.createSubmission: Invalid assignment ID');
+      throw Exception('Invalid assignment ID: $assignmentId');
+    }
+    print('📝 Assignment ID (integer): $assignmentIdInt');
+
     final payload = {
-      'assignment_id': assignmentId,
+      'assignment_id': assignmentIdInt,
       'student_id': studentId,
       'classroom_id': classroomId,
       'status': 'draft',
       'submission_content': {},
     };
-    final inserted = await _supabase
-        .from('assignment_submissions')
-        .insert(payload)
-        .select()
-        .single();
-    return Map<String, dynamic>.from(inserted);
+    print('📝 SubmissionService.createSubmission: Payload: $payload');
+
+    try {
+      final inserted = await _supabase
+          .from('assignment_submissions')
+          .insert(payload)
+          .select()
+          .single();
+      print('✅ SubmissionService.createSubmission: Success! ID: ${inserted['id']}');
+      return Map<String, dynamic>.from(inserted);
+    } catch (e, stackTrace) {
+      print('❌ SubmissionService.createSubmission: Failed!');
+      print('❌ Error: $e');
+      print('❌ Stack trace: $stackTrace');
+      rethrow;
+    }
   }
 
   /// Get or create (draft) submission row for a student.
@@ -125,27 +148,54 @@ class SubmissionService {
   Future<Map<String, dynamic>> autoGradeAndSubmit({
     required String assignmentId,
   }) async {
-    final result = await _supabase.rpc(
-      'auto_grade_and_submit_assignment',
-      params: {'p_assignment_id': assignmentId},
-    );
+    print('📝 SubmissionService.autoGradeAndSubmit: Starting...');
+    print('📝 Assignment ID (string): $assignmentId');
 
-    if (result == null) {
-      throw Exception('Auto-grade RPC returned null');
+    // Convert assignmentId to integer for RPC (assignments.id is bigint)
+    final assignmentIdInt = int.tryParse(assignmentId);
+    if (assignmentIdInt == null) {
+      print('❌ SubmissionService.autoGradeAndSubmit: Invalid assignment ID');
+      throw Exception('Invalid assignment ID: $assignmentId');
     }
+    print('📝 Assignment ID (integer): $assignmentIdInt');
 
-    if (result is List) {
-      if (result.isEmpty) {
-        throw Exception('Auto-grade RPC returned no rows');
+    try {
+      print('📝 SubmissionService.autoGradeAndSubmit: Calling RPC...');
+      final result = await _supabase.rpc(
+        'auto_grade_and_submit_assignment',
+        params: {'p_assignment_id': assignmentIdInt},
+      );
+      print('✅ SubmissionService.autoGradeAndSubmit: RPC returned');
+      print('📊 Result type: ${result.runtimeType}');
+      print('📊 Result: $result');
+
+      if (result == null) {
+        print('❌ SubmissionService.autoGradeAndSubmit: RPC returned null');
+        throw Exception('Auto-grade RPC returned null');
       }
-      return Map<String, dynamic>.from(result.first as Map);
-    }
 
-    if (result is Map) {
-      return Map<String, dynamic>.from(result);
-    }
+      if (result is List) {
+        if (result.isEmpty) {
+          print('❌ SubmissionService.autoGradeAndSubmit: RPC returned empty list');
+          throw Exception('Auto-grade RPC returned no rows');
+        }
+        print('✅ SubmissionService.autoGradeAndSubmit: Success (List)');
+        return Map<String, dynamic>.from(result.first as Map);
+      }
 
-    throw Exception('Unexpected auto-grade RPC response');
+      if (result is Map) {
+        print('✅ SubmissionService.autoGradeAndSubmit: Success (Map)');
+        return Map<String, dynamic>.from(result);
+      }
+
+      print('❌ SubmissionService.autoGradeAndSubmit: Unexpected response type');
+      throw Exception('Unexpected auto-grade RPC response');
+    } catch (e, stackTrace) {
+      print('❌ SubmissionService.autoGradeAndSubmit: Failed!');
+      print('❌ Error: $e');
+      print('❌ Stack trace: $stackTrace');
+      rethrow;
+    }
   }
 
   /// Update/override the score for a student's submission (manual grading)
@@ -228,8 +278,14 @@ class SubmissionService {
     required double score,
     String? gradedBy,
   }) async {
+    // Convert assignmentId to integer (assignments.id is bigint)
+    final assignmentIdInt = int.tryParse(assignmentId);
+    if (assignmentIdInt == null) {
+      throw Exception('Invalid assignment ID: $assignmentId');
+    }
+
     final payload = {
-      'assignment_id': assignmentId,
+      'assignment_id': assignmentIdInt,
       'student_id': studentId,
       'classroom_id': classroomId,
       'status': 'graded',

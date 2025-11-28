@@ -2304,14 +2304,35 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
       );
 
       if (time != null) {
+        final selectedTime = DateTime(
+          date.year,
+          date.month,
+          date.day,
+          time.hour,
+          time.minute,
+        );
+
+        // ✅ FIX: If start time is within 5 minutes of now, treat as "immediately available"
+        // This prevents issues where teacher sets "now" but by the time students access it,
+        // it's still technically in the future due to processing time or timezone differences
+        final now = DateTime.now();
+        final difference = selectedTime.difference(now);
+
         setState(() {
-          _startTime = DateTime(
-            date.year,
-            date.month,
-            date.day,
-            time.hour,
-            time.minute,
-          );
+          if (difference.inMinutes <= 5 && difference.inMinutes >= -5) {
+            // Start time is very close to now - make immediately available
+            _startTime = null;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Assignment will be immediately available to students'),
+                backgroundColor: Colors.green,
+                duration: Duration(seconds: 2),
+              ),
+            );
+          } else {
+            // Start time is in the future - schedule it
+            _startTime = selectedTime;
+          }
         });
       }
     }
@@ -2673,6 +2694,7 @@ class _CreateAssignmentScreenState extends State<CreateAssignmentScreen> {
           component: _component,
           quarterNo: _quarterNo,
           subjectId: widget.subjectId, // NEW: Link to classroom_subjects
+          isPublished: true, // ✅ FIX: Auto-publish for backward compatibility with old course system
         );
 
         final createdId = created['id'].toString();

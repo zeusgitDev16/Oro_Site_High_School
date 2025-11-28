@@ -7,6 +7,7 @@ import 'package:oro_site_high_school/services/classroom_permission_service.dart'
 import 'package:oro_site_high_school/services/classroom_service.dart';
 import 'package:oro_site_high_school/screens/teacher/assignments/create_assignment_screen_new.dart';
 import 'package:oro_site_high_school/screens/teacher/assignments/assignment_submissions_screen.dart';
+import 'package:oro_site_high_school/screens/student/assignments/student_assignment_read_screen.dart';
 
 /// Reusable assignments tab widget for subject assignments
 ///
@@ -469,15 +470,31 @@ class _SubjectAssignmentsTabState extends State<SubjectAssignmentsTab>
   }
 
   void _handleViewAssignment(Map<String, dynamic> assignment) {
-    // Phase 3: Navigate to assignment submissions screen
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => AssignmentSubmissionsScreen(
-          assignmentId: assignment['id'].toString(),
-          classroomId: widget.classroomId,
+    // Phase 3: Role-based navigation
+    // Teachers → View submissions screen
+    // Students → Answer assignment screen
+
+    if (_isTeacher) {
+      // Teacher view: Navigate to assignment submissions screen
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => AssignmentSubmissionsScreen(
+            assignmentId: assignment['id'].toString(),
+            classroomId: widget.classroomId,
+          ),
         ),
-      ),
-    );
+      );
+    } else {
+      // Student view: Navigate to assignment read/answer screen
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => StudentAssignmentReadScreen(
+            assignmentId: assignment['id'].toString(),
+          ),
+        ),
+      );
+    }
   }
 }

@@ -66,6 +66,18 @@ class _AttendanceTabWidgetState extends State<AttendanceTabWidget> {
   /// Check if current user is a student (read-only mode)
   bool get _isStudent => widget.userRole?.toLowerCase() == 'student';
 
+  /// Normalize date to midnight UTC for comparison
+  DateTime _normalizeDate(DateTime date) {
+    return DateTime.utc(date.year, date.month, date.day);
+  }
+
+  /// Check if selected date is in the future
+  bool get _isFutureDate {
+    final today = _normalizeDate(DateTime.now());
+    final selected = _normalizeDate(_selectedDate);
+    return selected.isAfter(today);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -471,8 +483,8 @@ class _AttendanceTabWidgetState extends State<AttendanceTabWidget> {
             isEnabled: _students.isNotEmpty,
           ),
 
-          // Save Button (only for teachers/admin)
-          if (!_isStudent) ...[
+          // Save Button (only for teachers/admin and only for today or past dates)
+          if (!_isStudent && !_isFutureDate) ...[
             const SizedBox(width: 8),
             SizedBox(
               height: 32,
@@ -533,6 +545,7 @@ class _AttendanceTabWidgetState extends State<AttendanceTabWidget> {
             attendanceStatus: _attendanceStatus,
             onStatusChanged: _onStatusChanged,
             isReadOnly: _isStudent, // Read-only for students
+            selectedDate: _selectedDate, // Pass selected date for context
           ),
         ),
       ],

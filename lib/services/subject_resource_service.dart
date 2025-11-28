@@ -226,16 +226,30 @@ class SubjectResourceService {
           '${resourceType.folderName}/$classroomId/$subjectId/q$quarter/$uniqueFileName';
 
       print('   Storage path: $storagePath');
-      print('   File size: ${file.lengthSync()} bytes');
+      print('   Reading file bytes...');
+
+      // Read file as bytes (works on both web and mobile)
+      final bytes = await file.readAsBytes();
+      print('   File size: ${bytes.length} bytes');
       print('   Uploading to Supabase Storage...');
 
-      // Upload file to Supabase Storage
-      await _supabase.storage.from(_bucketName).upload(storagePath, file);
+      // Get file extension for content type
+      final extension = originalFileName.split('.').last.toLowerCase();
+      final contentType = _getContentType(extension);
+      print('   Content type: $contentType');
+
+      // Upload file to Supabase Storage using uploadBinary (web-compatible)
+      await _supabase.storage.from(_bucketName).uploadBinary(
+            storagePath,
+            bytes,
+            fileOptions: FileOptions(
+              contentType: contentType,
+              upsert: false,
+            ),
+          );
 
       // Get public URL
-      final fileUrl = _supabase.storage
-          .from(_bucketName)
-          .getPublicUrl(storagePath);
+      final fileUrl = _supabase.storage.from(_bucketName).getPublicUrl(storagePath);
 
       print('✅ File uploaded successfully');
       print('   URL: $fileUrl');
@@ -243,7 +257,49 @@ class SubjectResourceService {
       return fileUrl;
     } catch (e) {
       print('❌ Error uploading file: $e');
+      if (e is StorageException) {
+        print('❌ Storage error: ${e.message}');
+      }
       rethrow;
+    }
+  }
+
+  /// Get content type based on file extension
+  String _getContentType(String extension) {
+    switch (extension.toLowerCase()) {
+      case 'pdf':
+        return 'application/pdf';
+      case 'doc':
+        return 'application/msword';
+      case 'docx':
+        return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      case 'ppt':
+        return 'application/vnd.ms-powerpoint';
+      case 'pptx':
+        return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+      case 'xls':
+        return 'application/vnd.ms-excel';
+      case 'xlsx':
+        return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      case 'png':
+        return 'image/png';
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'gif':
+        return 'image/gif';
+      case 'mp4':
+        return 'video/mp4';
+      case 'mp3':
+        return 'audio/mpeg';
+      case 'txt':
+        return 'text/plain';
+      case 'csv':
+        return 'text/csv';
+      case 'zip':
+        return 'application/zip';
+      default:
+        return 'application/octet-stream';
     }
   }
 

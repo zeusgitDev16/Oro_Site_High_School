@@ -48,7 +48,7 @@ class AttendanceDatePicker extends StatelessWidget {
       context: context,
       initialDate: selectedDate,
       firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)), // Allow future dates
       helpText: 'Select Attendance Date',
     );
 

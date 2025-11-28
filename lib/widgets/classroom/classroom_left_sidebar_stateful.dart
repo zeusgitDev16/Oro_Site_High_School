@@ -138,6 +138,16 @@ class _ClassroomLeftSidebarStatefulState
   /// Check if current user is a teacher
   bool get _isTeacher => widget.userRole?.toLowerCase() == 'teacher';
 
+  /// Check if current user has admin-like permissions (can manage school years)
+  /// Includes: admin, ict_coordinator, hybrid, null (backward compatible for admin screens)
+  /// Excludes: teacher, student, parent, grade_coordinator
+  bool get _hasAdminPermissions {
+    final role = widget.userRole?.toLowerCase();
+    // If userRole is null, assume admin (backward compatible)
+    if (role == null) return true;
+    return role == 'admin' || role == 'ict_coordinator' || role == 'hybrid';
+  }
+
   /// Get list of grade levels to display based on user role
   ///
   /// **Role-Based Filtering:**
@@ -647,77 +657,114 @@ class _ClassroomLeftSidebarStatefulState
           ),
           const SizedBox(height: 8),
 
-          // Add School Year Button
-          if (widget.canManageSchoolYears && widget.onAddSchoolYear != null)
+          // Conditional UI: Admin vs Non-Admin
+          if (_hasAdminPermissions) ...[
+            // ADMIN VIEW: Full dropdown with add button
+            // Add School Year Button
+            if (widget.canManageSchoolYears && widget.onAddSchoolYear != null)
+              InkWell(
+                onTap: widget.onAddSchoolYear,
+                borderRadius: BorderRadius.circular(4),
+                child: Container(
+                  height: 28,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: Colors.purple.shade300, width: 1),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.add, size: 14, color: Colors.purple.shade700),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Add school year',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.purple.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+            if (widget.canManageSchoolYears && widget.onAddSchoolYear != null)
+              const SizedBox(height: 8),
+
+            // School Year Dropdown (clickable)
             InkWell(
-              onTap: widget.onAddSchoolYear,
-              borderRadius: BorderRadius.circular(4),
+              key: _schoolYearButtonKey,
+              onTap: _openSchoolYearMenu,
               child: Container(
-                height: 28,
-                padding: const EdgeInsets.symmetric(horizontal: 8),
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(4),
                   border: Border.all(color: Colors.purple.shade300, width: 1),
                 ),
                 child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Icon(Icons.add, size: 14, color: Colors.purple.shade700),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Add school year',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.purple.shade700,
+                    Expanded(
+                      child: Text(
+                        widget.selectedSchoolYear ?? 'Select school year',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: widget.selectedSchoolYear != null
+                              ? FontWeight.w600
+                              : FontWeight.w500,
+                          color: widget.selectedSchoolYear != null
+                              ? Colors.purple.shade900
+                              : Colors.purple.shade400,
+                        ),
                       ),
+                    ),
+                    Icon(
+                      Icons.arrow_drop_down,
+                      size: 16,
+                      color: Colors.purple.shade700,
                     ),
                   ],
                 ),
               ),
             ),
-
-          if (widget.canManageSchoolYears && widget.onAddSchoolYear != null)
-            const SizedBox(height: 8),
-
-          // School Year Dropdown
-          InkWell(
-            key: _schoolYearButtonKey,
-            onTap: _openSchoolYearMenu,
-            child: Container(
+          ] else ...[
+            // NON-ADMIN VIEW: Read-only display of current school year
+            Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(4),
                 border: Border.all(color: Colors.purple.shade300, width: 1),
               ),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
+                  Icon(
+                    Icons.lock_outline,
+                    size: 12,
+                    color: Colors.purple.shade400,
+                  ),
+                  const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      widget.selectedSchoolYear ?? 'Select school year',
+                      widget.selectedSchoolYear ?? 'No school year set',
                       style: TextStyle(
                         fontSize: 11,
-                        fontWeight: widget.selectedSchoolYear != null
-                            ? FontWeight.w600
-                            : FontWeight.w500,
+                        fontWeight: FontWeight.w600,
                         color: widget.selectedSchoolYear != null
                             ? Colors.purple.shade900
                             : Colors.purple.shade400,
                       ),
                     ),
                   ),
-                  Icon(
-                    Icons.arrow_drop_down,
-                    size: 16,
-                    color: Colors.purple.shade700,
-                  ),
                 ],
               ),
             ),
-          ),
+          ],
         ],
       ),
     );

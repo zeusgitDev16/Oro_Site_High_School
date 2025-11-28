@@ -1001,13 +1001,17 @@ class ClassroomService {
     String classroomId,
   ) async {
     try {
+      print('📚 getClassroomStudents: Fetching students for classroom $classroomId');
+
       // Prefer secure RPC that can enforce visibility server-side if available
       try {
+        print('📚 getClassroomStudents: Trying RPC get_classroom_students_with_profile...');
         final rows = await _supabase.rpc(
           'get_classroom_students_with_profile',
           params: {'p_classroom_id': classroomId},
         );
-        return (rows as List)
+
+        final studentList = (rows as List)
             .map(
               (r) => {
                 'student_id': r['student_id'],
@@ -1017,10 +1021,23 @@ class ClassroomService {
               },
             )
             .toList();
-      } catch (_) {
+
+        print('📚 getClassroomStudents: RPC returned ${studentList.length} students');
+
+        // If RPC returns results, use them
+        if (studentList.isNotEmpty) {
+          return studentList;
+        }
+
+        // If RPC returns empty, fall through to direct query
+        print('📚 getClassroomStudents: RPC returned empty, falling back to direct query...');
+      } catch (e) {
         // Fallback to direct select for environments where RPC isn't yet deployed
+        print('📚 getClassroomStudents: RPC failed with error: $e, falling back to direct query...');
       }
 
+      // Fallback: Direct query with RLS policies
+      print('📚 getClassroomStudents: Using direct query with RLS policies...');
       final response = await _supabase
           .from('classroom_students')
           .select('student_id, enrolled_at, profiles!inner(full_name, email)')
@@ -1029,7 +1046,7 @@ class ClassroomService {
 
       final rows = (response as List);
       print(
-        '📚 getClassroomStudents($classroomId) returned ${rows.length} '
+        '📚 getClassroomStudents: Direct query returned ${rows.length} '
         'rows (classroom_students x profiles!inner).',
       );
 
