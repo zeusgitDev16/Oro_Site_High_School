@@ -1,3 +1,45 @@
+/// Subject type enum for sub-subject tree enhancement
+enum SubjectType {
+  standard,      // Regular subject (Math, English, etc.)
+  mapehParent,   // MAPEH parent subject
+  mapehSub,      // MAPEH sub-subject (Music, Arts, PE, Health)
+  tleParent,     // TLE parent subject
+  tleSub;        // TLE sub-subject (Cookery, Carpentry, ICT, etc.)
+
+  /// Convert enum to database string value
+  String toDbString() {
+    switch (this) {
+      case SubjectType.standard:
+        return 'standard';
+      case SubjectType.mapehParent:
+        return 'mapeh_parent';
+      case SubjectType.mapehSub:
+        return 'mapeh_sub';
+      case SubjectType.tleParent:
+        return 'tle_parent';
+      case SubjectType.tleSub:
+        return 'tle_sub';
+    }
+  }
+
+  /// Parse database string value to enum
+  static SubjectType fromDbString(String? value) {
+    switch (value) {
+      case 'mapeh_parent':
+        return SubjectType.mapehParent;
+      case 'mapeh_sub':
+        return SubjectType.mapehSub;
+      case 'tle_parent':
+        return SubjectType.tleParent;
+      case 'tle_sub':
+        return SubjectType.tleSub;
+      case 'standard':
+      default:
+        return SubjectType.standard;
+    }
+  }
+}
+
 /// Model for classroom subjects
 class ClassroomSubject {
   final String id;
@@ -8,6 +50,7 @@ class ClassroomSubject {
   final String? teacherId;
   final String? parentSubjectId; // For sub-subjects (e.g., Music under MAPEH)
   final int? courseId; // Link to courses table for attendance compatibility
+  final SubjectType subjectType; // NEW: Type of subject (standard, mapeh_parent, etc.)
   final bool isActive;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -31,6 +74,7 @@ class ClassroomSubject {
     this.teacherId,
     this.parentSubjectId,
     this.courseId,
+    this.subjectType = SubjectType.standard, // Default to standard
     required this.isActive,
     required this.createdAt,
     required this.updatedAt,
@@ -54,6 +98,7 @@ class ClassroomSubject {
       teacherId: json['teacher_id'] as String?,
       parentSubjectId: json['parent_subject_id'] as String?,
       courseId: json['course_id'] as int?,
+      subjectType: SubjectType.fromDbString(json['subject_type'] as String?),
       isActive: json['is_active'] as bool? ?? true,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
@@ -78,6 +123,7 @@ class ClassroomSubject {
       'teacher_id': teacherId,
       'parent_subject_id': parentSubjectId,
       'course_id': courseId,
+      'subject_type': subjectType.toDbString(),
       'is_active': isActive,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
@@ -95,6 +141,7 @@ class ClassroomSubject {
     bool clearTeacherId = false, // Special flag to clear teacherId
     String? parentSubjectId,
     int? courseId,
+    SubjectType? subjectType,
     bool? isActive,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -116,6 +163,7 @@ class ClassroomSubject {
       teacherId: clearTeacherId ? null : (teacherId ?? this.teacherId),
       parentSubjectId: parentSubjectId ?? this.parentSubjectId,
       courseId: courseId ?? this.courseId,
+      subjectType: subjectType ?? this.subjectType,
       isActive: isActive ?? this.isActive,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -130,4 +178,13 @@ class ClassroomSubject {
           enrolledStudentsCount ?? this.enrolledStudentsCount,
     );
   }
+
+  /// Helper methods for subject type checks
+  bool get isStandard => subjectType == SubjectType.standard;
+  bool get isMAPEHParent => subjectType == SubjectType.mapehParent;
+  bool get isMAPEHSub => subjectType == SubjectType.mapehSub;
+  bool get isTLEParent => subjectType == SubjectType.tleParent;
+  bool get isTLESub => subjectType == SubjectType.tleSub;
+  bool get isParentSubject => isMAPEHParent || isTLEParent;
+  bool get isSubSubject => isMAPEHSub || isTLESub;
 }

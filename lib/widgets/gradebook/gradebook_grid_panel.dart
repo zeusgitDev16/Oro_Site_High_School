@@ -179,41 +179,49 @@ class _GradebookGridPanelState extends State<GradebookGridPanel> {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        // Main gradebook area
-        Expanded(
-          child: Column(
-            children: [
-              _buildHeader(),
-              Expanded(
-                child: _isLoading
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const CircularProgressIndicator(),
-                            const SizedBox(height: 16),
-                            Text(
-                              'Loading gradebook data...',
-                              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                            ),
-                          ],
-                        ),
-                      )
-                    : _buildGradebookGrid(),
-              ),
-            ],
-          ),
-        ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Calculate available width for gradebook grid
+        final availableWidth = constraints.maxWidth - (_showClassList ? 320 : 0);
 
-        // Class list panel (collapsible)
-        if (_showClassList)
-          ClassListPanel(
-            students: _students,
-            classroomTitle: widget.classroom.title,
-          ),
-      ],
+        return Row(
+          children: [
+            // Main gradebook area
+            SizedBox(
+              width: availableWidth,
+              child: Column(
+                children: [
+                  _buildHeader(),
+                  Expanded(
+                    child: _isLoading
+                        ? Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const CircularProgressIndicator(),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'Loading gradebook data...',
+                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                                ),
+                              ],
+                            ),
+                          )
+                        : _buildGradebookGrid(),
+                  ),
+                ],
+              ),
+            ),
+
+            // Class list panel (collapsible)
+            if (_showClassList)
+              ClassListPanel(
+                students: _students,
+                classroomTitle: widget.classroom.title,
+              ),
+          ],
+        );
+      },
     );
   }
 
@@ -226,14 +234,15 @@ class _GradebookGridPanelState extends State<GradebookGridPanel> {
           bottom: BorderSide(color: Colors.grey.shade300, width: 1),
         ),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Title
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+          // First row: Title and subtitle
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
                       'Gradebook',
@@ -242,87 +251,100 @@ class _GradebookGridPanelState extends State<GradebookGridPanel> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    // Legend
-                    _buildLegend(),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${widget.classroom.title} • ${widget.subject.subjectName}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade600,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  '${widget.classroom.title} • ${widget.subject.subjectName}',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.grey.shade600,
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          // Second row: Legend, Quarter selector, and buttons (scrollable if needed)
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                // Legend
+                _buildLegend(),
+
+                const SizedBox(width: 12),
+
+                // Quarter selector
+                Wrap(
+                  spacing: 6,
+                  children: List.generate(4, (i) {
+                    final q = i + 1;
+                    final selected = _selectedQuarter == q;
+                    return ChoiceChip(
+                      label: Text('Q$q', style: const TextStyle(fontSize: 11)),
+                      selected: selected,
+                      onSelected: (_) => _handleQuarterChanged(q),
+                      selectedColor: Colors.blue.shade100,
+                      backgroundColor: Colors.grey.shade100,
+                      labelStyle: TextStyle(
+                        color: selected ? Colors.blue.shade900 : Colors.grey.shade700,
+                        fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    );
+                  }),
+                ),
+
+                const SizedBox(width: 12),
+
+                // Compute Grades button
+                Tooltip(
+                  message: 'Compute DepEd grades for selected students',
+                  child: ElevatedButton.icon(
+                    onPressed: _handleComputeGrades,
+                    icon: const Icon(Icons.calculate, size: 16),
+                    label: const Text('Compute Grades', style: TextStyle(fontSize: 12)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(width: 8),
+
+                // Class List toggle button
+                Tooltip(
+                  message: _showClassList ? 'Hide class list' : 'Show class list',
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _showClassList = !_showClassList;
+                      });
+                    },
+                    icon: Icon(
+                      _showClassList ? Icons.people : Icons.people_outline,
+                      size: 16,
+                    ),
+                    label: Text(
+                      'Class List',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _showClassList ? Colors.blue : Colors.grey.shade700,
+                      side: BorderSide(
+                        color: _showClassList ? Colors.blue : Colors.grey.shade300,
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
                   ),
                 ),
               ],
-            ),
-          ),
-
-          // Quarter selector
-          Wrap(
-            spacing: 6,
-            children: List.generate(4, (i) {
-              final q = i + 1;
-              final selected = _selectedQuarter == q;
-              return ChoiceChip(
-                label: Text('Q$q', style: const TextStyle(fontSize: 11)),
-                selected: selected,
-                onSelected: (_) => _handleQuarterChanged(q),
-                selectedColor: Colors.blue.shade100,
-                backgroundColor: Colors.grey.shade100,
-                labelStyle: TextStyle(
-                  color: selected ? Colors.blue.shade900 : Colors.grey.shade700,
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              );
-            }),
-          ),
-
-          const SizedBox(width: 12),
-
-          // Compute Grades button
-          Tooltip(
-            message: 'Compute DepEd grades for selected students',
-            child: ElevatedButton.icon(
-              onPressed: _handleComputeGrades,
-              icon: const Icon(Icons.calculate, size: 16),
-              label: const Text('Compute Grades', style: TextStyle(fontSize: 12)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              ),
-            ),
-          ),
-
-          const SizedBox(width: 8),
-
-          // Class List toggle button
-          Tooltip(
-            message: _showClassList ? 'Hide class list' : 'Show class list',
-            child: OutlinedButton.icon(
-              onPressed: () {
-                setState(() {
-                  _showClassList = !_showClassList;
-                });
-              },
-              icon: Icon(
-                _showClassList ? Icons.people : Icons.people_outline,
-                size: 16,
-              ),
-              label: Text(
-                'Class List',
-                style: const TextStyle(fontSize: 12),
-              ),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: _showClassList ? Colors.blue : Colors.grey.shade700,
-                side: BorderSide(
-                  color: _showClassList ? Colors.blue : Colors.grey.shade300,
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              ),
             ),
           ),
         ],

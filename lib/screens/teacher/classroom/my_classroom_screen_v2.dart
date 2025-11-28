@@ -5,6 +5,7 @@ import 'package:oro_site_high_school/models/classroom_subject.dart';
 import 'package:oro_site_high_school/services/classroom_service.dart';
 import 'package:oro_site_high_school/services/classroom_subject_service.dart';
 import 'package:oro_site_high_school/services/grade_coordinator_service.dart';
+import 'package:oro_site_high_school/services/school_year_service.dart';
 import 'package:oro_site_high_school/widgets/classroom/classroom_left_sidebar_stateful.dart';
 import 'package:oro_site_high_school/widgets/classroom/classroom_subjects_panel.dart';
 import 'package:oro_site_high_school/widgets/classroom/subject_content_tabs.dart';
@@ -34,6 +35,7 @@ class _MyClassroomScreenV2State extends State<MyClassroomScreenV2> {
   final ClassroomService _classroomService = ClassroomService();
   final ClassroomSubjectService _subjectService = ClassroomSubjectService();
   final GradeCoordinatorService _coordinatorService = GradeCoordinatorService();
+  final SchoolYearService _schoolYearService = SchoolYearService();
 
   // State
   List<Classroom> _classrooms = [];
@@ -48,6 +50,12 @@ class _MyClassroomScreenV2State extends State<MyClassroomScreenV2> {
   bool _isCoordinator = false;
   int? _coordinatorGradeLevel;
   bool _isLoadingCoordinator = false;
+
+  // Grade level expansion state
+  Map<int, bool> _expandedGrades = {};
+
+  // School year state
+  String? _currentSchoolYear;
 
   @override
   void initState() {
@@ -64,6 +72,9 @@ class _MyClassroomScreenV2State extends State<MyClassroomScreenV2> {
         // Phase 1: Check coordinator status
         await _checkCoordinatorStatus();
 
+        // Load current school year
+        await _loadCurrentSchoolYear();
+
         // Load classrooms
         await _loadClassrooms();
       } else {
@@ -72,6 +83,19 @@ class _MyClassroomScreenV2State extends State<MyClassroomScreenV2> {
     } catch (e) {
       print('❌ Error initializing teacher: $e');
       setState(() => _isLoadingClassrooms = false);
+    }
+  }
+
+  /// Load current school year set by admin
+  Future<void> _loadCurrentSchoolYear() async {
+    try {
+      final currentYear = await _schoolYearService.getCurrentSchoolYear();
+      setState(() {
+        _currentSchoolYear = currentYear?.yearLabel;
+      });
+      print('✅ Current school year: $_currentSchoolYear');
+    } catch (e) {
+      print('❌ Error loading current school year: $e');
     }
   }
 
@@ -113,8 +137,15 @@ class _MyClassroomScreenV2State extends State<MyClassroomScreenV2> {
       // 4. Subject teacher classrooms (classroom_subjects)
       final classrooms = await _classroomService.getTeacherClassrooms(_teacherId!);
 
+      // Auto-expand grades that have classrooms
+      final Map<int, bool> expandedGrades = {};
+      for (final classroom in classrooms) {
+        expandedGrades[classroom.gradeLevel] = true;
+      }
+
       setState(() {
         _classrooms = classrooms;
+        _expandedGrades = expandedGrades;
         _isLoadingClassrooms = false;
 
         // Auto-select first classroom
@@ -125,6 +156,7 @@ class _MyClassroomScreenV2State extends State<MyClassroomScreenV2> {
       });
 
       print('✅ Loaded ${_classrooms.length} classrooms for teacher');
+      print('✅ Auto-expanded grades: ${expandedGrades.keys.toList()}');
     } catch (e) {
       print('❌ Error loading classrooms: $e');
       setState(() => _isLoadingClassrooms = false);
@@ -234,14 +266,18 @@ class _MyClassroomScreenV2State extends State<MyClassroomScreenV2> {
           ClassroomLeftSidebarStateful(
             title: 'MY CLASSROOMS',
             onBackPressed: null,
-            expandedGrades: {}, // Not used for teacher view
-            onGradeToggle: (_) {}, // Not used for teacher view
+            expandedGrades: _expandedGrades,
+            onGradeToggle: (grade) {
+              setState(() {
+                _expandedGrades[grade] = !(_expandedGrades[grade] ?? false);
+              });
+            },
             allClassrooms: _classrooms,
             selectedClassroom: _selectedClassroom,
             onClassroomSelected: _onClassroomSelected,
             gradeCoordinators: {}, // Not used for teacher view
             schoolYears: [], // Not used for teacher view
-            selectedSchoolYear: null,
+            selectedSchoolYear: _currentSchoolYear, // ✅ Display current school year (read-only)
             canManageCoordinators: false,
             canManageSchoolYears: false,
             userRole: 'teacher', // ✅ PHASE 1: Enable teacher filtering

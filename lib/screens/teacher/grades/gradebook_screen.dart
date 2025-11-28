@@ -4,6 +4,7 @@ import 'package:oro_site_high_school/models/classroom_subject.dart';
 import 'package:oro_site_high_school/services/classroom_service.dart';
 import 'package:oro_site_high_school/services/classroom_subject_service.dart';
 import 'package:oro_site_high_school/services/grade_coordinator_service.dart';
+import 'package:oro_site_high_school/services/school_year_service.dart';
 import 'package:oro_site_high_school/widgets/classroom/classroom_left_sidebar_stateful.dart';
 import 'package:oro_site_high_school/widgets/gradebook/gradebook_subject_list.dart';
 import 'package:oro_site_high_school/widgets/gradebook/gradebook_grid_panel.dart';
@@ -28,6 +29,7 @@ class _GradebookScreenState extends State<GradebookScreen> {
   final ClassroomService _classroomService = ClassroomService();
   final ClassroomSubjectService _subjectService = ClassroomSubjectService();
   final GradeCoordinatorService _coordinatorService = GradeCoordinatorService();
+  final SchoolYearService _schoolYearService = SchoolYearService();
 
   String? _teacherId;
   List<Classroom> _allClassrooms = [];
@@ -44,6 +46,9 @@ class _GradebookScreenState extends State<GradebookScreen> {
 
   // Sidebar state
   Map<int, bool> _expandedGrades = {};
+
+  // School year state
+  String? _currentSchoolYear;
 
   void _handleGradeToggle(int grade) {
     setState(() {
@@ -62,16 +67,32 @@ class _GradebookScreenState extends State<GradebookScreen> {
       final user = Supabase.instance.client.auth.currentUser;
       if (user != null) {
         setState(() => _teacherId = user.id);
-        
+
         // Check coordinator status
         await _checkCoordinatorStatus();
-        
+
+        // Load current school year
+        await _loadCurrentSchoolYear();
+
         // Load classrooms
         await _loadClassrooms();
       }
     } catch (e) {
       print('❌ Error initializing teacher: $e');
       setState(() => _isLoadingClassrooms = false);
+    }
+  }
+
+  /// Load current school year set by admin
+  Future<void> _loadCurrentSchoolYear() async {
+    try {
+      final currentYear = await _schoolYearService.getCurrentSchoolYear();
+      setState(() {
+        _currentSchoolYear = currentYear?.yearLabel;
+      });
+      print('✅ Current school year: $_currentSchoolYear');
+    } catch (e) {
+      print('❌ Error loading current school year: $e');
     }
   }
 
@@ -91,15 +112,26 @@ class _GradebookScreenState extends State<GradebookScreen> {
 
   Future<void> _loadClassrooms() async {
     if (_teacherId == null) return;
-    
+
     setState(() => _isLoadingClassrooms = true);
-    
+
     try {
       final classrooms = await _classroomService.getTeacherClassrooms(_teacherId!);
+
+      // Auto-expand grades that have classrooms
+      final Map<int, bool> expandedGrades = {};
+      for (final classroom in classrooms) {
+        expandedGrades[classroom.gradeLevel] = true;
+      }
+
       setState(() {
         _allClassrooms = classrooms;
+        _expandedGrades = expandedGrades;
         _isLoadingClassrooms = false;
       });
+
+      print('✅ Loaded ${classrooms.length} classrooms for teacher');
+      print('✅ Auto-expanded grades: ${expandedGrades.keys.toList()}');
     } catch (e) {
       print('❌ Error loading classrooms: $e');
       setState(() {
@@ -171,6 +203,7 @@ class _GradebookScreenState extends State<GradebookScreen> {
             onClassroomSelected: _handleClassroomSelected,
             gradeCoordinators: const {},
             schoolYears: const [],
+            selectedSchoolYear: _currentSchoolYear, // ✅ Display current school year (read-only)
             userRole: 'teacher',
             isCoordinator: _isCoordinator,
             coordinatorGradeLevel: _coordinatorGradeLevel,

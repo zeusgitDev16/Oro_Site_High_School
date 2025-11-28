@@ -224,4 +224,184 @@ class ClassroomSubjectService {
       rethrow;
     }
   }
+
+  // ============================================
+  // SUB-SUBJECT TREE ENHANCEMENT METHODS
+  // ============================================
+
+  /// Initialize MAPEH sub-subjects (Music, Arts, PE, Health)
+  /// Automatically creates 4 hardcoded sub-subjects when MAPEH is added
+  Future<void> initializeMAPEHSubSubjects({
+    required String classroomId,
+    required String mapehSubjectId,
+  }) async {
+    try {
+      print('🎵 [SubjectService] Initializing MAPEH sub-subjects for: $mapehSubjectId');
+
+      final currentUser = _supabase.auth.currentUser;
+      if (currentUser == null) {
+        throw Exception('User not authenticated');
+      }
+
+      // Call RPC function to create MAPEH sub-subjects
+      await _supabase.rpc('initialize_mapeh_sub_subjects', params: {
+        'p_classroom_id': classroomId,
+        'p_mapeh_subject_id': mapehSubjectId,
+        'p_created_by': currentUser.id,
+      });
+
+      print('✅ [SubjectService] MAPEH sub-subjects initialized successfully');
+    } catch (e) {
+      print('❌ [SubjectService] Error initializing MAPEH sub-subjects: $e');
+      rethrow;
+    }
+  }
+
+  /// Get sub-subjects for a parent subject (MAPEH or TLE)
+  Future<List<ClassroomSubject>> getSubSubjects({
+    required String parentSubjectId,
+  }) async {
+    try {
+      print('📋 [SubjectService] Fetching sub-subjects for parent: $parentSubjectId');
+
+      final response = await _supabase
+          .from('classroom_subjects_with_details')
+          .select()
+          .eq('parent_subject_id', parentSubjectId)
+          .eq('is_active', true)
+          .order('subject_name');
+
+      print('✅ [SubjectService] Fetched ${response.length} sub-subjects');
+
+      return (response as List)
+          .map((json) => ClassroomSubject.fromJson(json))
+          .toList();
+    } catch (e) {
+      print('❌ [SubjectService] Error fetching sub-subjects: $e');
+      rethrow;
+    }
+  }
+
+  /// Add TLE sub-subject (admin/teacher can add custom TLE components)
+  Future<ClassroomSubject> addTLESubSubject({
+    required String classroomId,
+    required String tleParentId,
+    required String subjectName,
+    String? teacherId,
+    String? description,
+  }) async {
+    try {
+      print('➕ [SubjectService] Adding TLE sub-subject: $subjectName');
+
+      final currentUser = _supabase.auth.currentUser;
+      if (currentUser == null) {
+        throw Exception('User not authenticated');
+      }
+
+      final response = await _supabase
+          .from('classroom_subjects')
+          .insert({
+            'classroom_id': classroomId,
+            'subject_name': subjectName,
+            'subject_type': 'tle_sub',
+            'parent_subject_id': tleParentId,
+            'teacher_id': teacherId,
+            'description': description,
+            'is_active': true,
+            'created_by': currentUser.id,
+          })
+          .select()
+          .single();
+
+      print('✅ [SubjectService] TLE sub-subject added successfully');
+
+      return ClassroomSubject.fromJson(response);
+    } catch (e) {
+      print('❌ [SubjectService] Error adding TLE sub-subject: $e');
+      rethrow;
+    }
+  }
+
+  /// Add MAPEH parent subject and auto-initialize sub-subjects
+  Future<ClassroomSubject> addMAPEHSubject({
+    required String classroomId,
+    String? teacherId,
+    String? description,
+  }) async {
+    try {
+      print('➕ [SubjectService] Adding MAPEH parent subject');
+
+      final currentUser = _supabase.auth.currentUser;
+      if (currentUser == null) {
+        throw Exception('User not authenticated');
+      }
+
+      // Create MAPEH parent subject
+      final response = await _supabase
+          .from('classroom_subjects')
+          .insert({
+            'classroom_id': classroomId,
+            'subject_name': 'MAPEH',
+            'subject_type': 'mapeh_parent',
+            'teacher_id': teacherId,
+            'description': description,
+            'is_active': true,
+            'created_by': currentUser.id,
+          })
+          .select()
+          .single();
+
+      final mapehSubject = ClassroomSubject.fromJson(response);
+
+      // Auto-initialize MAPEH sub-subjects
+      await initializeMAPEHSubSubjects(
+        classroomId: classroomId,
+        mapehSubjectId: mapehSubject.id,
+      );
+
+      print('✅ [SubjectService] MAPEH subject added with sub-subjects');
+
+      return mapehSubject;
+    } catch (e) {
+      print('❌ [SubjectService] Error adding MAPEH subject: $e');
+      rethrow;
+    }
+  }
+
+  /// Add TLE parent subject
+  Future<ClassroomSubject> addTLESubject({
+    required String classroomId,
+    String? teacherId,
+    String? description,
+  }) async {
+    try {
+      print('➕ [SubjectService] Adding TLE parent subject');
+
+      final currentUser = _supabase.auth.currentUser;
+      if (currentUser == null) {
+        throw Exception('User not authenticated');
+      }
+
+      final response = await _supabase
+          .from('classroom_subjects')
+          .insert({
+            'classroom_id': classroomId,
+            'subject_name': 'TLE',
+            'subject_type': 'tle_parent',
+            'teacher_id': teacherId,
+            'description': description,
+            'is_active': true,
+            'created_by': currentUser.id,
+          })
+          .select()
+          .single();
+
+      print('✅ [SubjectService] TLE subject added successfully');
+
+      return ClassroomSubject.fromJson(response);
+    } catch (e) {
+      print('❌ [SubjectService] Error adding TLE subject: $e');
+      rethrow;
+    }
+  }
 }

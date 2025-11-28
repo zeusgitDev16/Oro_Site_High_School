@@ -169,16 +169,25 @@ class _StudentAssignmentWorkScreenState
   }
 
   Future<void> _submit() async {
+    print('📝 SUBMIT: Starting submission process...');
     final a = _logic.assignment;
     var sub = _logic.submission;
-    if (a == null) return;
+    if (a == null) {
+      print('❌ SUBMIT: Assignment is null');
+      return;
+    }
+
+    print('📝 SUBMIT: Assignment ID: ${a['id']}, Type: ${a['assignment_type']}');
+    print('📝 SUBMIT: Classroom ID: ${a['classroom_id']}');
 
     final createdNew = sub == null;
 
     // Ensure submission only at submit time (or exit auto-submit)
     if (sub == null) {
+      print('📝 SUBMIT: No existing submission, creating new one...');
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId == null) {
+        print('❌ SUBMIT: User not authenticated');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -189,14 +198,19 @@ class _StudentAssignmentWorkScreenState
         }
         return;
       }
+      print('📝 SUBMIT: User ID: $userId');
       try {
+        print('📝 SUBMIT: Calling getOrCreateSubmission...');
         final ensured = await _submissionService.getOrCreateSubmission(
           assignmentId: a['id'].toString(),
           studentId: userId,
           classroomId: a['classroom_id'].toString(),
         );
         sub = ensured;
-      } catch (e) {
+        print('✅ SUBMIT: Submission created/retrieved: ${sub['id']}');
+      } catch (e, stackTrace) {
+        print('❌ SUBMIT: Failed to create submission: $e');
+        print('❌ SUBMIT: Stack trace: $stackTrace');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -207,18 +221,24 @@ class _StudentAssignmentWorkScreenState
         }
         return;
       }
+    } else {
+      print('📝 SUBMIT: Using existing submission: ${sub['id']}');
     }
 
     // Persist answers (save immediately when submission was just created)
+    print('📝 SUBMIT: Saving submission content...');
     if (createdNew && sub != null) {
       final content = _buildSubmissionContent(a);
+      print('📝 SUBMIT: Content: $content');
       await _submissionService.saveSubmissionContent(
         assignmentId: a['id'].toString(),
         studentId: sub['student_id'].toString(),
         content: content,
       );
+      print('✅ SUBMIT: Content saved (new submission)');
     } else {
       await _persistAnswers();
+      print('✅ SUBMIT: Content saved (existing submission)');
     }
 
     // Phase 3 Task 3.2: Upload files for file_upload assignments
@@ -272,30 +292,44 @@ class _StudentAssignmentWorkScreenState
     int? autoScore;
     int? autoMax;
 
+    print('📝 SUBMIT: Starting submission finalization...');
+    print('📝 SUBMIT: Assignment type: $type');
+
     try {
       if (type == 'quiz' ||
           type == 'multiple_choice' ||
           type == 'identification' ||
           type == 'matching_type') {
         // Objective types: delegate scoring to RPC
+        print('📝 SUBMIT: Calling autoGradeAndSubmit RPC...');
+        print('📝 SUBMIT: Assignment ID (string): ${a['id'].toString()}');
         final result = await _submissionService.autoGradeAndSubmit(
           assignmentId: a['id'].toString(),
         );
+        print('✅ SUBMIT: Auto-grading complete!');
+        print('📊 SUBMIT: Result: $result');
         autoScore = (result['score'] as num?)?.toInt();
         autoMax = (result['max_score'] as num?)?.toInt();
+        print('📊 SUBMIT: Score: $autoScore/$autoMax');
       } else {
         // Non-objective types: just mark as submitted (score/max_score stay null)
+        print('📝 SUBMIT: Calling submitSubmission (non-objective)...');
         await _submissionService.submitSubmission(
           assignmentId: a['id'].toString(),
           studentId: sub['student_id'].toString(),
         );
+        print('✅ SUBMIT: Submission marked as submitted');
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      print('❌ SUBMIT: Submission failed!');
+      print('❌ SUBMIT: Error: $e');
+      print('❌ SUBMIT: Stack trace: $stackTrace');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to submit: $e'),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
           ),
         );
       }

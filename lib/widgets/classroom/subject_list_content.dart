@@ -30,6 +30,9 @@ class _SubjectListContentState extends State<SubjectListContent> {
   ClassroomSubject? _selectedSubject;
   bool _isLoading = true;
 
+  // Sub-subject tree enhancement: Track expanded parent subjects
+  final Set<String> _expandedParentSubjects = {};
+
   @override
   void initState() {
     super.initState();
@@ -93,6 +96,7 @@ class _SubjectListContentState extends State<SubjectListContent> {
   }
 
   /// Load temporary subjects from SharedPreferences (CREATE mode)
+  /// Sub-subject tree enhancement: Group subjects by parent_subject_id
   Future<void> _loadTemporarySubjects() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -104,13 +108,31 @@ class _SubjectListContentState extends State<SubjectListContent> {
         if (mounted) {
           setState(() {
             _subjects.clear();
-            for (final entry in decoded.entries) {
-              final subjectName = entry.key;
-              final List<dynamic> subjectsList = entry.value;
 
-              _subjects[subjectName] = subjectsList
-                  .map((json) => ClassroomSubject.fromJson(json))
-                  .toList();
+            // Sub-subject tree enhancement: Reorganize by parent_subject_id
+            final List<ClassroomSubject> allSubjects = [];
+            for (final entry in decoded.entries) {
+              final List<dynamic> subjectsList = entry.value;
+              allSubjects.addAll(
+                subjectsList.map((json) => ClassroomSubject.fromJson(json))
+              );
+            }
+
+            // Group by parent_subject_id
+            for (final subject in allSubjects) {
+              if (subject.parentSubjectId != null) {
+                // This is a sub-subject
+                if (!_subjects.containsKey(subject.parentSubjectId!)) {
+                  _subjects[subject.parentSubjectId!] = [];
+                }
+                _subjects[subject.parentSubjectId!]!.add(subject);
+              } else {
+                // This is a parent/standard subject - add to 'root'
+                if (!_subjects.containsKey('root')) {
+                  _subjects['root'] = [];
+                }
+                _subjects['root']!.add(subject);
+              }
             }
           });
         }
@@ -121,6 +143,7 @@ class _SubjectListContentState extends State<SubjectListContent> {
   }
 
   /// Load subjects from database (EDIT mode)
+  /// Sub-subject tree enhancement: Group subjects by parent_subject_id
   Future<void> _loadDatabaseSubjects() async {
     try {
       final subjects = await _subjectService.getSubjectsByClassroom(
@@ -130,12 +153,24 @@ class _SubjectListContentState extends State<SubjectListContent> {
       if (mounted) {
         setState(() {
           _subjects.clear();
-          // Group subjects by subject name
+
+          // Sub-subject tree enhancement: Group subjects by parent_subject_id
+          // Key = parent_subject_id (or 'root' for parent subjects)
+          // Value = list of sub-subjects
           for (final subject in subjects) {
-            if (!_subjects.containsKey(subject.subjectName)) {
-              _subjects[subject.subjectName] = [];
+            if (subject.parentSubjectId != null) {
+              // This is a sub-subject
+              if (!_subjects.containsKey(subject.parentSubjectId!)) {
+                _subjects[subject.parentSubjectId!] = [];
+              }
+              _subjects[subject.parentSubjectId!]!.add(subject);
+            } else {
+              // This is a parent/standard subject - add to 'root'
+              if (!_subjects.containsKey('root')) {
+                _subjects['root'] = [];
+              }
+              _subjects['root']!.add(subject);
             }
-            _subjects[subject.subjectName]!.add(subject);
           }
         });
       }
@@ -160,6 +195,7 @@ class _SubjectListContentState extends State<SubjectListContent> {
   }
 
   /// Build the subject list view
+  /// Sub-subject tree enhancement: Get parent subjects from 'root' key
   Widget _buildSubjectList() {
     if (_subjects.isEmpty) {
       return Center(
@@ -170,15 +206,8 @@ class _SubjectListContentState extends State<SubjectListContent> {
       );
     }
 
-    // Get all parent subjects (subjects without parentSubjectId)
-    final parentSubjects = <ClassroomSubject>[];
-    for (final subjects in _subjects.values) {
-      for (final subject in subjects) {
-        if (subject.parentSubjectId == null) {
-          parentSubjects.add(subject);
-        }
-      }
-    }
+    // Sub-subject tree enhancement: Get all parent subjects from 'root' key
+    final parentSubjects = _subjects['root'] ?? [];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -190,15 +219,15 @@ class _SubjectListContentState extends State<SubjectListContent> {
         ),
 
         // Subject list with always-scrollable physics
+        // Sub-subject tree enhancement: Build tree structure
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.all(16),
             // Always scrollable - allows scrolling even with few items
             physics: const AlwaysScrollableScrollPhysics(),
-            itemCount: parentSubjects.length,
+            itemCount: _calculateTotalItemCount(parentSubjects),
             itemBuilder: (context, index) {
-              final subject = parentSubjects[index];
-              return _buildSubjectCard(subject);
+              return _buildSubjectTreeItem(parentSubjects, index);
             },
           ),
         ),
@@ -265,8 +294,50 @@ class _SubjectListContentState extends State<SubjectListContent> {
     }
   }
 
+  /// Sub-subject tree enhancement: Calculate total item count including sub-subjects
+  int _calculateTotalItemCount(List<ClassroomSubject> parentSubjects) {
+    int count = 0;
+    for (final subject in parentSubjects) {
+      count++; // Parent subject
+      if (subject.isParentSubject && _expandedParentSubjects.contains(subject.id)) {
+        // Add sub-subjects if parent is expanded
+        final subSubjects = _subjects[subject.id] ?? [];
+        count += subSubjects.length;
+      }
+    }
+    return count;
+  }
+
+  /// Sub-subject tree enhancement: Build subject tree item (parent or sub-subject)
+  Widget _buildSubjectTreeItem(List<ClassroomSubject> parentSubjects, int index) {
+    int currentIndex = 0;
+
+    for (final subject in parentSubjects) {
+      if (currentIndex == index) {
+        // This is a parent subject
+        return _buildSubjectCard(subject);
+      }
+      currentIndex++;
+
+      // Check if this parent is expanded and has sub-subjects
+      if (subject.isParentSubject && _expandedParentSubjects.contains(subject.id)) {
+        final subSubjects = _subjects[subject.id] ?? [];
+        for (final subSubject in subSubjects) {
+          if (currentIndex == index) {
+            // This is a sub-subject
+            return _buildSubSubjectCard(subSubject, subject);
+          }
+          currentIndex++;
+        }
+      }
+    }
+
+    return const SizedBox.shrink();
+  }
+
   /// Build a subject card
   /// PHASE 4: Updated to show visual distinction between CREATE and CONSUME modes
+  /// Sub-subject tree enhancement: Added expand/collapse for parent subjects
   Widget _buildSubjectCard(ClassroomSubject subject) {
     // PHASE 4: Determine mode-specific styling
     final bool showEditButton = _isConsumeMode;
@@ -280,10 +351,24 @@ class _SubjectListContentState extends State<SubjectListContent> {
         ? Colors.orange.shade700
         : Colors.blue.shade700;
 
+    // Sub-subject tree enhancement: Check if this is a parent subject
+    final bool isParent = subject.isParentSubject;
+    final bool isExpanded = _expandedParentSubjects.contains(subject.id);
+    final int subSubjectCount = _subjects[subject.id]?.length ?? 0;
+
     return InkWell(
       onTap: () {
         setState(() {
-          _selectedSubject = subject;
+          // Sub-subject tree enhancement: Toggle expand/collapse for parent subjects
+          if (isParent) {
+            if (isExpanded) {
+              _expandedParentSubjects.remove(subject.id);
+            } else {
+              _expandedParentSubjects.add(subject.id);
+            }
+          } else {
+            _selectedSubject = subject;
+          }
         });
       },
       borderRadius: BorderRadius.circular(8),
@@ -305,6 +390,7 @@ class _SubjectListContentState extends State<SubjectListContent> {
         child: Row(
           children: [
             // Subject icon with mode-specific styling
+            // Sub-subject tree enhancement: Different icons for parent subjects
             Container(
               width: 40,
               height: 40,
@@ -312,7 +398,13 @@ class _SubjectListContentState extends State<SubjectListContent> {
                 color: iconBgColor,
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(Icons.book, size: 20, color: iconColor),
+              child: Icon(
+                isParent
+                  ? (subject.isMAPEHParent ? Icons.music_note : Icons.construction)
+                  : Icons.book,
+                size: 20,
+                color: iconColor,
+              ),
             ),
             const SizedBox(width: 12),
             // Subject info
@@ -418,11 +510,149 @@ class _SubjectListContentState extends State<SubjectListContent> {
                 ),
               ),
             ],
+            // Arrow icon or expand/collapse icon
+            // Sub-subject tree enhancement: Show expand/collapse for parent subjects
+            const SizedBox(width: 8),
+            if (isParent) ...[
+              // Parent subject: Show expand/collapse icon
+              Icon(
+                isExpanded ? Icons.expand_less : Icons.expand_more,
+                size: 18,
+                color: Colors.grey.shade600,
+              ),
+              if (subSubjectCount > 0) ...[
+                const SizedBox(width: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade100,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '$subSubjectCount',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.blue.shade700,
+                    ),
+                  ),
+                ),
+              ],
+            ] else ...[
+              // Regular subject: Show arrow icon
+              Icon(
+                Icons.arrow_forward_ios,
+                size: 14,
+                color: Colors.grey.shade400,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Sub-subject tree enhancement: Build sub-subject card (indented under parent)
+  Widget _buildSubSubjectCard(ClassroomSubject subSubject, ClassroomSubject parentSubject) {
+    // Determine mode-specific styling
+    final Color borderColor = _isCreateMode
+        ? Colors.orange.shade100
+        : Colors.grey.shade200;
+    final Color iconColor = _isCreateMode
+        ? Colors.orange.shade400
+        : Colors.blue.shade400;
+
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _selectedSubject = subSubject;
+        });
+      },
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8, left: 32), // Indented
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: borderColor, width: 1),
+        ),
+        child: Row(
+          children: [
+            // Indent indicator
+            Icon(
+              Icons.subdirectory_arrow_right,
+              size: 14,
+              color: iconColor,
+            ),
+            const SizedBox(width: 8),
+            // Sub-subject icon
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Icon(
+                Icons.insert_drive_file,
+                size: 16,
+                color: Colors.grey.shade600,
+              ),
+            ),
+            const SizedBox(width: 10),
+            // Sub-subject info
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    subSubject.subjectName,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  // Teacher name or "No teacher assigned"
+                  if (subSubject.teacherName != null) ...[
+                    Text(
+                      'Teacher: ${subSubject.teacherName}',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ] else ...[
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.person_off_outlined,
+                          size: 9,
+                          color: Colors.orange.shade600,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          'No teacher assigned',
+                          style: TextStyle(
+                            fontSize: 9,
+                            color: Colors.orange.shade600,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
             // Arrow icon
             const SizedBox(width: 8),
             Icon(
               Icons.arrow_forward_ios,
-              size: 14,
+              size: 12,
               color: Colors.grey.shade400,
             ),
           ],

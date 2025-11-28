@@ -652,4 +652,142 @@ extension DepEdGradeCompute on DepEdGradeService {
       'weights': {'ww': w0, 'pt': w1, 'qa': w2},
     };
   }
+
+  // ============================================
+  // SUB-SUBJECT TREE ENHANCEMENT METHODS
+  // ============================================
+
+  /// Compute parent subject grade (MAPEH/TLE) as average of sub-subject grades
+  /// For MAPEH: Average of Music, Arts, PE, Health transmuted grades
+  /// For TLE: Returns the enrolled sub-subject grade (no averaging)
+  Future<double?> computeParentSubjectGrade({
+    required String studentId,
+    required String classroomId,
+    required String parentSubjectId,
+    required int quarter,
+  }) async {
+    try {
+      print('🧮 [GradeService] Computing parent subject grade for student $studentId, quarter $quarter');
+
+      final supabase = Supabase.instance.client;
+
+      // Call RPC function
+      final result = await supabase.rpc('compute_parent_subject_grade', params: {
+        'p_student_id': studentId,
+        'p_classroom_id': classroomId,
+        'p_parent_subject_id': parentSubjectId,
+        'p_quarter': quarter,
+      });
+
+      if (result == null) {
+        print('⚠️ [GradeService] No parent grade computed (sub-subjects not graded yet)');
+        return null;
+      }
+
+      final grade = (result as num).toDouble();
+      print('✅ [GradeService] Parent subject grade computed: $grade');
+
+      return grade;
+    } catch (e) {
+      print('❌ [GradeService] Error computing parent subject grade: $e');
+      rethrow;
+    }
+  }
+
+  /// Save or update sub-subject grade (marks as sub-subject grade)
+  /// This is used for MAPEH sub-subjects (Music, Arts, PE, Health) and TLE sub-subjects
+  Future<void> saveSubSubjectGrade({
+    required String studentId,
+    required String classroomId,
+    required String subjectId,
+    required int quarter,
+    required double initialGrade,
+    required double transmutedGrade,
+    required double wwScore,
+    required double wwMax,
+    required double wwPS,
+    required double wwWS,
+    required double ptScore,
+    required double ptMax,
+    required double ptPS,
+    required double ptWS,
+    required double qaScore,
+    required double qaMax,
+    required double qaPS,
+    required double qaWS,
+  }) async {
+    try {
+      print('💾 [GradeService] Saving sub-subject grade for student $studentId, quarter $quarter');
+
+      final supabase = Supabase.instance.client;
+      final currentUser = supabase.auth.currentUser;
+
+      if (currentUser == null) {
+        throw Exception('User not authenticated');
+      }
+
+      // Check if grade already exists
+      final existing = await supabase
+          .from('student_grades')
+          .select('id')
+          .eq('student_id', studentId)
+          .eq('classroom_id', classroomId)
+          .eq('subject_id', subjectId)
+          .eq('quarter', quarter)
+          .maybeSingle();
+
+      if (existing != null) {
+        // Update existing grade
+        await supabase.from('student_grades').update({
+          'initial_grade': initialGrade,
+          'transmuted_grade': transmutedGrade,
+          'ww_score': wwScore,
+          'ww_max': wwMax,
+          'ww_ps': wwPS,
+          'ww_ws': wwWS,
+          'pt_score': ptScore,
+          'pt_max': ptMax,
+          'pt_ps': ptPS,
+          'pt_ws': ptWS,
+          'qa_score': qaScore,
+          'qa_max': qaMax,
+          'qa_ps': qaPS,
+          'qa_ws': qaWS,
+          'is_sub_subject_grade': true, // Mark as sub-subject grade
+          'updated_at': DateTime.now().toIso8601String(),
+        }).eq('id', existing['id']);
+
+        print('✅ [GradeService] Sub-subject grade updated');
+      } else {
+        // Insert new grade
+        await supabase.from('student_grades').insert({
+          'student_id': studentId,
+          'classroom_id': classroomId,
+          'subject_id': subjectId,
+          'quarter': quarter,
+          'initial_grade': initialGrade,
+          'transmuted_grade': transmutedGrade,
+          'ww_score': wwScore,
+          'ww_max': wwMax,
+          'ww_ps': wwPS,
+          'ww_ws': wwWS,
+          'pt_score': ptScore,
+          'pt_max': ptMax,
+          'pt_ps': ptPS,
+          'pt_ws': ptWS,
+          'qa_score': qaScore,
+          'qa_max': qaMax,
+          'qa_ps': qaPS,
+          'qa_ws': qaWS,
+          'is_sub_subject_grade': true, // Mark as sub-subject grade
+          'created_by': currentUser.id,
+        });
+
+        print('✅ [GradeService] Sub-subject grade saved');
+      }
+    } catch (e) {
+      print('❌ [GradeService] Error saving sub-subject grade: $e');
+      rethrow;
+    }
+  }
 }

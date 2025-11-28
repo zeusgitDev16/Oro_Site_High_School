@@ -860,10 +860,20 @@ class _AddSubjectDialogState extends State<_AddSubjectDialog> {
   }
 
   /// Add a subject (CREATE mode: temporary state, EDIT mode: save to database)
+  /// Sub-subject tree enhancement: Auto-initialize MAPEH sub-subjects
   Future<void> _addSubject(String subjectName) async {
+    // Sub-subject tree enhancement: Determine subject type
+    SubjectType subjectType = SubjectType.standard;
+    if (subjectName == 'MAPEH') {
+      subjectType = SubjectType.mapehParent;
+    } else if (subjectName == 'Technology and Livelihood Education (TLE)') {
+      subjectType = SubjectType.tleParent;
+    }
+
     if (widget.isCreateMode) {
       // CREATE MODE: Add to temporary state only (no database save)
       print('➕ [CREATE MODE] Adding subject to temporary state: $subjectName');
+      print('   Subject type: ${subjectType.toDbString()}');
 
       if (mounted) {
         setState(() {
@@ -878,12 +888,18 @@ class _AddSubjectDialogState extends State<_AddSubjectDialog> {
               id: 'temp_${DateTime.now().millisecondsSinceEpoch}',
               classroomId: 'temp',
               subjectName: subjectName,
+              subjectType: subjectType, // Sub-subject tree enhancement
               isActive: true,
               createdAt: DateTime.now(),
               updatedAt: DateTime.now(),
             );
             _existingSubjects[subjectName]!.add(tempSubject);
             print('   ✅ Created new subject entry');
+
+            // Sub-subject tree enhancement: Auto-initialize MAPEH sub-subjects
+            if (subjectType == SubjectType.mapehParent) {
+              _initializeMAPEHSubSubjects(tempSubject.id);
+            }
           } else {
             print(
               '   ℹ️ Subject already exists (possibly from teacher assignment)',
@@ -907,11 +923,30 @@ class _AddSubjectDialogState extends State<_AddSubjectDialog> {
       // EDIT MODE: Save to database immediately
       try {
         print('➕ [EDIT MODE] Adding subject to database: $subjectName');
+        print('   Subject type: ${subjectType.toDbString()}');
 
-        final newSubject = await _subjectService.addSubject(
-          classroomId: widget.classroomId!,
-          subjectName: subjectName,
-        );
+        // Sub-subject tree enhancement: Use appropriate service method
+        ClassroomSubject newSubject;
+        if (subjectType == SubjectType.mapehParent) {
+          // Use addMAPEHSubject which auto-initializes sub-subjects
+          newSubject = await _subjectService.addMAPEHSubject(
+            classroomId: widget.classroomId!,
+          );
+          print('✅ MAPEH subject added with auto-initialized sub-subjects');
+        } else if (subjectType == SubjectType.tleParent) {
+          // Use addTLESubject
+          newSubject = await _subjectService.addTLESubject(
+            classroomId: widget.classroomId!,
+          );
+          print('✅ TLE subject added');
+        } else {
+          // Standard subject
+          newSubject = await _subjectService.addSubject(
+            classroomId: widget.classroomId!,
+            subjectName: subjectName,
+          );
+          print('✅ Standard subject added');
+        }
 
         if (mounted) {
           setState(() {
@@ -942,6 +977,43 @@ class _AddSubjectDialogState extends State<_AddSubjectDialog> {
         }
       }
     }
+  }
+
+  /// Sub-subject tree enhancement: Initialize MAPEH sub-subjects (CREATE mode)
+  void _initializeMAPEHSubSubjects(String mapehParentId) {
+    print('🎵 [MAPEH] Initializing MAPEH sub-subjects for parent ID: $mapehParentId');
+
+    final mapehSubSubjects = ['Music', 'Arts', 'Physical Education (PE)', 'Health'];
+
+    for (final subSubjectName in mapehSubSubjects) {
+      final tempSubSubject = ClassroomSubject(
+        id: 'temp_mapeh_sub_${DateTime.now().millisecondsSinceEpoch}_$subSubjectName',
+        classroomId: 'temp',
+        subjectName: subSubjectName,
+        parentSubjectId: mapehParentId,
+        subjectType: SubjectType.mapehSub,
+        isActive: true,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+
+      // Store sub-subject under its own name key
+      if (!_existingSubjects.containsKey(subSubjectName)) {
+        _existingSubjects[subSubjectName] = [];
+      }
+      _existingSubjects[subSubjectName]!.add(tempSubSubject);
+
+      // Create GlobalKey for sub-subject
+      if (!_subjectButtonKeys.containsKey(tempSubSubject.id)) {
+        _subjectButtonKeys[tempSubSubject.id] = GlobalKey();
+      }
+
+      print('   ✅ Created MAPEH sub-subject: $subSubjectName');
+    }
+
+    // Save to SharedPreferences
+    _saveTemporarySubjects();
+    print('🎵 [MAPEH] All 4 sub-subjects initialized and saved');
   }
 
   /// Add a sub-subject under a parent subject

@@ -26,6 +26,7 @@ class AttendanceGridPanel extends StatelessWidget {
   final Map<String, String> attendanceStatus;
   final Function(String studentId, String status) onStatusChanged;
   final bool isReadOnly;
+  final DateTime? selectedDate; // NEW: To determine if past/present/future
 
   const AttendanceGridPanel({
     super.key,
@@ -33,7 +34,37 @@ class AttendanceGridPanel extends StatelessWidget {
     required this.attendanceStatus,
     required this.onStatusChanged,
     this.isReadOnly = false,
+    this.selectedDate, // NEW: Optional date parameter
   });
+
+  /// Normalize date to midnight UTC for comparison
+  DateTime _normalizeDate(DateTime date) {
+    return DateTime.utc(date.year, date.month, date.day);
+  }
+
+  /// Check if selected date is in the past
+  bool get _isPastDate {
+    if (selectedDate == null) return false;
+    final today = _normalizeDate(DateTime.now());
+    final selected = _normalizeDate(selectedDate!);
+    return selected.isBefore(today);
+  }
+
+  /// Check if selected date is today
+  bool get _isToday {
+    if (selectedDate == null) return true; // Default to today if no date
+    final today = _normalizeDate(DateTime.now());
+    final selected = _normalizeDate(selectedDate!);
+    return selected.isAtSameMomentAs(today);
+  }
+
+  /// Check if selected date is in the future
+  bool get _isFutureDate {
+    if (selectedDate == null) return false;
+    final today = _normalizeDate(DateTime.now());
+    final selected = _normalizeDate(selectedDate!);
+    return selected.isAfter(today);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -188,18 +219,10 @@ class AttendanceGridPanel extends StatelessWidget {
             ),
           ),
 
-          // Status Selector
+          // Status Selector or Display
           SizedBox(
             width: 140,
-            child: AttendanceStatusSelector(
-              status: status,
-              onStatusChanged: (newStatus) {
-                if (!isReadOnly) {
-                  onStatusChanged(studentId, newStatus);
-                }
-              },
-              isEnabled: !isReadOnly,
-            ),
+            child: _buildStatusWidget(studentId, status),
           ),
 
           // Remarks (placeholder for now)
@@ -214,6 +237,89 @@ class AttendanceGridPanel extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// Build status widget based on date context
+  Widget _buildStatusWidget(String studentId, String? status) {
+    // Future dates: Show "Upcoming"
+    if (_isFutureDate) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: Colors.grey.shade300),
+        ),
+        child: Text(
+          'Upcoming',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey.shade600,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+
+    // Past dates: Show status as text (read-only)
+    if (_isPastDate) {
+      final displayStatus = status ?? 'No Record';
+      final statusColor = _getStatusColor(status);
+
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: status != null ? statusColor.withValues(alpha: 0.1) : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+            color: status != null ? statusColor.withValues(alpha: 0.3) : Colors.grey.shade300,
+          ),
+        ),
+        child: Text(
+          _capitalizeFirst(displayStatus),
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: status != null ? statusColor : Colors.grey.shade600,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+
+    // Today or default: Show dropdown selector
+    return AttendanceStatusSelector(
+      status: status,
+      onStatusChanged: (newStatus) {
+        if (!isReadOnly) {
+          onStatusChanged(studentId, newStatus);
+        }
+      },
+      isEnabled: !isReadOnly,
+    );
+  }
+
+  /// Get color for status
+  Color _getStatusColor(String? status) {
+    switch (status?.toLowerCase()) {
+      case 'present':
+        return Colors.green;
+      case 'absent':
+        return Colors.red;
+      case 'late':
+        return Colors.orange;
+      case 'excused':
+        return Colors.blue;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  /// Capitalize first letter
+  String _capitalizeFirst(String text) {
+    if (text.isEmpty) return text;
+    return text[0].toUpperCase() + text.substring(1).toLowerCase();
   }
 
   /// Build empty state
